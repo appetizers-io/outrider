@@ -24,9 +24,10 @@ import time
 from collections.abc import Callable, Sequence
 from functools import partial
 from pathlib import Path
-from typing import Any, NotRequired, TypedDict, cast
+from typing import Any, cast
 
 import yaml
+from pydantic import BaseModel, ConfigDict
 
 from llm_review_agent import classifiers, config
 
@@ -35,7 +36,11 @@ Json = Any
 PR = dict[str, Any]
 
 
-class ActivityItem(TypedDict):
+class ActivityItem(BaseModel):
+    """A review, inline comment or conversation comment on a PR."""
+
+    model_config = ConfigDict(frozen=True)
+
     kind: str
     id: int | None
     state: str | None
@@ -43,55 +48,60 @@ class ActivityItem(TypedDict):
     submitted_at: str | None
     user: str | None
     path: str | None
-    at: str
+    at: str  # updated_at or submitted_at: when it last changed
     body: str
-    url: NotRequired[str | None]
+    url: str | None = None
 
 
-class Candidate(TypedDict):
+class Candidate(BaseModel):
+    """A non-owned PR that may still be opted in."""
+
     repo: str
     pr: int
-    seen_at: float
+    seen_at: float = 0.0  # older state files may lack it
 
 
-class Watched(TypedDict):
+class Watched(BaseModel):
+    """An opted-in PR, relaunched when its reviews and comments change."""
+
     repo: str
     pr: int
     fingerprint: str | None
 
 
-class State(TypedDict):
-    seen: dict[str, str]  # notification id -> updated_at
-    candidates: dict[str, Candidate]  # owner/repo#n -> non-owned PR
-    watched: dict[str, Watched]  # owner/repo#n -> 👀 opted-in PR
-    initialized: bool
-    replies: dict[str, list[int]]  # owner/repo#n -> handled reply ids
-    handled: dict[str, str]  # owner/repo#n -> when activity was last judged
-    mentions: dict[str, list[str]]  # owner/repo#n -> handled "kind:id" mentions
+class State(BaseModel):
+    """Persisted between polls in STATE."""
+
+    model_config = ConfigDict(extra="ignore")
+
+    seen: dict[str, str] = {}  # notification id -> updated_at
+    candidates: dict[str, Candidate] = {}  # owner/repo#n -> non-owned PR
+    watched: dict[str, Watched] = {}  # owner/repo#n -> opted-in PR
+    initialized: bool = False
+    replies: dict[str, list[int]] = {}  # owner/repo#n -> handled reply ids
+    handled: dict[str, str] = {}  # owner/repo#n -> when activity was last judged
+    mentions: dict[str, list[str]] = {}  # owner/repo#n -> handled "kind:id"
 
 
-class Args(argparse.Namespace):
+class Args(BaseModel):
     """Effective settings: the config file, overridden by command-line flags."""
 
     cfg: config.Config
-    config: str | None
-    config_source: Path | None  # None: built-in defaults
-    repo: list[str]
-    exclude_repo: list[str]
+    config_source: Path | None = None  # None: built-in defaults
+    repo: list[str] = []
+    exclude_repo: list[str] = []
     agent: str
-    remote: str | None
+    remote: str | None = None
     launcher: str
     interval: int
     lookback_hours: int
     max_agents: int
     candidate_limit: int
     stale_lock_hours: float
-    process_existing: bool
-    once: bool
-    dry_run: bool
-    jev_cmd: str | None
-    no_jev: bool
-    reset_state: bool
+    process_existing: bool = False
+    once: bool = False
+    dry_run: bool = False
+    reset_state: bool = False
 
 
 Gate = Callable[[], list[ActivityItem]]
@@ -294,21 +304,16 @@ def load_state() -> State:
     # migrate older prototype state
     if "seen" not in s:
         old = s.get("notifications", s if isinstance(s, dict) else {})
-        s = {"seen": old, "candidates": {}, "watched": {}, "initialized": False}
-    s.setdefault("seen", {})
-    s.setdefault("candidates", {})
-    s.setdefault("watched", {})
-    s.setdefault("initialized", False)
-    s.setdefault("replies", {})
-    s.setdefault("handled", {})
-    s.setdefault("mentions", {})
-    return cast(State, s)
+        s = {"seen": old}
+    return State.model_validate(s)
 
 
 def save_state(s: State) -> None:
     STATE.parent.mkdir(parents=True, exist_ok=True)
     tmp = STATE.with_suffix(".tmp")
-    tmp.write_text(json.dumps(s, indent=2, sort_keys=True) + "\n")
+    tmp.write_text(
+        json.dumps(s.model_dump(mode="json"), indent=2, sort_keys=True) + "\n"
+    )
     tmp.replace(STATE)
 
 
@@ -489,7 +494,7 @@ def handle_replies(
     if not rules.enabled:
         return True
     key = f"{repo}#{n}"
-    done = set(s["replies"].get(key, []))
+    done = set(s.replies.get(key, []))
     try:
         new = [
             cs
@@ -517,7 +522,7 @@ def handle_replies(
     except subprocess.CalledProcessError:
         return False
     if not a.dry_run:
-        s["replies"][key] = sorted(done | {cs[-1]["id"] for cs in new})
+        s.replies[key] = sorted(done | {cs[-1]["id"] for cs in new})
     return True
 
 
@@ -540,8 +545,8 @@ def handle_mentions(
     if not rules.enabled:
         return True
     key = f"{repo}#{n}"
-    done = set(s["mentions"].get(key, []))
-    replied = set(s["replies"].get(key, []))  # already handled as a reply
+    done = set(s.mentions.get(key, []))
+    replied = set(s.replies.get(key, []))  # already handled as a reply
     try:
         pr = pr or pr_view(repo, n)
         if pr.get("state") != "OPEN":
@@ -560,15 +565,15 @@ def handle_mentions(
         new = [
             x
             for x in [description, *activity(repo, n)]
-            if x["at"] >= fresh_after
-            and rx.search(x["body"])
-            and (x["user"] or "").lower() != login.lower()
-            and not ignored_author(x["user"], a.cfg)
-            and f"{x['kind']}:{x['id']}" not in done
-            and x["id"] not in replied
+            if x.at >= fresh_after
+            and rx.search(x.body)
+            and (x.user or "").lower() != login.lower()
+            and not ignored_author(x.user, a.cfg)
+            and f"{x.kind}:{x.id}" not in done
+            and x.id not in replied
         ]
         if new and not baseline:
-            urls = [x.get("url") or pr.get("url") or "" for x in new]
+            urls = [x.url or pr.get("url") or "" for x in new]
             if not launch(
                 repo,
                 n,
@@ -583,23 +588,23 @@ def handle_mentions(
     except subprocess.CalledProcessError:
         return False
     if not a.dry_run:
-        s["mentions"][key] = sorted(done | {f"{x['kind']}:{x['id']}" for x in new})
+        s.mentions[key] = sorted(done | {f"{x.kind}:{x.id}" for x in new})
     return True
 
 
 def activity_item(kind: str, x: Json) -> ActivityItem:
-    return {
-        "kind": kind,
-        "id": x.get("id"),
-        "state": x.get("state"),
-        "updated_at": x.get("updated_at"),
-        "submitted_at": x.get("submitted_at"),
-        "user": (x.get("user") or {}).get("login"),
-        "path": x.get("path"),
-        "at": x.get("updated_at") or x.get("submitted_at") or "",
-        "body": x.get("body") or "",
-        "url": x.get("html_url"),
-    }
+    return ActivityItem(
+        kind=kind,
+        id=x.get("id"),
+        state=x.get("state"),
+        updated_at=x.get("updated_at"),
+        submitted_at=x.get("submitted_at"),
+        user=(x.get("user") or {}).get("login"),
+        path=x.get("path"),
+        at=x.get("updated_at") or x.get("submitted_at") or "",
+        body=x.get("body") or "",
+        url=x.get("html_url"),
+    )
 
 
 def activity(repo: str, n: int) -> list[ActivityItem]:
@@ -617,18 +622,15 @@ def activity(repo: str, n: int) -> list[ActivityItem]:
 def fingerprint(items: Sequence[ActivityItem]) -> str:
     # field order must stay stable: stored fingerprints are compared across
     # versions, and a change would relaunch every watched PR
-    data = [
-        [x["id"], x["state"], x["updated_at"], x["submitted_at"], x["user"]]
-        for x in items
-    ]
+    data = [[x.id, x.state, x.updated_at, x.submitted_at, x.user] for x in items]
     raw = json.dumps(data, sort_keys=True, separators=(",", ":")).encode()
     return hashlib.sha256(raw).hexdigest()
 
 
 def newer_than(items: Sequence[ActivityItem], t: str | None) -> list[ActivityItem]:
     """Activity newer than t (all of it, capped, when never judged)."""
-    ordered = sorted(items, key=lambda x: x["at"])
-    return [x for x in ordered if x["at"] > t] if t else ordered[-10:]
+    ordered = sorted(items, key=lambda x: x.at)
+    return [x for x in ordered if x.at > t] if t else ordered[-10:]
 
 
 def new_activity(repo: str, n: int, t: str | None) -> list[ActivityItem]:
@@ -651,8 +653,8 @@ def only_noise(
 ) -> bool:
     """Nothing in items needs me: all by ignored authors (or by me)."""
     return all(
-        ignored_author(x["user"], cfg)
-        or (mine_too and (x["user"] or "").lower() == login.lower())
+        ignored_author(x.user, cfg)
+        or (mine_too and (x.user or "").lower() == login.lower())
         for x in items
     )
 
@@ -701,12 +703,12 @@ def launch_request(
     ]
     budget, entries = 40000, []
     for x in reversed(new):  # keep the newest when trimming
-        head = f"- {x['kind']} by {x['user']} at {x['at']}"
-        if x["state"]:
-            head += f" [{x['state']}]"
-        if x["path"]:
-            head += f" on {x['path']}"
-        body = x["body"].strip()[:1500].replace("\n", "\n  ")
+        head = f"- {x.kind} by {x.user} at {x.at}"
+        if x.state:
+            head += f" [{x.state}]"
+        if x.path:
+            head += f" on {x.path}"
+        body = x.body.strip()[:1500].replace("\n", "\n  ")
         entry = head + (":\n  " + body if body else "")
         budget -= len(entry)
         if budget < 0:
@@ -726,10 +728,7 @@ def launch_request(
         "trigger": trigger,
         "failing_checks": failing,
         "activity": [
-            {
-                k: x.get(k)
-                for k in ("kind", "user", "at", "state", "path", "body", "url")
-            }
+            x.model_dump(include={"kind", "user", "at", "state", "path", "body", "url"})
             for x in new
         ],
         "question": classifiers.QUESTION.format(owner=OWNER),
@@ -1236,11 +1235,11 @@ def poll(s: State, a: Args, login: str) -> None:
     ns = api(f"notifications?all=true&since={window_start}&per_page=50")
     log(f"fetched {len(ns)} notifications from last {a.lookback_hours}h")
 
-    first_live = not s["initialized"] and not a.dry_run
+    first_live = not s.initialized and not a.dry_run
     cutoff = time.time() - a.lookback_hours * 3600
-    for key, cand in list(s["candidates"].items()):
-        if cand.get("seen_at", 0) < cutoff:
-            s["candidates"].pop(key)
+    for key, cand in list(s.candidates.items()):
+        if cand.seen_at < cutoff:
+            s.candidates.pop(key)
     stats = {"mine": 0, "candidate": 0, "ignored": 0}
     baseline = first_live and not a.process_existing
 
@@ -1261,20 +1260,18 @@ def poll(s: State, a: Args, login: str) -> None:
         key = f"{repo}#{n}"
         nid, updated = str(x.get("id", "")), str(x.get("updated_at", ""))
 
-        if key in s["watched"]:
-            s["seen"][nid] = updated
+        if key in s.watched:
+            s.seen[nid] = updated
             continue
-        if key in s["candidates"]:
+        if key in s.candidates:
             # known non-owned PR: refresh only, 👀 is checked below
-            s["candidates"][key]["seen_at"] = time.time()
+            s.candidates[key].seen_at = time.time()
             stats["candidate"] += 1
-            if s["seen"].get(nid) != updated and not replies_and_mentions(
-                repo, n, None
-            ):
+            if s.seen.get(nid) != updated and not replies_and_mentions(repo, n, None):
                 continue  # keep the notification pending
-            s["seen"][nid] = updated
+            s.seen[nid] = updated
             continue
-        if s["seen"].get(nid) == updated and not a.dry_run:
+        if s.seen.get(nid) == updated and not a.dry_run:
             continue  # already handled; skip the pr_view call
 
         try:
@@ -1282,8 +1279,8 @@ def poll(s: State, a: Args, login: str) -> None:
         except subprocess.CalledProcessError:
             continue
         if pr.get("state") != "OPEN":
-            s["candidates"].pop(key, None)
-            s["seen"][nid] = updated
+            s.candidates.pop(key, None)
+            s.seen[nid] = updated
             continue
 
         mine = (pr.get("author") or {}).get("login", "").lower() == login.lower()
@@ -1291,21 +1288,21 @@ def poll(s: State, a: Args, login: str) -> None:
         if not mine:
             # Important: keep this PR around even if we already saw the
             # notification, so a 👀 added later can still opt it in.
-            s["candidates"][key] = {"repo": repo, "pr": n, "seen_at": time.time()}
+            s.candidates[key] = Candidate(repo=repo, pr=n, seen_at=time.time())
             stats["candidate"] += 1
             if replies_and_mentions(repo, n, pr):
-                s["seen"][nid] = updated
+                s.seen[nid] = updated
             continue
 
-        if s["seen"].get(nid) == updated:
+        if s.seen.get(nid) == updated:
             continue
 
         stats["mine"] += 1
         if (first_live and not a.process_existing) or not trig.own_prs.enabled:
-            s["seen"][nid] = updated
+            s.seen[nid] = updated
             continue
 
-        t = s["handled"].get(key)
+        t = s.handled.get(key)
         if cfg.ignore_authors:
             try:
                 new = new_activity(repo, n, t)
@@ -1314,8 +1311,8 @@ def poll(s: State, a: Args, login: str) -> None:
             if new and only_noise(new, login, cfg, mine_too=False):
                 log(f"{repo}#{n}: only ignored authors; not launching")
                 if not a.dry_run:
-                    s["seen"][nid] = updated
-                    s["handled"][key] = now_iso()
+                    s.seen[nid] = updated
+                    s.handled[key] = now_iso()
                 continue
         if (
             launch(
@@ -1328,8 +1325,8 @@ def poll(s: State, a: Args, login: str) -> None:
             )
             and not a.dry_run
         ):
-            s["seen"][nid] = updated
-            s["handled"][key] = now_iso()
+            s.seen[nid] = updated
+            s.handled[key] = now_iso()
 
     if not trig.opt_in.enabled:
         finish(s, a, stats, first_live)
@@ -1350,24 +1347,24 @@ def poll(s: State, a: Args, login: str) -> None:
     for key, (repo, n, author) in involved.items():
         if (
             author.lower() == login.lower()
-            or key in s["watched"]
+            or key in s.watched
             or not repo_ok(repo, a.repo, a.exclude_repo)
         ):
             continue
-        s["candidates"][key] = {"repo": repo, "pr": n, "seen_at": time.time()}
+        s.candidates[key] = Candidate(repo=repo, pr=n, seen_at=time.time())
 
     # 3) Candidates: detect the opt-in reaction added AFTER we first saw them.
     candidates = sorted(
-        s["candidates"].items(), key=lambda kv: kv[1].get("seen_at", 0), reverse=True
+        s.candidates.items(), key=lambda kv: kv[1].seen_at, reverse=True
     )[: a.candidate_limit]
     eyes = my_eyes(
-        [(c["repo"], int(c["pr"])) for _, c in candidates],
+        [(c.repo, c.pr) for _, c in candidates],
         opt_in.reaction,
         opt_in.where,
     )
 
     for key, cand in candidates:
-        repo, n = cand["repo"], int(cand["pr"])
+        repo, n = cand.repo, cand.pr
         where = eyes.get(key)
         if not where:
             continue  # no reaction, or lookup failed
@@ -1377,7 +1374,7 @@ def poll(s: State, a: Args, login: str) -> None:
         except subprocess.CalledProcessError:
             continue
         if pr.get("state") != "OPEN":
-            s["candidates"].pop(key, None)
+            s.candidates.pop(key, None)
             continue
 
         if a.dry_run:
@@ -1389,39 +1386,37 @@ def poll(s: State, a: Args, login: str) -> None:
                 fp = fingerprint(activity(repo, n))
             except subprocess.CalledProcessError:
                 fp = None  # next watch pass relaunches on change
-            s["handled"][key] = now_iso()
-            s["watched"][key] = {"repo": repo, "pr": n, "fingerprint": fp}
-            s["candidates"].pop(key, None)
+            s.handled[key] = now_iso()
+            s.watched[key] = Watched(repo=repo, pr=n, fingerprint=fp)
+            s.candidates.pop(key, None)
 
     # 4) Already opted-in PRs: trigger only when review/discussion changes.
-    watched = list(s["watched"].items())
-    eyes = my_eyes(
-        [(w["repo"], int(w["pr"])) for _, w in watched], opt_in.reaction, opt_in.where
-    )
+    watched = list(s.watched.items())
+    eyes = my_eyes([(w.repo, w.pr) for _, w in watched], opt_in.reaction, opt_in.where)
     for key, w in watched:
-        repo, n = w["repo"], int(w["pr"])
+        repo, n = w.repo, w.pr
         if key not in eyes:
             continue  # lookup failed; keep watching
         if not eyes[key]:
             log(f"{repo}#{n}: {emoji} removed; stopping watch")
             if not a.dry_run:
-                s["watched"].pop(key, None)
+                s.watched.pop(key, None)
             continue
 
         try:
             pr = pr_view(repo, n)
             if pr.get("state") != "OPEN":
                 if not a.dry_run:
-                    s["watched"].pop(key, None)
+                    s.watched.pop(key, None)
                 continue
             items = activity(repo, n)
         except subprocess.CalledProcessError:
             continue
         fp = fingerprint(items)
-        if fp == w.get("fingerprint"):
+        if fp == w.fingerprint:
             continue
 
-        t = s["handled"].get(key)
+        t = s.handled.get(key)
         if only_noise(
             newer_than(items, t),
             login,
@@ -1431,8 +1426,8 @@ def poll(s: State, a: Args, login: str) -> None:
             # my own or ignored authors' activity, or edits/deletions only
             log(f"{repo}#{n}: nothing new from others; not launching")
             if not a.dry_run:
-                w["fingerprint"] = fp
-                s["handled"][key] = now_iso()
+                w.fingerprint = fp
+                s.handled[key] = now_iso()
             continue
 
         if (
@@ -1446,8 +1441,8 @@ def poll(s: State, a: Args, login: str) -> None:
             )
             and not a.dry_run
         ):
-            w["fingerprint"] = fp
-            s["handled"][key] = now_iso()
+            w.fingerprint = fp
+            s.handled[key] = now_iso()
 
     finish(s, a, stats, first_live)
 
@@ -1456,7 +1451,7 @@ def finish(s: State, a: Args, stats: dict[str, int], first_live: bool) -> None:
     log(
         f"{'dry-run ' if a.dry_run else ''}summary: "
         f"own_new={stats['mine']} non_owned={stats['candidate']} "
-        f"watched={len(s['watched'])} ignored={stats['ignored']}"
+        f"watched={len(s.watched)} ignored={stats['ignored']}"
         + (
             " (first run: existing own notifications recorded only)"
             if first_live and not a.process_existing
@@ -1464,7 +1459,7 @@ def finish(s: State, a: Args, stats: dict[str, int], first_live: bool) -> None:
         )
     )
     if not a.dry_run:
-        s["initialized"] = True
+        s.initialized = True
         save_state(s)
 
 
@@ -1508,11 +1503,11 @@ def parse_args(argv: Sequence[str] | None = None) -> Args:
         help="launch on every trigger without asking Jev first",
     )
     p.add_argument("--reset-state", action="store_true")
-    a = p.parse_args(argv, namespace=Args())
+    ns = p.parse_args(argv)  # raw flags; unset ones are None
 
-    a.config_source = config.find(a.config)
+    source = config.find(ns.config)
     try:
-        cfg = config.load(a.config_source)
+        cfg = config.load(source)
     except config.ConfigError as e:
         raise SystemExit(str(e)) from e
     jev = cfg.classifiers["jev"]
@@ -1521,8 +1516,8 @@ def parse_args(argv: Sequence[str] | None = None) -> Args:
             update={
                 k: v
                 for k, v in (
-                    ("command", a.jev_cmd),
-                    ("enabled", False if a.no_jev else None),
+                    ("command", ns.jev_cmd),
+                    ("enabled", False if ns.no_jev else None),
                 )
                 if v is not None
             }
@@ -1531,26 +1526,36 @@ def parse_args(argv: Sequence[str] | None = None) -> Args:
         update={
             k: v
             for k, v in (
-                ("agent", a.agent),
-                ("launcher", a.launcher),
-                ("interval_seconds", a.interval),
-                ("lookback_hours", a.lookback_hours),
-                ("max_agents", a.max_agents),
-                ("candidate_limit", a.candidate_limit),
-                ("stale_lock_hours", a.stale_lock_hours),
+                ("agent", ns.agent),
+                ("launcher", ns.launcher),
+                ("interval_seconds", ns.interval),
+                ("lookback_hours", ns.lookback_hours),
+                ("max_agents", ns.max_agents),
+                ("candidate_limit", ns.candidate_limit),
+                ("stale_lock_hours", ns.stale_lock_hours),
                 ("classifiers", {**cfg.classifiers, "jev": jev}),
             )
             if v is not None
         }
     )
-    a.cfg = cfg
-    a.agent, a.launcher = cfg.agent, cfg.launcher
-    a.interval, a.lookback_hours = cfg.interval_seconds, cfg.lookback_hours
-    a.max_agents, a.candidate_limit = cfg.max_agents, cfg.candidate_limit
-    a.stale_lock_hours = cfg.stale_lock_hours
-    a.repo = [repo_pattern(x) for x in a.repo or cfg.repos.include]
-    a.exclude_repo = [repo_pattern(x) for x in a.exclude_repo or cfg.repos.exclude]
-    return a
+    return Args(
+        cfg=cfg,
+        config_source=source,
+        repo=[repo_pattern(x) for x in ns.repo or cfg.repos.include],
+        exclude_repo=[repo_pattern(x) for x in ns.exclude_repo or cfg.repos.exclude],
+        agent=cfg.agent,
+        remote=ns.remote,
+        launcher=cfg.launcher,
+        interval=cfg.interval_seconds,
+        lookback_hours=cfg.lookback_hours,
+        max_agents=cfg.max_agents,
+        candidate_limit=cfg.candidate_limit,
+        stale_lock_hours=cfg.stale_lock_hours,
+        process_existing=ns.process_existing,
+        once=ns.once,
+        dry_run=ns.dry_run,
+        reset_state=ns.reset_state,
+    )
 
 
 def github_user(once: bool) -> tuple[str, str]:
@@ -1576,6 +1581,15 @@ def config_cli(argv: Sequence[str]) -> int:
     )
     sub = p.add_subparsers(dest="cmd", required=True)
     sub.add_parser("schema", help="print the JSON Schema of the config file")
+    gen = sub.add_parser(
+        "generate", help="a config with every default and option, documented"
+    )
+    where = gen.add_mutually_exclusive_group()
+    where.add_argument("-o", "--output", help="write to this file (default: stdout)")
+    where.add_argument(
+        "--write", action="store_true", help=f"write to {config.default_path()}"
+    )
+    gen.add_argument("--force", action="store_true", help="overwrite an existing file")
     for name, what in (
         ("check", "validate a config file"),
         ("show", "print the effective config, defaults filled in"),
@@ -1585,6 +1599,21 @@ def config_cli(argv: Sequence[str]) -> int:
     a = p.parse_args(argv)
     if a.cmd == "schema":
         print(config.schema_text(), end="")
+        return 0
+    if a.cmd == "generate":
+        text = config.generate()
+        target = config.default_path() if a.write else a.output
+        if target is None:
+            print(text, end="")
+            return 0
+        out = Path(target)
+        if out.exists() and not a.force:
+            print(f"{out} exists; use --force to overwrite", file=sys.stderr)
+            return 1
+        out.parent.mkdir(parents=True, exist_ok=True)
+        out.write_text(text)
+        (out.parent / "config.schema.json").write_text(config.schema_text())
+        print(f"wrote {out} (and config.schema.json next to it)")
         return 0
     path = config.find(a.path)
     try:

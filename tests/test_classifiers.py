@@ -15,18 +15,18 @@ PR: dict[str, Any] = {"title": "T", "author": {"login": "bob"}}
 
 
 def item(body: str, user: str = "alice") -> app.ActivityItem:
-    return {
-        "kind": "comment",
-        "id": 1,
-        "state": None,
-        "updated_at": "2026-01-01T00:00:00Z",
-        "submitted_at": None,
-        "user": user,
-        "path": None,
-        "at": "2026-01-01T00:00:00Z",
-        "body": body,
-        "url": "https://x/c1",
-    }
+    return app.ActivityItem(
+        kind="comment",
+        id=1,
+        state=None,
+        updated_at="2026-01-01T00:00:00Z",
+        submitted_at=None,
+        user=user,
+        path=None,
+        at="2026-01-01T00:00:00Z",
+        body=body,
+        url="https://x/c1",
+    )
 
 
 def which(*present: str) -> Any:

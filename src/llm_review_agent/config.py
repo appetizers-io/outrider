@@ -7,8 +7,10 @@ from them (`llm-review-agent config schema`), and loading validates with them.
 
 import json
 import os
+import textwrap
 from pathlib import Path
-from typing import Annotated, Any, Literal
+from types import UnionType
+from typing import Annotated, Any, Literal, Union, get_args, get_origin
 
 import yaml
 from pydantic import (
@@ -21,6 +23,7 @@ from pydantic import (
     field_validator,
     model_validator,
 )
+from pydantic.fields import FieldInfo
 
 ENV_VAR = "LLM_REVIEW_AGENT_CONFIG"
 SCHEMA_ID = "https://github.com/appetizers-io/llm-review-agent/config.schema.json"
@@ -428,3 +431,125 @@ def load(path: Path | None) -> Config:
 
 def jev_backend_configured() -> bool:
     return any(os.environ.get(k) for k in JEV_BACKEND_ENV)
+
+
+# --- `config generate`: a fully commented config with every default ----------
+
+COMMAND_EXAMPLE = CommandClassifier(
+    kind="command",
+    launch_command="~/bin/pr-classifier launch",
+    hook_command="~/bin/pr-classifier hook",
+)
+
+
+def _flatten(annotation: Any) -> list[Any]:
+    """The members of a (possibly Annotated / Optional) type."""
+    if get_origin(annotation) is Annotated:
+        return _flatten(get_args(annotation)[0])
+    if get_origin(annotation) in (Union, UnionType):
+        return [t for arg in get_args(annotation) for t in _flatten(arg)]
+    return [annotation]
+
+
+def _allowed(annotation: Any) -> str | None:
+    members = _flatten(annotation)
+    values: list[str] = []
+    for t in members:
+        if get_origin(t) is Literal:
+            values += [
+                yaml.safe_dump(v).removesuffix("\n...\n").strip() for v in get_args(t)
+            ]
+        elif t is type(None):
+            values.append("null")
+        elif get_origin(t) is list:
+            inner = _allowed(get_args(t)[0])
+            return f"list of: {inner.removeprefix('one of: ')}" if inner else None
+    if values and all(get_origin(t) is Literal or t is type(None) for t in members):
+        return "one of: " + ", ".join(values)
+    if "null" in values:
+        return "or null"
+    return None
+
+
+def _limits(f: FieldInfo) -> str | None:
+    parts = []
+    for m in f.metadata:
+        for attr, label in (("ge", ">="), ("gt", ">"), ("le", "<="), ("lt", "<")):
+            if getattr(m, attr, None) is not None:
+                parts.append(f"{label} {getattr(m, attr)}")
+        if getattr(m, "min_length", None):
+            parts.append(f"at least {m.min_length} item(s)")
+    return ", ".join(parts) or None
+
+
+def _scalar(value: Any) -> str:
+    # dump inside a flow list so strings get quoted exactly when YAML needs it
+    return yaml.safe_dump([value], default_flow_style=True, width=1000).strip()[1:-1]
+
+
+def _comments(text: str, pad: str) -> list[str]:
+    return [
+        pad + "# " + line
+        for line in textwrap.wrap(" ".join(text.split()), max(40, 78 - len(pad)))
+    ]
+
+
+def _emit(model: type[BaseModel], values: dict[str, Any], pad: str) -> list[str]:
+    out: list[str] = []
+    for name, f in model.model_fields.items():
+        nested = f.annotation if isinstance(f.annotation, type) else None
+        is_model = nested is not None and issubclass(nested, BaseModel)
+        doc = f.description or (
+            (nested.__doc__ or "").split("\n\n")[0] if is_model and nested else ""
+        )
+        if pad == "" and out:
+            out.append("")
+        if doc:
+            out += _comments(doc, pad)
+        hints = [h for h in (_allowed(f.annotation), _limits(f)) if h]
+        if hints and not is_model:
+            out.append(f"{pad}# ({'; '.join(hints)})")
+        value = values[name]
+        if name == "classifiers" and model is Config:
+            out.append(f"{pad}{name}:")
+            for key, c in value.items():
+                cls = CommandClassifier if c.get("kind") == "command" else JevClassifier
+                out += _comments((cls.__doc__ or "").split("\n\n")[0], pad + "  ")
+                out.append(f"{pad}  {key}:")
+                out += _emit(cls, c, pad + "    ")
+            out += _comments(CommandClassifier.__doc__ or "", pad + "  ")
+            example = _emit(
+                CommandClassifier,
+                COMMAND_EXAMPLE.model_dump(mode="json"),
+                pad + "    ",
+            )
+            out.append(f"{pad}  # local:")
+            out += [_comment_out(line, pad) for line in example]
+        elif is_model and nested is not None:
+            out.append(f"{pad}{name}:")
+            out += _emit(nested, value, pad + "  ")
+        else:
+            out.append(f"{pad}{name}: {_scalar(value)}")
+    return out
+
+
+def _comment_out(line: str, pad: str) -> str:
+    """Comment out an example line, keeping its nesting readable."""
+    return f"{pad}  # {line[len(pad) + 2 :]}"
+
+
+def generate() -> str:
+    """A complete config: every key at its default, documented in comments."""
+    header = [
+        "# yaml-language-server: $schema=./config.schema.json",
+        "#",
+        "# llm-review-agent configuration, generated with every default and option.",
+        "# Every key is optional: delete what you don't change. Command-line flags",
+        "# override this file. Validate with `llm-review-agent config check`.",
+        "#",
+        f"# Location: --config, ${ENV_VAR}, or {default_path()}",
+        "",
+    ]
+    return (
+        "\n".join(header + _emit(Config, Config().model_dump(mode="json"), "")) + "\n"
+    )
