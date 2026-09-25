@@ -68,15 +68,26 @@ def log(s):
     print(time.strftime("%H:%M:%S"), s, flush=True)
 
 
-def run(args, cwd=None, check=True):
-    return subprocess.run(
-        args, cwd=str(cwd) if cwd else None, text=True,
-        capture_output=True, check=check
-    )
+def run(args, cwd=None, check=True, timeout=120):
+    # Timeouts surface as CalledProcessError so every caller that already
+    # tolerates a failed command also tolerates a hung one.
+    try:
+        return subprocess.run(
+            args, cwd=str(cwd) if cwd else None, text=True,
+            capture_output=True, check=check, timeout=timeout
+        )
+    except subprocess.TimeoutExpired as e:
+        raise subprocess.CalledProcessError(
+            -1, args, stderr=f"timed out after {timeout}s") from e
 
 
 def gh_json(args):
-    return json.loads(run(["gh", *args]).stdout)
+    out = run(["gh", *args]).stdout
+    try:
+        return json.loads(out)
+    except ValueError as e:
+        raise subprocess.CalledProcessError(
+            -1, ["gh", *args], output=out, stderr=f"invalid JSON: {e}") from e
 
 
 def api(endpoint):
@@ -195,12 +206,13 @@ def worktree(repo, n):
     if not clone.exists():
         clone.parent.mkdir(parents=True, exist_ok=True)
         log(f"cloning {repo}")
-        run(["gh", "repo", "clone", repo, str(clone), "--", "--filter=blob:none"])
+        run(["gh", "repo", "clone", repo, str(clone), "--", "--filter=blob:none"],
+            timeout=1800)
 
     if not wt.exists():
         wt.parent.mkdir(parents=True, exist_ok=True)
         log(f"creating worktree for {repo}#{n} from {clone}")
-        run(["git", "fetch", "--quiet", remote], cwd=clone)
+        run(["git", "fetch", "--quiet", remote], cwd=clone, timeout=900)
         run(["git", "worktree", "prune"], cwd=clone)
         run(["git", "worktree", "add", "--detach", str(wt)], cwd=clone)
         # gh sets up the head branch + push remote (also for forks)
@@ -366,6 +378,171 @@ exit $status
     return True
 
 
+def poll(s, a, login):
+    """One pass over notifications, candidates and watched PRs."""
+    since = (
+        dt.datetime.now(dt.timezone.utc) - dt.timedelta(hours=a.lookback_hours)
+    ).replace(microsecond=0).isoformat().replace("+00:00", "Z")
+    ns = api(f"notifications?all=true&since={since}&per_page=50")
+    log(f"fetched {len(ns)} notifications from last {a.lookback_hours}h")
+
+    first_live = not s["initialized"] and not a.dry_run
+    cutoff = time.time() - a.lookback_hours * 3600
+    for key, item in list(s["candidates"].items()):
+        if item.get("seen_at", 0) < cutoff:
+            s["candidates"].pop(key)
+    stats = {"mine": 0, "candidate": 0, "ignored": 0}
+    baseline = first_live and not a.process_existing
+
+    # 1) Notification feed: own PRs + discover non-owned candidates.
+    for x in ns:
+        subject = x.get("subject") or {}
+        repo = (x.get("repository") or {}).get("full_name", "")
+        if subject.get("type") != "PullRequest" or not repo_ok(
+            repo, a.repo, a.exclude_repo
+        ):
+            stats["ignored"] += 1
+            continue
+
+        m = PR_RE.search(subject.get("url") or "")
+        if not m:
+            continue
+        n = int(m.group(1))
+        key = f"{repo}#{n}"
+        nid, updated = str(x.get("id", "")), str(x.get("updated_at", ""))
+
+        if key in s["watched"]:
+            s["seen"][nid] = updated
+            continue
+        if key in s["candidates"]:
+            # known non-owned PR: refresh only, 👀 is checked below
+            s["candidates"][key]["seen_at"] = time.time()
+            stats["candidate"] += 1
+            if s["seen"].get(nid) != updated and not handle_replies(
+                    s, a, login, repo, n, None, baseline):
+                continue  # keep the notification pending
+            s["seen"][nid] = updated
+            continue
+        if s["seen"].get(nid) == updated and not a.dry_run:
+            continue  # already handled; skip the pr_view call
+
+        try:
+            pr = pr_view(repo, n)
+        except subprocess.CalledProcessError:
+            continue
+        if pr.get("state") != "OPEN":
+            s["candidates"].pop(key, None)
+            s["seen"][nid] = updated
+            continue
+
+        mine = (pr.get("author") or {}).get("login", "").lower() == login.lower()
+
+        if not mine:
+            # Important: keep this PR around even if we already saw the
+            # notification, so a 👀 added later can still opt it in.
+            s["candidates"][key] = {
+                "repo": repo, "pr": n, "seen_at": time.time()
+            }
+            stats["candidate"] += 1
+            if handle_replies(s, a, login, repo, n, pr, baseline):
+                s["seen"][nid] = updated
+            continue
+
+        if s["seen"].get(nid) == updated:
+            continue
+
+        stats["mine"] += 1
+        if first_live and not a.process_existing:
+            s["seen"][nid] = updated
+            continue
+
+        if launch(repo, n, pr, "my PR notification", a.agent,
+                  a.max_agents, a.stale_lock_hours, a.dry_run):
+            if not a.dry_run:
+                s["seen"][nid] = updated
+
+    # 2) Recent non-owned PRs: detect a 👀 added AFTER we first saw them.
+    candidates = sorted(
+        s["candidates"].items(),
+        key=lambda kv: kv[1].get("seen_at", 0),
+        reverse=True
+    )[:a.candidate_limit]
+
+    for key, item in candidates:
+        repo, n = item["repo"], int(item["pr"])
+        try:
+            reaction = my_eyes(repo, n, login)
+        except subprocess.CalledProcessError:
+            continue
+        if not reaction:
+            continue
+
+        try:
+            pr = pr_view(repo, n)
+        except subprocess.CalledProcessError:
+            continue
+        if pr.get("state") != "OPEN":
+            s["candidates"].pop(key, None)
+            continue
+
+        created = reaction.get("created_at", "unknown")
+        if a.dry_run:
+            log(f"👀 detected {repo}#{n} (added {created})")
+
+        if launch(repo, n, pr, f"👀 opt-in ({created})", a.agent,
+                  a.max_agents, a.stale_lock_hours, a.dry_run):
+            if not a.dry_run:
+                try:
+                    fp = review_fingerprint(repo, n)
+                except subprocess.CalledProcessError:
+                    fp = None  # next watch pass relaunches on change
+                s["watched"][key] = {
+                    "repo": repo, "pr": n, "fingerprint": fp
+                }
+                s["candidates"].pop(key, None)
+
+    # 3) Already opted-in PRs: trigger only when review/discussion changes.
+    for key, item in list(s["watched"].items()):
+        repo, n = item["repo"], int(item["pr"])
+        try:
+            reaction = my_eyes(repo, n, login)
+        except subprocess.CalledProcessError:
+            continue
+        if not reaction:
+            log(f"{repo}#{n}: 👀 removed; stopping watch")
+            if not a.dry_run:
+                s["watched"].pop(key, None)
+            continue
+
+        try:
+            pr = pr_view(repo, n)
+            if pr.get("state") != "OPEN":
+                if not a.dry_run:
+                    s["watched"].pop(key, None)
+                continue
+            fp = review_fingerprint(repo, n)
+        except subprocess.CalledProcessError:
+            continue
+        if fp == item.get("fingerprint"):
+            continue
+
+        if launch(repo, n, pr, "review/discussion changed", a.agent,
+                  a.max_agents, a.stale_lock_hours, a.dry_run):
+            if not a.dry_run:
+                item["fingerprint"] = fp
+
+    log(
+        f"{'dry-run ' if a.dry_run else ''}summary: "
+        f"own_new={stats['mine']} non_owned={stats['candidate']} "
+        f"watched={len(s['watched'])} ignored={stats['ignored']}"
+        + (" (first run: existing own notifications recorded only)"
+           if first_live and not a.process_existing else "")
+    )
+    if not a.dry_run:
+        s["initialized"] = True
+        save_state(s)
+
+
 def main():
     p = argparse.ArgumentParser()
     p.add_argument("--repo", action="append", default=[])
@@ -424,7 +601,18 @@ def main():
 
     ROOT.mkdir(parents=True, exist_ok=True)
     s = load_state()
-    login = run(["gh", "api", "user", "--jq", ".login"]).stdout.strip()
+    while True:
+        try:
+            login = run(["gh", "api", "user", "--jq", ".login"]).stdout.strip()
+            if login:
+                break
+            err = "empty login"
+        except subprocess.CalledProcessError as e:
+            err = (e.stderr or "").strip() or e
+        if a.once:
+            raise SystemExit(f"cannot determine GitHub user: {err}")
+        log(f"cannot determine GitHub user, retrying in 30s: {err}")
+        time.sleep(30)
 
     log(f"GitHub user: {login}")
     log(f"agent: {a.agent} (interactive)")
@@ -437,168 +625,25 @@ def main():
     for repo, (path, remote) in LOCAL.items():
         log(f"local checkout for {repo}: {path} (remote {remote})")
 
+    failures = 0
     while True:
-        since = (
-            dt.datetime.now(dt.timezone.utc) - dt.timedelta(hours=a.lookback_hours)
-        ).replace(microsecond=0).isoformat().replace("+00:00", "Z")
-        ns = api(f"notifications?all=true&since={since}&per_page=50")
-        log(f"fetched {len(ns)} notifications from last {a.lookback_hours}h")
-
-        first_live = not s["initialized"] and not a.dry_run
-        cutoff = time.time() - a.lookback_hours * 3600
-        for key, item in list(s["candidates"].items()):
-            if item.get("seen_at", 0) < cutoff:
-                s["candidates"].pop(key)
-        stats = {"mine": 0, "candidate": 0, "ignored": 0}
-        baseline = first_live and not a.process_existing
-
-        # 1) Notification feed: own PRs + discover non-owned candidates.
-        for x in ns:
-            subject = x.get("subject") or {}
-            repo = (x.get("repository") or {}).get("full_name", "")
-            if subject.get("type") != "PullRequest" or not repo_ok(
-                repo, a.repo, a.exclude_repo
-            ):
-                stats["ignored"] += 1
-                continue
-
-            m = PR_RE.search(subject.get("url") or "")
-            if not m:
-                continue
-            n = int(m.group(1))
-            key = f"{repo}#{n}"
-            nid, updated = str(x.get("id", "")), str(x.get("updated_at", ""))
-
-            if key in s["watched"]:
-                s["seen"][nid] = updated
-                continue
-            if key in s["candidates"]:
-                # known non-owned PR: refresh only, 👀 is checked below
-                s["candidates"][key]["seen_at"] = time.time()
-                s["seen"][nid] = updated
-                stats["candidate"] += 1
-                continue
-            if s["seen"].get(nid) == updated and not a.dry_run:
-                continue  # already handled; skip the pr_view call
-
-            try:
-                pr = pr_view(repo, n)
-            except subprocess.CalledProcessError:
-                continue
-            if pr.get("state") != "OPEN":
-                s["candidates"].pop(key, None)
-                s["seen"][nid] = updated
-                continue
-
-            mine = (pr.get("author") or {}).get("login", "").lower() == login.lower()
-
-            if not mine:
-                # Important: keep this PR around even if we already saw the
-                # notification, so a 👀 added later can still opt it in.
-                s["candidates"][key] = {
-                    "repo": repo, "pr": n, "seen_at": time.time()
-                }
-                s["seen"][nid] = updated
-                stats["candidate"] += 1
-                continue
-
-            if s["seen"].get(nid) == updated:
-                continue
-
-            stats["mine"] += 1
-            if first_live and not a.process_existing:
-                s["seen"][nid] = updated
-                continue
-
-            if launch(repo, n, pr, "my PR notification", a.agent,
-                      a.max_agents, a.stale_lock_hours, a.dry_run):
-                if not a.dry_run:
-                    s["seen"][nid] = updated
-
-        # 2) Recent non-owned PRs: detect a 👀 added AFTER we first saw them.
-        candidates = sorted(
-            s["candidates"].items(),
-            key=lambda kv: kv[1].get("seen_at", 0),
-            reverse=True
-        )[:a.candidate_limit]
-
-        for key, item in candidates:
-            repo, n = item["repo"], int(item["pr"])
-            try:
-                reaction = my_eyes(repo, n, login)
-            except subprocess.CalledProcessError:
-                continue
-            if not reaction:
-                continue
-
-            try:
-                pr = pr_view(repo, n)
-            except subprocess.CalledProcessError:
-                continue
-            if pr.get("state") != "OPEN":
-                s["candidates"].pop(key, None)
-                continue
-
-            created = reaction.get("created_at", "unknown")
-            if a.dry_run:
-                log(f"👀 detected {repo}#{n} (added {created})")
-
-            if launch(repo, n, pr, f"👀 opt-in ({created})", a.agent,
-                      a.max_agents, a.stale_lock_hours, a.dry_run):
-                if not a.dry_run:
-                    try:
-                        fp = review_fingerprint(repo, n)
-                    except subprocess.CalledProcessError:
-                        fp = None  # next watch pass relaunches on change
-                    s["watched"][key] = {
-                        "repo": repo, "pr": n, "fingerprint": fp
-                    }
-                    s["candidates"].pop(key, None)
-
-        # 3) Already opted-in PRs: trigger only when review/discussion changes.
-        for key, item in list(s["watched"].items()):
-            repo, n = item["repo"], int(item["pr"])
-            try:
-                reaction = my_eyes(repo, n, login)
-            except subprocess.CalledProcessError:
-                continue
-            if not reaction:
-                log(f"{repo}#{n}: 👀 removed; stopping watch")
-                if not a.dry_run:
-                    s["watched"].pop(key, None)
-                continue
-
-            try:
-                pr = pr_view(repo, n)
-                if pr.get("state") != "OPEN":
-                    if not a.dry_run:
-                        s["watched"].pop(key, None)
-                    continue
-                fp = review_fingerprint(repo, n)
-            except subprocess.CalledProcessError:
-                continue
-            if fp == item.get("fingerprint"):
-                continue
-
-            if launch(repo, n, pr, "review/discussion changed", a.agent,
-                      a.max_agents, a.stale_lock_hours, a.dry_run):
-                if not a.dry_run:
-                    item["fingerprint"] = fp
-
-        log(
-            f"{'dry-run ' if a.dry_run else ''}summary: "
-            f"own_new={stats['mine']} non_owned={stats['candidate']} "
-            f"watched={len(s['watched'])} ignored={stats['ignored']}"
-            + (" (first run: existing own notifications recorded only)"
-               if first_live and not a.process_existing else "")
-        )
-        if not a.dry_run:
-            s["initialized"] = True
-            save_state(s)
+        try:
+            poll(s, a, login)
+            failures = 0
+        except Exception as e:
+            failures += 1
+            err = (getattr(e, "stderr", "") or "").strip() or repr(e)
+            log(f"poll failed ({failures}x in a row), will retry: {err}")
+            if not a.dry_run:
+                try:
+                    save_state(s)  # keep launches recorded so far
+                except OSError as e2:
+                    log(f"could not save state: {e2}")
 
         if a.once:
             return
-        time.sleep(max(10, a.interval))
+        # back off on repeated failures (network down etc.), max 15 min
+        time.sleep(min(max(10, a.interval) * 2 ** min(failures, 4), 900))
 
 
 if __name__ == "__main__":
