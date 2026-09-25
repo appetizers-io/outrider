@@ -6,7 +6,7 @@ import jsonschema
 import pytest
 import yaml
 
-from gh_review_agent import app, config
+from llm_review_agent import app, config
 
 REPO = Path(__file__).resolve().parents[1]
 
@@ -16,8 +16,12 @@ def test_defaults() -> None:
     assert c.agent == "codex"
     assert c.triggers.opt_in.on_change.ignore_own_activity is True
     assert c.triggers.review_replies.scope == "thread"
-    assert c.jev.enabled == "auto"
-    assert c.jev.skip_below == 0.5
+    jev = c.classifiers["jev"]
+    assert isinstance(jev, config.JevClassifier)
+    assert jev.enabled == "auto"
+    assert c.launch_check.classifier == "jev"
+    assert c.launch_check.skip_below == 0.5
+    assert c.tool_gate.classifier == "jev"
 
 
 def test_empty_file_is_defaults(tmp_path: Path) -> None:
@@ -32,15 +36,37 @@ def test_empty_file_is_defaults(tmp_path: Path) -> None:
         ({"agent": "gpt"}, "agent: Input should be 'codex' or 'claude'"),
         ({"max_agents": 0}, "max_agents: Input should be greater than or equal to 1"),
         ({"typo": 1}, "typo: Extra inputs are not permitted"),
-        ({"jev": {"enabled": "yes"}}, "jev.enabled: Input should be 'auto', True or"),
-        ({"jev": {"skip_below": 2}}, "jev.skip_below: Input should be less than or"),
+        (
+            {"classifiers": {"jev": {"enabled": "yes"}}},
+            "classifiers.jev.enabled: Input should be 'auto', True or",
+        ),
+        (
+            {"launch_check": {"skip_below": 2}},
+            "launch_check.skip_below: Input should be less than or",
+        ),
+        (
+            {"tool_gate": {"classifier": "nope"}},
+            "tool_gate.classifier: unknown classifier 'nope' (defined: jev)",
+        ),
+        (
+            {
+                "classifiers": {"l": {"kind": "command", "hook_command": "x"}},
+                "launch_check": {"classifier": "l"},
+            },
+            "launch_check.classifier: 'l' has no launch_command",
+        ),
+        ({"classifiers": {"l": {"kind": "magic"}}}, "classifiers.l: kind must be"),
+        (
+            {"classifiers": {"jev": {"hook_command": "x"}}},
+            "classifiers.jev.hook_command: Extra inputs are not permitted",
+        ),
         (
             {"triggers": {"opt_in": {"reaction": "eyez"}}},
             "triggers.opt_in.reaction: Input should be",
         ),
         (
             {"triggers": {"opt_in": {"where": ["comment", "comment"]}}},
-            "triggers.opt_in.where: Value error, entries must be unique",
+            "triggers.opt_in.where: entries must be unique",
         ),
         ({"triggers": {"opt_in": {"where": []}}}, "triggers.opt_in.where: List should"),
         ({"ignore_authors": "bot"}, "ignore_authors: Input should be a valid list"),
@@ -79,7 +105,7 @@ def test_committed_schema_is_up_to_date() -> None:
     committed = (REPO / "config.schema.json").read_text()
     assert committed == config.schema_text(), (
         "config.schema.json is stale; regenerate with "
-        "`uv run gh-review-agent config schema > config.schema.json`"
+        "`uv run llm-review-agent config schema > config.schema.json`"
     )
 
 
@@ -102,7 +128,8 @@ def test_example_config_is_valid_for_pydantic_and_the_schema() -> None:
         {"agent": "gpt"},
         {"typo": 1},
         {"triggers": {"opt_in": {"where": ["comment", "comment"]}}},
-        {"jev": {"enabled": "yes"}},
+        {"classifiers": {"jev": {"enabled": "yes"}}},
+        {"classifiers": {"l": {"kind": "magic"}}},
         {"interval_seconds": 5},
     ],
 )
@@ -122,7 +149,7 @@ def run_cli(*argv: str) -> int:
 def test_cli_schema(capsys: pytest.CaptureFixture[str]) -> None:
     assert run_cli("schema") == 0
     assert (
-        json.loads(capsys.readouterr().out)["title"] == "gh-review-agent configuration"
+        json.loads(capsys.readouterr().out)["title"] == "llm-review-agent configuration"
     )
 
 
@@ -147,3 +174,22 @@ def test_cli_show_fills_defaults(
     shown = yaml.safe_load(capsys.readouterr().out)
     assert shown["max_agents"] == 3
     assert shown["triggers"]["opt_in"]["on_change"]["ignore_own_activity"] is True
+
+
+def test_local_classifier_config() -> None:
+    c = config.parse(
+        {
+            "classifiers": {
+                "local": {
+                    "kind": "command",
+                    "launch_command": "~/bin/cls launch",
+                    "hook_command": "~/bin/cls hook",
+                }
+            },
+            "launch_check": {"classifier": "local"},
+            "tool_gate": {"classifier": None},
+        }
+    )
+    assert sorted(c.classifiers) == ["jev", "local"]  # jev stays defined
+    assert isinstance(c.classifiers["local"], config.CommandClassifier)
+    assert c.tool_gate.classifier is None

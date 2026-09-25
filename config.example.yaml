@@ -1,13 +1,14 @@
 # yaml-language-server: $schema=./config.schema.json
 #
-# gh-review-agent configuration. Every key is optional; the values below are
-# examples, `gh-review-agent config show` prints the effective config with all
+# llm-review-agent configuration. Every key is optional; the values below are
+# examples, `llm-review-agent config show` prints the effective config with all
 # defaults. Command-line flags override this file.
 #
-# Location: --config, $GH_REVIEW_AGENT_CONFIG, or
-# ~/.config/gh-review-agent/config.yaml
+# Location: --config, $LLM_REVIEW_AGENT_CONFIG, or
+# ~/.config/llm-review-agent/config.yaml
 
 owner_name: Matthias          # default: first name from your GitHub profile
+mode: supervised              # autonomous: no tool gating, may push to others' PRs
 agent: claude
 max_agents: 3
 lookback_hours: 2
@@ -22,20 +23,41 @@ ignore_authors: ["netlify[bot]", "github-actions[bot]"]
 triggers:
   own_prs:
     enabled: true
-    gate: jev                 # ask Jev first; none = always launch
+    check: true               # run launch_check first
   opt_in:
     reaction: eyes
     where: [description, comment, review, review_comment]
     on_change:
-      gate: jev
+      check: true
       ignore_own_activity: true
   review_replies:
     scope: thread             # only the replied threads, not the whole PR
     fresh_within_hours: 2
+  mentions:                   # @you on a PR that is neither yours nor opted in
+    scope: comment
 
-jev:
-  enabled: auto               # on when jev-use/npx and a backend key exist
+others_prs:
+  allow_push: false           # review only (default in supervised mode)
+
+# decision backends: jev is built in; add local ones with `kind: command`
+classifiers:
+  jev:
+    enabled: auto             # on when jev-use/npx and a backend key exist
+  # local:
+  #   kind: command
+  #   launch_command: ~/bin/pr-classifier launch   # stdin JSON -> {"launch": bool}
+  #   hook_command: ~/bin/pr-classifier hook       # a PreToolUse hook
+
+launch_check:                 # should an agent start at all?
+  classifier: jev             # null: always launch
   skip_below: 0.5
+
+tool_gate:                    # every tool call in supervised sessions
+  classifier: jev             # null: deny rules only
+  threshold: null
+  rules:
+    - never modify generated/ or vendor/
+  include_prompt_extra: true
 
 prompts:
   extra: |

@@ -3,7 +3,7 @@ from typing import Any
 
 import pytest
 
-from gh_review_agent import app
+from llm_review_agent import app
 
 NO = {"reactionGroups": [{"content": "EYES", "viewerHasReacted": False}]}
 YES = {"reactionGroups": [{"content": "EYES", "viewerHasReacted": True}]}

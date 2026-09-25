@@ -4,7 +4,7 @@ import sys
 
 import pytest
 
-from gh_review_agent import app
+from llm_review_agent import app
 
 
 @pytest.mark.parametrize(
@@ -86,6 +86,7 @@ def test_failing_checks() -> None:
 
 def test_load_state_defaults_and_migration() -> None:
     assert app.load_state()["watched"] == {}
+    app.STATE.parent.mkdir(parents=True)
     app.STATE.write_text(json.dumps({"123": "2026-01-01T00:00:00Z"}))
     s = app.load_state()
     assert s["seen"] == {"123": "2026-01-01T00:00:00Z"}

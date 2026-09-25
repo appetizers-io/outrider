@@ -2,10 +2,72 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://github.com/appetizers-io/llm-review-agent/config.schema.json",
   "$defs": {
-    "Jev": {
+    "CommandClassifier": {
       "additionalProperties": false,
-      "description": "Pre-launch check: Jev judges whether new activity is actionable.",
+      "description": "Any local classifier.\n\nlaunch_command gets a JSON request on stdin and prints\n{\"launch\": bool} or {\"probability\": 0..1}, optionally with \"reason\".\nhook_command is a Claude Code / Codex PreToolUse hook; the session policy\nis in $LLM_REVIEW_AGENT_POLICY_FILE and $LLM_REVIEW_AGENT_GATE_TEXT.",
       "properties": {
+        "kind": {
+          "const": "command",
+          "title": "Kind",
+          "type": "string"
+        },
+        "enabled": {
+          "default": true,
+          "title": "Enabled",
+          "type": "boolean"
+        },
+        "launch_command": {
+          "anyOf": [
+            {
+              "minLength": 1,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Command for launch checks; null: can't do them.",
+          "title": "Launch Command"
+        },
+        "hook_command": {
+          "anyOf": [
+            {
+              "minLength": 1,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "PreToolUse hook command; null: can't gate tools.",
+          "title": "Hook Command"
+        },
+        "timeout_seconds": {
+          "default": 30,
+          "description": "A slower launch check launches anyway.",
+          "minimum": 1,
+          "title": "Timeout Seconds",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "kind"
+      ],
+      "title": "CommandClassifier",
+      "type": "object"
+    },
+    "JevClassifier": {
+      "additionalProperties": false,
+      "description": "Jev via jev-use: `<command> judge` for launch checks, `<command> hook\ngate` as the tool gate.",
+      "properties": {
+        "kind": {
+          "const": "jev",
+          "default": "jev",
+          "title": "Kind",
+          "type": "string"
+        },
         "enabled": {
           "default": "auto",
           "description": "auto: on when the command is found and a Jev backend is configured (TYPESAFE_API_KEY, OPENROUTER_API_KEY, AI_GATEWAY_API_KEY, JEV_BACKEND).",
@@ -30,14 +92,6 @@
           "description": "null: jev-use on PATH, else npx -y jev-use@0.8.0.",
           "title": "Command"
         },
-        "skip_below": {
-          "default": 0.5,
-          "description": "Skip the launch when Jev is confident the probability that something is actionable is below this.",
-          "maximum": 1,
-          "minimum": 0,
-          "title": "Skip Below",
-          "type": "number"
-        },
         "confidence_threshold": {
           "anyOf": [
             {
@@ -50,33 +104,102 @@
             }
           ],
           "default": null,
-          "description": "Below this confidence Jev escalates, which launches. null: jev-use's own defaults (0.5 reported, 0.4 estimated).",
+          "description": "Launch check: below this confidence Jev escalates, which launches. null: jev-use's defaults (0.5 reported, 0.4 estimated).",
           "title": "Confidence Threshold"
         },
         "timeout_seconds": {
           "default": 60,
-          "description": "A slower answer launches anyway.",
+          "description": "A slower launch check launches anyway.",
           "minimum": 1,
           "title": "Timeout Seconds",
           "type": "integer"
         }
       },
-      "title": "Jev",
+      "title": "JevClassifier",
+      "type": "object"
+    },
+    "LaunchCheck": {
+      "additionalProperties": false,
+      "description": "Ask a classifier whether new activity is worth an agent session.",
+      "properties": {
+        "classifier": {
+          "anyOf": [
+            {
+              "minLength": 1,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": "jev",
+          "description": "Name from classifiers; null: always launch.",
+          "title": "Classifier"
+        },
+        "skip_below": {
+          "default": 0.5,
+          "description": "Skip when the classifier is confident the probability that something is actionable is below this.",
+          "maximum": 1,
+          "minimum": 0,
+          "title": "Skip Below",
+          "type": "number"
+        }
+      },
+      "title": "LaunchCheck",
+      "type": "object"
+    },
+    "Mentions": {
+      "additionalProperties": false,
+      "description": "Someone @mentions your login on a PR that is neither yours nor opted in\n(those already relaunch for any new activity).",
+      "properties": {
+        "enabled": {
+          "default": true,
+          "title": "Enabled",
+          "type": "boolean"
+        },
+        "check": {
+          "default": true,
+          "description": "Run the launch_check classifier before starting an agent (only when one is configured and available).",
+          "title": "Check",
+          "type": "boolean"
+        },
+        "scope": {
+          "default": "comment",
+          "description": "comment: the session handles only the mentioning comments. pr: the whole PR.",
+          "enum": [
+            "comment",
+            "pr"
+          ],
+          "title": "Scope",
+          "type": "string"
+        },
+        "fresh_within_hours": {
+          "anyOf": [
+            {
+              "minimum": 1,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Only mentions this recent trigger. null: lookback_hours.",
+          "title": "Fresh Within Hours"
+        }
+      },
+      "title": "Mentions",
       "type": "object"
     },
     "OnChange": {
       "additionalProperties": false,
       "description": "Relaunch when reviews or comments on an opted-in PR change.",
       "properties": {
-        "gate": {
-          "default": "jev",
-          "description": "jev: ask Jev first (when Jev is enabled). none: always launch.",
-          "enum": [
-            "jev",
-            "none"
-          ],
-          "title": "Gate",
-          "type": "string"
+        "check": {
+          "default": true,
+          "description": "Run the launch_check classifier before starting an agent (only when one is configured and available).",
+          "title": "Check",
+          "type": "boolean"
         },
         "ignore_own_activity": {
           "default": true,
@@ -138,12 +261,33 @@
         "on_change": {
           "$ref": "#/$defs/OnChange",
           "default": {
-            "gate": "jev",
+            "check": true,
             "ignore_own_activity": true
           }
         }
       },
       "title": "OptIn",
+      "type": "object"
+    },
+    "OthersPrs": {
+      "additionalProperties": false,
+      "description": "Sessions on PRs someone else authored.",
+      "properties": {
+        "allow_push": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "false: review only. The agent must not edit, commit or push, and `git push` is blocked in the session. true: it may push fixes to the PR branch (fast-forward only). null: false in supervised mode, true in autonomous mode.",
+          "title": "Allow Push"
+        }
+      },
+      "title": "OthersPrs",
       "type": "object"
     },
     "OwnPrs": {
@@ -155,15 +299,11 @@
           "title": "Enabled",
           "type": "boolean"
         },
-        "gate": {
-          "default": "jev",
-          "description": "jev: ask Jev first (when Jev is enabled). none: always launch.",
-          "enum": [
-            "jev",
-            "none"
-          ],
-          "title": "Gate",
-          "type": "string"
+        "check": {
+          "default": true,
+          "description": "Run the launch_check classifier before starting an agent (only when one is configured and available).",
+          "title": "Check",
+          "type": "boolean"
         }
       },
       "title": "OwnPrs",
@@ -218,15 +358,11 @@
           "title": "Enabled",
           "type": "boolean"
         },
-        "gate": {
-          "default": "jev",
-          "description": "jev: ask Jev first (when Jev is enabled). none: always launch.",
-          "enum": [
-            "jev",
-            "none"
-          ],
-          "title": "Gate",
-          "type": "string"
+        "check": {
+          "default": true,
+          "description": "Run the launch_check classifier before starting an agent (only when one is configured and available).",
+          "title": "Check",
+          "type": "boolean"
         },
         "scope": {
           "default": "thread",
@@ -256,6 +392,66 @@
       "title": "ReviewReplies",
       "type": "object"
     },
+    "ToolGate": {
+      "additionalProperties": false,
+      "description": "Check every tool call in supervised agent sessions (PreToolUse hook).",
+      "properties": {
+        "classifier": {
+          "anyOf": [
+            {
+              "minLength": 1,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": "jev",
+          "description": "Name from classifiers; null: no tool gate.",
+          "title": "Classifier"
+        },
+        "matcher": {
+          "default": "Bash|Write|Edit|NotebookEdit",
+          "description": "Tools the gate sees.",
+          "minLength": 1,
+          "title": "Matcher",
+          "type": "string"
+        },
+        "threshold": {
+          "anyOf": [
+            {
+              "maximum": 1,
+              "minimum": 0,
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Confidence below which the gate asks instead of deciding. null: the classifier's own default.",
+          "title": "Threshold"
+        },
+        "rules": {
+          "default": [],
+          "description": "Your own rules for every tool call, e.g. \"never modify generated/\".",
+          "items": {
+            "minLength": 1,
+            "type": "string"
+          },
+          "title": "Rules",
+          "type": "array"
+        },
+        "include_prompt_extra": {
+          "default": false,
+          "description": "Also enforce prompts.extra through the gate.",
+          "title": "Include Prompt Extra",
+          "type": "boolean"
+        }
+      },
+      "title": "ToolGate",
+      "type": "object"
+    },
     "Triggers": {
       "additionalProperties": false,
       "properties": {
@@ -263,7 +459,7 @@
           "$ref": "#/$defs/OwnPrs",
           "default": {
             "enabled": true,
-            "gate": "jev"
+            "check": true
           }
         },
         "opt_in": {
@@ -278,7 +474,7 @@
               "review_comment"
             ],
             "on_change": {
-              "gate": "jev",
+              "check": true,
               "ignore_own_activity": true
             }
           }
@@ -287,8 +483,17 @@
           "$ref": "#/$defs/ReviewReplies",
           "default": {
             "enabled": true,
-            "gate": "jev",
+            "check": true,
             "scope": "thread",
+            "fresh_within_hours": null
+          }
+        },
+        "mentions": {
+          "$ref": "#/$defs/Mentions",
+          "default": {
+            "enabled": true,
+            "check": true,
+            "scope": "comment",
             "fresh_within_hours": null
           }
         }
@@ -298,7 +503,7 @@
     }
   },
   "additionalProperties": false,
-  "description": "gh-review-agent configuration. Every key is optional; command-line flags\noverride this file.",
+  "description": "llm-review-agent configuration. Every key is optional; command-line flags\noverride this file.",
   "properties": {
     "owner_name": {
       "anyOf": [
@@ -313,6 +518,16 @@
       "default": null,
       "description": "How prompts refer to you. null: first name from your GitHub profile, else your login.",
       "title": "Owner Name"
+    },
+    "mode": {
+      "default": "supervised",
+      "description": "supervised: Claude sessions get deny rules for risky tools and, when its classifier is available, the tool_gate on every call; other people's PRs are review only. autonomous: no tool gating, and pushing to other people's PRs follows others_prs.allow_push (default: allowed).",
+      "enum": [
+        "supervised",
+        "autonomous"
+      ],
+      "title": "Mode",
+      "type": "string"
     },
     "agent": {
       "default": "codex",
@@ -391,13 +606,13 @@
       "$ref": "#/$defs/Triggers",
       "default": {
         "own_prs": {
-          "enabled": true,
-          "gate": "jev"
+          "check": true,
+          "enabled": true
         },
         "opt_in": {
           "enabled": true,
           "on_change": {
-            "gate": "jev",
+            "check": true,
             "ignore_own_activity": true
           },
           "reaction": "eyes",
@@ -409,21 +624,67 @@
           ]
         },
         "review_replies": {
+          "check": true,
           "enabled": true,
           "fresh_within_hours": null,
-          "gate": "jev",
           "scope": "thread"
+        },
+        "mentions": {
+          "check": true,
+          "enabled": true,
+          "fresh_within_hours": null,
+          "scope": "comment"
         }
       }
     },
-    "jev": {
-      "$ref": "#/$defs/Jev",
+    "others_prs": {
+      "$ref": "#/$defs/OthersPrs",
       "default": {
-        "enabled": "auto",
-        "command": null,
-        "skip_below": 0.5,
-        "confidence_threshold": null,
-        "timeout_seconds": 60
+        "allow_push": null
+      }
+    },
+    "classifiers": {
+      "additionalProperties": {
+        "oneOf": [
+          {
+            "$ref": "#/$defs/JevClassifier"
+          },
+          {
+            "$ref": "#/$defs/CommandClassifier"
+          }
+        ]
+      },
+      "default": {
+        "jev": {
+          "command": null,
+          "confidence_threshold": null,
+          "enabled": "auto",
+          "kind": "jev",
+          "timeout_seconds": 60
+        }
+      },
+      "description": "Named decision backends. 'jev' is always defined; add `kind: command` entries for local classifiers.",
+      "propertyNames": {
+        "minLength": 1
+      },
+      "title": "Classifiers",
+      "type": "object"
+    },
+    "launch_check": {
+      "$ref": "#/$defs/LaunchCheck",
+      "default": {
+        "classifier": "jev",
+        "skip_below": 0.5
+      }
+    },
+    "tool_gate": {
+      "$ref": "#/$defs/ToolGate",
+      "default": {
+        "classifier": "jev",
+        "matcher": "Bash|Write|Edit|NotebookEdit",
+        "threshold": null,
+        "rules": [],
+        "include_prompt_extra": false
       }
     },
     "prompts": {
@@ -433,6 +694,6 @@
       }
     }
   },
-  "title": "gh-review-agent configuration",
+  "title": "llm-review-agent configuration",
   "type": "object"
 }

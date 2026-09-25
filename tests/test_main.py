@@ -5,7 +5,7 @@ from typing import Any
 
 import pytest
 
-from gh_review_agent import app
+from llm_review_agent import app
 
 
 @pytest.fixture
@@ -67,7 +67,8 @@ def test_startup_reports_config_owner_and_jev(
     out = capsys.readouterr().out
     assert "config: no config file, built-in defaults" in out
     assert "prompts call you Me" in out  # first name from the GitHub profile
-    assert "jev check before launch: off, no backend key" in out
+    assert "launch check: off (jev: no backend key" in out
+    assert "tool gate: off (jev: no backend key" in out
 
 
 @pytest.mark.usefixtures("machine")
