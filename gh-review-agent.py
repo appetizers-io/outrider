@@ -18,6 +18,8 @@ ROOT = Path.home() / ".cache/gh-review-agent"
 STATE = Path.home() / ".local/state/gh-review-agent/state.json"
 PR_RE = re.compile(r"/pulls/(\d+)$")
 LAUNCHER = "terminal"  # set from --launcher in main()
+LOGIN = ""  # my GitHub login, set in main()
+JEV = None  # jev-use command for the pre-launch check; None = off
 LOCAL = {}  # owner/repo -> (local checkout, remote), when run inside a repo
 
 # Put first on the agent's PATH. Blocks every GitHub write through gh except
@@ -68,13 +70,13 @@ def log(s):
     print(time.strftime("%H:%M:%S"), s, flush=True)
 
 
-def run(args, cwd=None, check=True, timeout=120):
+def run(args, cwd=None, check=True, timeout=120, input=None):
     # Timeouts surface as CalledProcessError so every caller that already
     # tolerates a failed command also tolerates a hung one.
     try:
         return subprocess.run(
             args, cwd=str(cwd) if cwd else None, text=True,
-            capture_output=True, check=check, timeout=timeout
+            capture_output=True, check=check, timeout=timeout, input=input
         )
     except subprocess.TimeoutExpired as e:
         raise subprocess.CalledProcessError(
@@ -109,6 +111,7 @@ def load_state():
     s.setdefault("watched", {})
     s.setdefault("initialized", False)
     s.setdefault("replies", {})
+    s.setdefault("handled", {})  # PR -> when its activity was last judged
     return s
 
 
@@ -134,20 +137,83 @@ def repo_ok(repo, include, exclude):
 def pr_view(repo, n):
     fields = (
         "number,title,url,state,author,headRefName,baseRefName,"
-        "headRepository,headRepositoryOwner,maintainerCanModify,reviewDecision"
+        "headRepository,headRepositoryOwner,maintainerCanModify,reviewDecision,"
+        "statusCheckRollup"
     )
     return gh_json(["pr", "view", str(n), "--repo", repo, "--json", fields])
 
 
-def my_eyes(repo, n, login):
-    for r in api(f"repos/{repo}/issues/{n}/reactions?content=eyes&per_page=100"):
-        if (r.get("user") or {}).get("login", "").lower() == login.lower():
-            return r
-    return None
+EYES = "reactionGroups { content viewerHasReacted }"
+PR_EYES = f"""pullRequest(number: %d) {{
+  {EYES}
+  comments(last: 100) {{ nodes {{ {EYES} }} }}
+  reviews(last: 50) {{ nodes {{ {EYES} }} }}
+  reviewThreads(last: 50) {{ nodes {{ comments(first: 30) {{ nodes {{ {EYES} }} }} }} }}
+}}"""
 
+
+def _eyes_query(prs):
+    parts = []
+    for i, (repo, n) in enumerate(prs):
+        owner, name = repo.split("/", 1)
+        parts.append(f"p{i}: repository(owner: {json.dumps(owner)}, "
+                     f"name: {json.dumps(name)}) {{ {PR_EYES % n} }}")
+    data = gh_json(["api", "graphql", "-f",
+                    "query=query { " + " ".join(parts) + " }"])["data"]
+    out = {}
+    for i, (repo, n) in enumerate(prs):
+        pr = (data.get(f"p{i}") or {}).get("pullRequest")
+        if pr is None:
+            continue
+        mine = lambda x: any(g["content"] == "EYES" and g["viewerHasReacted"]
+                             for g in (x or {}).get("reactionGroups") or [])
+        where = None
+        if mine(pr):
+            where = "PR description"
+        elif any(mine(c) for c in pr["comments"]["nodes"]):
+            where = "comment"
+        elif any(mine(r) for r in pr["reviews"]["nodes"]):
+            where = "review"
+        elif any(mine(c) for t in pr["reviewThreads"]["nodes"]
+                 for c in t["comments"]["nodes"]):
+            where = "review comment"
+        out[f"{repo}#{n}"] = where
+    return out
+
+
+def my_eyes(prs, batch=10):
+    """Where I put 👀 on each PR (description, any comment or review), or
+    None. PRs whose lookup failed are missing from the result."""
+    out = {}
+    for i in range(0, len(prs), batch):
+        chunk = prs[i:i + batch]
+        try:
+            out.update(_eyes_query(chunk))
+        except subprocess.CalledProcessError:
+            # one broken PR must not hide the others
+            for pr in chunk if len(chunk) > 1 else []:
+                try:
+                    out.update(_eyes_query([pr]))
+                except subprocess.CalledProcessError:
+                    pass
+    return out
+
+
+def involved_prs(login):
+    """Open PRs I'm involved in or asked to review, notification or not."""
+    out = {}
+    for q in (f"involves:{login}", f"review-requested:{login}"):
+        res = gh_json(["api", "-X", "GET", "search/issues", "-f",
+                       f"q=is:pr is:open archived:false {q}",
+                       "-f", "per_page=100"])
+        for x in res.get("items", []):
+            repo = x["repository_url"].split("/repos/", 1)[1]
+            out[f"{repo}#{x['number']}"] = (
+                repo, x["number"], (x.get("user") or {}).get("login", ""))
+    return out
 
 def pending_replies(repo, n, login):
-    """Last comment of each review thread I took part in, if it isn't mine."""
+    """Review threads I took part in whose last comment isn't mine."""
     threads = {}
     for c in api(f"repos/{repo}/pulls/{n}/comments?per_page=100"):
         threads.setdefault(c.get("in_reply_to_id") or c["id"], []).append(c)
@@ -156,7 +222,7 @@ def pending_replies(repo, n, login):
         cs.sort(key=lambda c: c["id"])
         who = [(c.get("user") or {}).get("login", "").lower() for c in cs]
         if login.lower() in who and who[-1] != login.lower():
-            out.append(cs[-1])
+            out.append(cs)
     return out
 
 
@@ -165,37 +231,130 @@ def handle_replies(s, a, login, repo, n, pr, baseline):
     key = f"{repo}#{n}"
     done = set(s["replies"].get(key, []))
     try:
-        new = [c for c in pending_replies(repo, n, login) if c["id"] not in done]
+        new = [cs for cs in pending_replies(repo, n, login)
+               if cs[-1]["id"] not in done]
         if new and not baseline:
             pr = pr or pr_view(repo, n)
             if pr.get("state") != "OPEN":
                 return True
-            links = " ".join(c.get("html_url", "") for c in new)
+            links = " ".join(cs[-1].get("html_url", "") for cs in new)
+            thread = [activity_item("inline comment", c)
+                      for cs in new for c in cs]
             if not launch(repo, n, pr, f"reply to my review comment(s): {links}",
-                          a.agent, a.max_agents, a.stale_lock_hours, a.dry_run):
+                          a.agent, a.max_agents, a.stale_lock_hours, a.dry_run,
+                          gate=lambda: thread):
                 return False
     except subprocess.CalledProcessError:
         return False
     if not a.dry_run:
-        s["replies"][key] = sorted(done | {c["id"] for c in new})
+        s["replies"][key] = sorted(done | {cs[-1]["id"] for cs in new})
     return True
 
 
-def review_fingerprint(repo, n):
-    data = []
-    for endpoint in (
-        f"repos/{repo}/pulls/{n}/reviews?per_page=100",
-        f"repos/{repo}/pulls/{n}/comments?per_page=100",
-        f"repos/{repo}/issues/{n}/comments?per_page=100",
+def activity_item(kind, x):
+    return {
+        "kind": kind, "id": x.get("id"), "state": x.get("state"),
+        "updated_at": x.get("updated_at"), "submitted_at": x.get("submitted_at"),
+        "user": (x.get("user") or {}).get("login"), "path": x.get("path"),
+        "at": x.get("updated_at") or x.get("submitted_at") or "",
+        "body": x.get("body") or "",
+    }
+
+
+def activity(repo, n):
+    """Reviews, inline comments and conversation comments of a PR."""
+    out = []
+    for kind, endpoint in (
+        ("review", f"repos/{repo}/pulls/{n}/reviews?per_page=100"),
+        ("inline comment", f"repos/{repo}/pulls/{n}/comments?per_page=100"),
+        ("comment", f"repos/{repo}/issues/{n}/comments?per_page=100"),
     ):
-        for x in api(endpoint):
-            data.append([
-                x.get("id"), x.get("state"), x.get("updated_at"),
-                x.get("submitted_at"), (x.get("user") or {}).get("login")
-            ])
+        out += [activity_item(kind, x) for x in api(endpoint)]
+    return out
+
+
+def fingerprint(items):
+    data = [[x["id"], x["state"], x["updated_at"], x["submitted_at"],
+             x["user"]] for x in items]
     raw = json.dumps(data, sort_keys=True, separators=(",", ":")).encode()
     return hashlib.sha256(raw).hexdigest()
 
+
+def since(items, t):
+    """Activity newer than t (all of it, capped, when never judged)."""
+    items = sorted(items, key=lambda x: x["at"])
+    return [x for x in items if x["at"] > t] if t else items[-10:]
+
+
+def now_iso():
+    return dt.datetime.now(dt.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+
+
+def failing_checks(pr):
+    bad = {"FAILURE", "TIMED_OUT", "CANCELLED", "ACTION_REQUIRED", "ERROR",
+           "STARTUP_FAILURE"}
+    return [c.get("name") or c.get("context") or "?"
+            for c in pr.get("statusCheckRollup") or []
+            if (c.get("conclusion") or c.get("state")) in bad]
+
+
+def jev_worth_it(repo, n, pr, trigger, new):
+    """Ask Jev whether the new activity needs the agent at all.
+
+    Returns (launch, note). Anything but a confident "no" launches, so an
+    unsure or unreachable Jev never swallows real feedback."""
+    author = (pr.get("author") or {}).get("login", "")
+    own = author.lower() == LOGIN.lower()
+    lines = [
+        f"GitHub pull request {repo}#{n}: {pr.get('title')}",
+        f"PR author: {author} ("
+        + ("Matthias's own PR" if own else
+           "someone else's PR; Matthias is a reviewer") + ")",
+        f"Matthias's GitHub login: {LOGIN}",
+        f"Why this check runs: {trigger}",
+        "Failing CI checks: " + (", ".join(failing_checks(pr)) or "none"),
+        "",
+        "New activity since the last check (oldest first):",
+    ]
+    budget, entries = 40000, []
+    for x in reversed(new):  # keep the newest when trimming
+        head = f"- {x['kind']} by {x['user']} at {x['at']}"
+        if x["state"]:
+            head += f" [{x['state']}]"
+        if x["path"]:
+            head += f" on {x['path']}"
+        body = x["body"].strip()[:1500].replace("\n", "\n  ")
+        entry = head + (":\n  " + body if body else "")
+        budget -= len(entry)
+        if budget < 0:
+            break
+        entries.append(entry)
+    lines += reversed(entries) if entries else ["- (none)"]
+    req = {"state": "\n".join(lines), "questions": [{
+        "id": "act", "type": "noul",
+        "question": "Should a coding agent working for Matthias act on this "
+                    "PR now: a concrete change request, a question that needs "
+                    "Matthias's answer, a reply in his review thread that "
+                    "needs a response, or a failing CI check on his own PR?",
+        "criteria": {
+            "true": "at least one item needs a code change or a response "
+                    "from Matthias",
+            "false": "only bot summaries, approvals, LGTMs, thanks, "
+                     "acknowledgements, Matthias's own activity, or nothing",
+        },
+    }]}
+    try:
+        # exit 3 = escalated; the verdict is still on stdout
+        out = run(JEV + ["judge"], input=json.dumps(req), timeout=60,
+                  check=False).stdout
+        v = json.loads(out)["verdicts"][0]
+    except (subprocess.CalledProcessError, OSError, ValueError, KeyError,
+            IndexError) as e:
+        return True, f"jev unavailable, launching anyway: {e!r}"
+    note = f"jev p={v.get('answer')} conf={v.get('confidence')}"
+    if v.get("escalate"):
+        return True, f"{note} unsure ({v.get('reason')}), launching anyway"
+    return v.get("answer", 1) >= 0.5, note
 
 def worktree(repo, n):
     slug = repo.replace("/", "__")
@@ -232,6 +391,25 @@ def prompt(repo, n, pr, trigger):
         (pr.get("headRepositoryOwner") or {}).get("login", "?"),
         (pr.get("headRepository") or {}).get("name", "?"),
     )
+    base = pr.get("baseRefName")
+    remote = (LOCAL.get(repo) or (None, "origin"))[1]  # upstream for forks
+    if author.lower() == LOGIN.lower():
+        # own work: keep it current with the base branch
+        branch_rule = f"""This is Matthias's OWN PR (own work):
+- before changing anything: `git fetch {remote} && git rebase {remote}/{base}`
+- after committing: fetch and rebase onto {remote}/{base} again
+- if a rebase conflicts, stop and explain it here; do not force-resolve
+- push the rebased branch with `git push --force-with-lease` (only to this
+  PR's branch)"""
+        force = "do NOT force-push, except `--force-with-lease` after the rebase"
+    else:
+        # someone else's PR: never rewrite their history
+        branch_rule = f"""This PR belongs to {author} (review work, not Matthias's own):
+- do NOT rebase, rewrite history or force-push
+- add commits on top of the current PR head; push fast-forward only with
+  plain `git push`
+- if the branch is behind or conflicts with {base}, report it here instead"""
+        force = "do NOT force-push"
     return f"""Babysit this GitHub PR locally.
 
 Trigger: {trigger}
@@ -242,7 +420,9 @@ Title: {pr.get("title")}
 Author: {author}
 Head: {head}:{pr.get("headRefName")} (local branch review/pr-{n})
 Maintainer can modify: {pr.get("maintainerCanModify")}
-Base branch: {pr.get("baseRefName")}
+Base branch: {base}
+
+{branch_rule}
 
 Use gh/git to inspect recent reviews, inline review comments, PR discussion,
 commits and CI/checks.
@@ -266,9 +446,9 @@ STRICT TEST PHASE:
 - do NOT submit/approve/reject reviews
 - do NOT change GitHub notification state
 - do NOT merge/close the PR
-- do NOT force-push
+- {force}
 The `gh` on PATH is read-only and will refuse GitHub writes; do not try to
-work around it (no curl/API tokens). Push only with plain `git push`.
+work around it (no curl/API tokens). Push only with `git push`.
 """
 
 
@@ -292,17 +472,23 @@ def locks(stale_hours):
     return out
 
 
-def launch(repo, n, pr, trigger, agent, max_agents, stale_hours, dry):
+def launch(repo, n, pr, trigger, agent, max_agents, stale_hours, dry,
+           gate=None):
+    """True once the event is handled: agent started, or Jev said skip.
+
+    gate: callable returning the new activity to judge first; None starts
+    the agent unconditionally (explicit 👀 opt-in)."""
     try:
         return _launch(repo, n, pr, trigger, agent, max_agents, stale_hours,
-                       dry)
+                       dry, gate)
     except (subprocess.CalledProcessError, OSError, RuntimeError) as e:
         err = getattr(e, "stderr", "") or e
         log(f"{repo}#{n}: launch failed; keeping event pending: {err}")
         return False
 
 
-def _launch(repo, n, pr, trigger, agent, max_agents, stale_hours, dry):
+def _launch(repo, n, pr, trigger, agent, max_agents, stale_hours, dry,
+            gate):
     lock = ROOT / "locks" / f"{repo.replace('/', '__')}__{n}.lock"
     if lock.exists():
         log(f"{repo}#{n}: already running; keeping event pending")
@@ -310,6 +496,13 @@ def _launch(repo, n, pr, trigger, agent, max_agents, stale_hours, dry):
     if not dry and len(locks(stale_hours)) >= max_agents:
         log(f"{repo}#{n}: agent limit reached ({max_agents}); keeping event pending")
         return False
+
+    if gate and JEV:
+        go, note = jev_worth_it(repo, n, pr, trigger, gate())
+        log(f"{repo}#{n}: {note}")
+        if not go:
+            log(f"{repo}#{n}: nothing actionable [{trigger}]; not launching")
+            return True
 
     log(f"matched {repo}#{n}: {pr['title']} [{trigger}]")
     if dry:
@@ -456,26 +649,41 @@ def poll(s, a, login):
             s["seen"][nid] = updated
             continue
 
-        if launch(repo, n, pr, "my PR notification", a.agent,
-                  a.max_agents, a.stale_lock_hours, a.dry_run):
+        t = s["handled"].get(key)
+        if launch(repo, n, pr, f"my PR notification ({x.get('reason')})",
+                  a.agent, a.max_agents, a.stale_lock_hours, a.dry_run,
+                  gate=lambda: since(activity(repo, n), t)):
             if not a.dry_run:
                 s["seen"][nid] = updated
+                s["handled"][key] = now_iso()
 
-    # 2) Recent non-owned PRs: detect a 👀 added AFTER we first saw them.
+    # 2) Non-owned PRs I'm involved in, even without a recent notification,
+    #    so a 👀 on an older PR still opts it in.
+    try:
+        involved = involved_prs(login)
+    except subprocess.CalledProcessError as e:
+        log(f"PR search failed; using notification candidates only: "
+            f"{(e.stderr or '').strip()}")
+        involved = {}
+    for key, (repo, n, author) in involved.items():
+        if (author.lower() == login.lower() or key in s["watched"]
+                or not repo_ok(repo, a.repo, a.exclude_repo)):
+            continue
+        s["candidates"][key] = {"repo": repo, "pr": n, "seen_at": time.time()}
+
+    # 3) Candidates: detect a 👀 added AFTER we first saw them.
     candidates = sorted(
         s["candidates"].items(),
         key=lambda kv: kv[1].get("seen_at", 0),
         reverse=True
     )[:a.candidate_limit]
+    eyes = my_eyes([(i["repo"], int(i["pr"])) for _, i in candidates])
 
     for key, item in candidates:
         repo, n = item["repo"], int(item["pr"])
-        try:
-            reaction = my_eyes(repo, n, login)
-        except subprocess.CalledProcessError:
-            continue
-        if not reaction:
-            continue
+        where = eyes.get(key)
+        if not where:
+            continue  # no 👀, or lookup failed
 
         try:
             pr = pr_view(repo, n)
@@ -485,30 +693,30 @@ def poll(s, a, login):
             s["candidates"].pop(key, None)
             continue
 
-        created = reaction.get("created_at", "unknown")
         if a.dry_run:
-            log(f"👀 detected {repo}#{n} (added {created})")
+            log(f"👀 detected {repo}#{n} (on {where})")
 
-        if launch(repo, n, pr, f"👀 opt-in ({created})", a.agent,
+        if launch(repo, n, pr, f"👀 opt-in (on {where})", a.agent,
                   a.max_agents, a.stale_lock_hours, a.dry_run):
             if not a.dry_run:
                 try:
-                    fp = review_fingerprint(repo, n)
+                    fp = fingerprint(activity(repo, n))
                 except subprocess.CalledProcessError:
                     fp = None  # next watch pass relaunches on change
+                s["handled"][key] = now_iso()
                 s["watched"][key] = {
                     "repo": repo, "pr": n, "fingerprint": fp
                 }
                 s["candidates"].pop(key, None)
 
-    # 3) Already opted-in PRs: trigger only when review/discussion changes.
-    for key, item in list(s["watched"].items()):
+    # 4) Already opted-in PRs: trigger only when review/discussion changes.
+    watched = list(s["watched"].items())
+    eyes = my_eyes([(i["repo"], int(i["pr"])) for _, i in watched])
+    for key, item in watched:
         repo, n = item["repo"], int(item["pr"])
-        try:
-            reaction = my_eyes(repo, n, login)
-        except subprocess.CalledProcessError:
-            continue
-        if not reaction:
+        if key not in eyes:
+            continue  # lookup failed; keep watching
+        if not eyes[key]:
             log(f"{repo}#{n}: 👀 removed; stopping watch")
             if not a.dry_run:
                 s["watched"].pop(key, None)
@@ -520,16 +728,20 @@ def poll(s, a, login):
                 if not a.dry_run:
                     s["watched"].pop(key, None)
                 continue
-            fp = review_fingerprint(repo, n)
+            items = activity(repo, n)
         except subprocess.CalledProcessError:
             continue
+        fp = fingerprint(items)
         if fp == item.get("fingerprint"):
             continue
 
+        t = s["handled"].get(key)
         if launch(repo, n, pr, "review/discussion changed", a.agent,
-                  a.max_agents, a.stale_lock_hours, a.dry_run):
+                  a.max_agents, a.stale_lock_hours, a.dry_run,
+                  gate=lambda: since(items, t)):
             if not a.dry_run:
                 item["fingerprint"] = fp
+                s["handled"][key] = now_iso()
 
     log(
         f"{'dry-run ' if a.dry_run else ''}summary: "
@@ -561,6 +773,10 @@ def main():
     p.add_argument("--process-existing", action="store_true")
     p.add_argument("--once", action="store_true")
     p.add_argument("--dry-run", action="store_true")
+    p.add_argument("--jev-cmd", default="npx -y jev-use@0.8.0",
+                   help="jev-use command for the pre-launch check")
+    p.add_argument("--no-jev", action="store_true",
+                   help="launch on every trigger without asking Jev first")
     p.add_argument("--reset-state", action="store_true")
     a = p.parse_args()
     a.repo = [repo_pattern(x) for x in a.repo]
@@ -583,7 +799,12 @@ def main():
     elif a.remote:
         raise SystemExit("--remote needs to run inside a git checkout")
 
-    global LAUNCHER
+    global LAUNCHER, LOGIN, JEV
+    if not a.no_jev:
+        JEV = shlex.split(a.jev_cmd)
+        if not shutil.which(JEV[0]):
+            log(f"jev check disabled: {JEV[0]} not found")
+            JEV = None
     LAUNCHER = a.launcher
     if LAUNCHER == "auto":
         gui = sys.platform == "darwin" and run(
@@ -614,10 +835,12 @@ def main():
         log(f"cannot determine GitHub user, retrying in 30s: {err}")
         time.sleep(30)
 
+    LOGIN = login
     log(f"GitHub user: {login}")
     log(f"agent: {a.agent} (interactive)")
     log(f"launcher: {LAUNCHER}")
     log(f"max active agents: {a.max_agents}")
+    log(f"jev check before launch: {' '.join(JEV) if JEV else 'off'}")
     log("GitHub notifications: READ ONLY")
     log("review output: LOCAL SESSION ONLY")
     if a.repo:
