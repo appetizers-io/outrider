@@ -114,3 +114,17 @@ def test_gh_json_invalid_json(monkeypatch: pytest.MonkeyPatch) -> None:
     with pytest.raises(subprocess.CalledProcessError) as e:
         app.gh_json(["api", "user"])
     assert "invalid JSON" in e.value.stderr
+
+
+@pytest.mark.parametrize(
+    ("pattern", "login", "hit"),
+    [
+        ("*[bot]", "netlify[bot]", True),
+        ("*[bot]", "robot", False),  # brackets are literal, not a class
+        ("netlify[bot]", "Netlify[Bot]", True),
+        ("coderabbit?i*", "coderabbitai[bot]", True),
+        ("alice", "alice2", False),
+    ],
+)
+def test_login_glob(pattern: str, login: str, hit: bool) -> None:
+    assert bool(app.login_glob(pattern).fullmatch(login)) is hit

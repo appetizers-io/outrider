@@ -1,0 +1,42 @@
+# yaml-language-server: $schema=./config.schema.json
+#
+# gh-review-agent configuration. Every key is optional; the values below are
+# examples, `gh-review-agent config show` prints the effective config with all
+# defaults. Command-line flags override this file.
+#
+# Location: --config, $GH_REVIEW_AGENT_CONFIG, or
+# ~/.config/gh-review-agent/config.yaml
+
+owner_name: Matthias          # default: first name from your GitHub profile
+agent: claude
+max_agents: 3
+lookback_hours: 2
+
+repos:
+  include: ["open-component-model/*"]
+  exclude: ["open-component-model/ocm-website"]
+
+# activity only by these never starts a session
+ignore_authors: ["netlify[bot]", "github-actions[bot]"]
+
+triggers:
+  own_prs:
+    enabled: true
+    gate: jev                 # ask Jev first; none = always launch
+  opt_in:
+    reaction: eyes
+    where: [description, comment, review, review_comment]
+    on_change:
+      gate: jev
+      ignore_own_activity: true
+  review_replies:
+    scope: thread             # only the replied threads, not the whole PR
+    fresh_within_hours: 2
+
+jev:
+  enabled: auto               # on when jev-use/npx and a backend key exist
+  skip_below: 0.5
+
+prompts:
+  extra: |
+    Run `make test` before committing.

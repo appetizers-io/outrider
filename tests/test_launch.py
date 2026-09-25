@@ -13,7 +13,9 @@ PR: dict[str, Any] = {"title": "T", "author": {"login": "bob"}}
 def jev_calls(monkeypatch: pytest.MonkeyPatch) -> list[str]:
     calls: list[str] = []
 
-    def fake(repo: str, n: int, pr: Any, trigger: str, new: Any) -> tuple[bool, str]:
+    def fake(
+        repo: str, n: int, pr: Any, trigger: str, new: Any, settings: Any
+    ) -> tuple[bool, str]:
         calls.append(trigger)
         return trigger != "noise", "jev test"
 

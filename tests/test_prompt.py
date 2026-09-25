@@ -59,3 +59,11 @@ def test_whole_pr_without_scope() -> None:
     text = app.prompt("o/r", 1, pr("bob"), "👀")
     assert "inspect recent reviews" in text
     assert "SCOPE" not in text
+
+
+def test_owner_name_and_extra_instructions(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(app, "OWNER", "Matze")
+    text = app.prompt("o/r", 1, pr("bob"), "t", extra="Run make test first.\n")
+    assert "explain it to Matze" in text
+    assert "Matthias" not in text
+    assert text.rstrip().endswith("Run make test first.")

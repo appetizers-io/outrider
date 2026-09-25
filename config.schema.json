@@ -1,0 +1,438 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/appetizers-io/llm-review-agent/config.schema.json",
+  "$defs": {
+    "Jev": {
+      "additionalProperties": false,
+      "description": "Pre-launch check: Jev judges whether new activity is actionable.",
+      "properties": {
+        "enabled": {
+          "default": "auto",
+          "description": "auto: on when the command is found and a Jev backend is configured (TYPESAFE_API_KEY, OPENROUTER_API_KEY, AI_GATEWAY_API_KEY, JEV_BACKEND).",
+          "enum": [
+            "auto",
+            true,
+            false
+          ],
+          "title": "Enabled"
+        },
+        "command": {
+          "anyOf": [
+            {
+              "minLength": 1,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "null: jev-use on PATH, else npx -y jev-use@0.8.0.",
+          "title": "Command"
+        },
+        "skip_below": {
+          "default": 0.5,
+          "description": "Skip the launch when Jev is confident the probability that something is actionable is below this.",
+          "maximum": 1,
+          "minimum": 0,
+          "title": "Skip Below",
+          "type": "number"
+        },
+        "confidence_threshold": {
+          "anyOf": [
+            {
+              "maximum": 1,
+              "minimum": 0,
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Below this confidence Jev escalates, which launches. null: jev-use's own defaults (0.5 reported, 0.4 estimated).",
+          "title": "Confidence Threshold"
+        },
+        "timeout_seconds": {
+          "default": 60,
+          "description": "A slower answer launches anyway.",
+          "minimum": 1,
+          "title": "Timeout Seconds",
+          "type": "integer"
+        }
+      },
+      "title": "Jev",
+      "type": "object"
+    },
+    "OnChange": {
+      "additionalProperties": false,
+      "description": "Relaunch when reviews or comments on an opted-in PR change.",
+      "properties": {
+        "gate": {
+          "default": "jev",
+          "description": "jev: ask Jev first (when Jev is enabled). none: always launch.",
+          "enum": [
+            "jev",
+            "none"
+          ],
+          "title": "Gate",
+          "type": "string"
+        },
+        "ignore_own_activity": {
+          "default": true,
+          "description": "Changes made only by you (or by ignore_authors) never relaunch.",
+          "title": "Ignore Own Activity",
+          "type": "boolean"
+        }
+      },
+      "title": "OnChange",
+      "type": "object"
+    },
+    "OptIn": {
+      "additionalProperties": false,
+      "description": "Your reaction on someone else's PR opts it in; sessions cover the whole PR.",
+      "properties": {
+        "enabled": {
+          "default": true,
+          "title": "Enabled",
+          "type": "boolean"
+        },
+        "reaction": {
+          "default": "eyes",
+          "description": "GitHub reaction that opts a PR in. Removing it stops the watch.",
+          "enum": [
+            "+1",
+            "-1",
+            "laugh",
+            "confused",
+            "heart",
+            "hooray",
+            "rocket",
+            "eyes"
+          ],
+          "title": "Reaction",
+          "type": "string"
+        },
+        "where": {
+          "default": [
+            "description",
+            "comment",
+            "review",
+            "review_comment"
+          ],
+          "description": "Where the reaction counts.",
+          "items": {
+            "enum": [
+              "description",
+              "comment",
+              "review",
+              "review_comment"
+            ],
+            "type": "string"
+          },
+          "minItems": 1,
+          "title": "Where",
+          "type": "array",
+          "uniqueItems": true
+        },
+        "on_change": {
+          "$ref": "#/$defs/OnChange",
+          "default": {
+            "gate": "jev",
+            "ignore_own_activity": true
+          }
+        }
+      },
+      "title": "OptIn",
+      "type": "object"
+    },
+    "OwnPrs": {
+      "additionalProperties": false,
+      "description": "Notifications on PRs you authored.",
+      "properties": {
+        "enabled": {
+          "default": true,
+          "title": "Enabled",
+          "type": "boolean"
+        },
+        "gate": {
+          "default": "jev",
+          "description": "jev: ask Jev first (when Jev is enabled). none: always launch.",
+          "enum": [
+            "jev",
+            "none"
+          ],
+          "title": "Gate",
+          "type": "string"
+        }
+      },
+      "title": "OwnPrs",
+      "type": "object"
+    },
+    "Prompts": {
+      "additionalProperties": false,
+      "properties": {
+        "extra": {
+          "default": "",
+          "description": "Appended to every agent prompt, e.g. house rules for tests or commits.",
+          "title": "Extra",
+          "type": "string"
+        }
+      },
+      "title": "Prompts",
+      "type": "object"
+    },
+    "Repos": {
+      "additionalProperties": false,
+      "properties": {
+        "include": {
+          "default": [],
+          "description": "owner/repo globs or GitHub URLs. Empty: the checkout you run in, else every repo.",
+          "items": {
+            "minLength": 1,
+            "type": "string"
+          },
+          "title": "Include",
+          "type": "array"
+        },
+        "exclude": {
+          "default": [],
+          "description": "owner/repo globs or GitHub URLs that never trigger.",
+          "items": {
+            "minLength": 1,
+            "type": "string"
+          },
+          "title": "Exclude",
+          "type": "array"
+        }
+      },
+      "title": "Repos",
+      "type": "object"
+    },
+    "ReviewReplies": {
+      "additionalProperties": false,
+      "description": "Someone replies in a review thread you took part in.",
+      "properties": {
+        "enabled": {
+          "default": true,
+          "title": "Enabled",
+          "type": "boolean"
+        },
+        "gate": {
+          "default": "jev",
+          "description": "jev: ask Jev first (when Jev is enabled). none: always launch.",
+          "enum": [
+            "jev",
+            "none"
+          ],
+          "title": "Gate",
+          "type": "string"
+        },
+        "scope": {
+          "default": "thread",
+          "description": "thread: the session handles only the replied threads. pr: the whole PR.",
+          "enum": [
+            "thread",
+            "pr"
+          ],
+          "title": "Scope",
+          "type": "string"
+        },
+        "fresh_within_hours": {
+          "anyOf": [
+            {
+              "minimum": 1,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Only replies this recent trigger. null: lookback_hours.",
+          "title": "Fresh Within Hours"
+        }
+      },
+      "title": "ReviewReplies",
+      "type": "object"
+    },
+    "Triggers": {
+      "additionalProperties": false,
+      "properties": {
+        "own_prs": {
+          "$ref": "#/$defs/OwnPrs",
+          "default": {
+            "enabled": true,
+            "gate": "jev"
+          }
+        },
+        "opt_in": {
+          "$ref": "#/$defs/OptIn",
+          "default": {
+            "enabled": true,
+            "reaction": "eyes",
+            "where": [
+              "description",
+              "comment",
+              "review",
+              "review_comment"
+            ],
+            "on_change": {
+              "gate": "jev",
+              "ignore_own_activity": true
+            }
+          }
+        },
+        "review_replies": {
+          "$ref": "#/$defs/ReviewReplies",
+          "default": {
+            "enabled": true,
+            "gate": "jev",
+            "scope": "thread",
+            "fresh_within_hours": null
+          }
+        }
+      },
+      "title": "Triggers",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "description": "gh-review-agent configuration. Every key is optional; command-line flags\noverride this file.",
+  "properties": {
+    "owner_name": {
+      "anyOf": [
+        {
+          "minLength": 1,
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "description": "How prompts refer to you. null: first name from your GitHub profile, else your login.",
+      "title": "Owner Name"
+    },
+    "agent": {
+      "default": "codex",
+      "description": "Coding agent CLI to launch.",
+      "enum": [
+        "codex",
+        "claude"
+      ],
+      "title": "Agent",
+      "type": "string"
+    },
+    "launcher": {
+      "default": "auto",
+      "description": "auto: Terminal on a macOS desktop session, else tmux.",
+      "enum": [
+        "auto",
+        "terminal",
+        "tmux"
+      ],
+      "title": "Launcher",
+      "type": "string"
+    },
+    "interval_seconds": {
+      "default": 60,
+      "description": "Pause between polls. Doubles on consecutive failures, up to 15 minutes.",
+      "minimum": 10,
+      "title": "Interval Seconds",
+      "type": "integer"
+    },
+    "lookback_hours": {
+      "default": 168,
+      "description": "Notification window, and how long an unseen candidate PR is kept.",
+      "minimum": 1,
+      "title": "Lookback Hours",
+      "type": "integer"
+    },
+    "max_agents": {
+      "default": 1,
+      "description": "Agent sessions allowed to run at once.",
+      "minimum": 1,
+      "title": "Max Agents",
+      "type": "integer"
+    },
+    "candidate_limit": {
+      "default": 50,
+      "description": "Most recently seen non-owned PRs checked for the opt-in reaction per poll.",
+      "minimum": 1,
+      "title": "Candidate Limit",
+      "type": "integer"
+    },
+    "stale_lock_hours": {
+      "default": 12,
+      "description": "A session lock older than this is dead.",
+      "exclusiveMinimum": 0,
+      "title": "Stale Lock Hours",
+      "type": "number"
+    },
+    "repos": {
+      "$ref": "#/$defs/Repos",
+      "default": {
+        "include": [],
+        "exclude": []
+      }
+    },
+    "ignore_authors": {
+      "default": [],
+      "description": "Login globs whose activity alone never triggers a session, e.g. \"netlify[bot]\" or \"*[bot]\".",
+      "items": {
+        "minLength": 1,
+        "type": "string"
+      },
+      "title": "Ignore Authors",
+      "type": "array"
+    },
+    "triggers": {
+      "$ref": "#/$defs/Triggers",
+      "default": {
+        "own_prs": {
+          "enabled": true,
+          "gate": "jev"
+        },
+        "opt_in": {
+          "enabled": true,
+          "on_change": {
+            "gate": "jev",
+            "ignore_own_activity": true
+          },
+          "reaction": "eyes",
+          "where": [
+            "description",
+            "comment",
+            "review",
+            "review_comment"
+          ]
+        },
+        "review_replies": {
+          "enabled": true,
+          "fresh_within_hours": null,
+          "gate": "jev",
+          "scope": "thread"
+        }
+      }
+    },
+    "jev": {
+      "$ref": "#/$defs/Jev",
+      "default": {
+        "enabled": "auto",
+        "command": null,
+        "skip_below": 0.5,
+        "confidence_threshold": null,
+        "timeout_seconds": 60
+      }
+    },
+    "prompts": {
+      "$ref": "#/$defs/Prompts",
+      "default": {
+        "extra": ""
+      }
+    }
+  },
+  "title": "gh-review-agent configuration",
+  "type": "object"
+}
