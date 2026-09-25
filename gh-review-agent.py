@@ -280,7 +280,7 @@ def fingerprint(items):
     return hashlib.sha256(raw).hexdigest()
 
 
-def since(items, t):
+def newer_than(items, t):
     """Activity newer than t (all of it, capped, when never judged)."""
     items = sorted(items, key=lambda x: x["at"])
     return [x for x in items if x["at"] > t] if t else items[-10:]
@@ -652,7 +652,7 @@ def poll(s, a, login):
         t = s["handled"].get(key)
         if launch(repo, n, pr, f"my PR notification ({x.get('reason')})",
                   a.agent, a.max_agents, a.stale_lock_hours, a.dry_run,
-                  gate=lambda: since(activity(repo, n), t)):
+                  gate=lambda: newer_than(activity(repo, n), t)):
             if not a.dry_run:
                 s["seen"][nid] = updated
                 s["handled"][key] = now_iso()
@@ -738,7 +738,7 @@ def poll(s, a, login):
         t = s["handled"].get(key)
         if launch(repo, n, pr, "review/discussion changed", a.agent,
                   a.max_agents, a.stale_lock_hours, a.dry_run,
-                  gate=lambda: since(items, t)):
+                  gate=lambda: newer_than(items, t)):
             if not a.dry_run:
                 item["fingerprint"] = fp
                 s["handled"][key] = now_iso()
