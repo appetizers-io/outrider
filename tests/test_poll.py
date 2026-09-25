@@ -1,5 +1,6 @@
 """poll() against an in-memory GitHub: which events launch, and what is recorded."""
 
+import datetime as dt
 import subprocess
 from dataclasses import dataclass, field
 from typing import Any
@@ -28,6 +29,7 @@ class Launch:
     key: str
     trigger: str
     gated: list[app.ActivityItem] | None
+    scope: list[str] | None = None
 
 
 @dataclass
@@ -86,11 +88,12 @@ def hub(monkeypatch: pytest.MonkeyPatch) -> Hub:
         trigger: str,
         a: app.Args,
         gate: app.Gate | None = None,
+        scope: list[str] | None = None,
     ) -> bool:
         # Always evaluate the gate: it runs inside poll's scope, where a
         # shadowed name once turned it into "'str' object is not callable".
         gated = gate() if gate else None
-        h.launches.append(Launch(f"{repo}#{n}", trigger, gated))
+        h.launches.append(Launch(f"{repo}#{n}", trigger, gated, scope))
         return h.launch_ok
 
     monkeypatch.setattr(app, "api", api)
@@ -247,23 +250,36 @@ def test_failed_eyes_lookup_keeps_watch(hub: Hub) -> None:
     assert hub.launches == []
 
 
-def test_reply_to_my_review_comment_launches(hub: Hub) -> None:
-    hub.pr(7, "bob")
-    hub.notify("n7", 7, "t1")
-    hub.review_comments["o/r#7"] = [
-        {"id": 10, "user": {"login": "me"}, "body": "why?"},
+def fresh(minutes_ago: int) -> str:
+    t = dt.datetime.now(dt.UTC) - dt.timedelta(minutes=minutes_ago)
+    return t.strftime("%Y-%m-%dT%H:%M:%SZ")
+
+
+def thread(reply_at: str) -> list[dict[str, Any]]:
+    return [
+        {"id": 10, "user": {"login": "me"}, "body": "why?", "created_at": "2026-01-01"},
         {
             "id": 11,
             "in_reply_to_id": 10,
             "user": {"login": "bob"},
             "body": "because",
+            "created_at": reply_at,
             "html_url": "https://x/c11",
         },
+        # someone else's thread: never mine, never triggers
+        {"id": 20, "user": {"login": "carol"}, "body": "nit", "created_at": fresh(1)},
     ]
+
+
+def test_reply_in_my_thread_launches_scoped_to_that_thread(hub: Hub) -> None:
+    hub.pr(7, "bob")
+    hub.notify("n7", 7, "t1")
+    hub.review_comments["o/r#7"] = thread(fresh(5))
     s = live_state()
     app.poll(s, args(), "me")
     [launch] = hub.launches
     assert launch.trigger == "reply to my review comment(s): https://x/c11"
+    assert launch.scope == ["https://x/c11"]
     assert launch.gated is not None
     assert [x["body"] for x in launch.gated] == ["why?", "because"]
     assert s["replies"]["o/r#7"] == [11]
@@ -271,6 +287,38 @@ def test_reply_to_my_review_comment_launches(hub: Hub) -> None:
     hub.notifications[0]["updated_at"] = "t2"  # new notification, same reply
     app.poll(s, args(), "me")
     assert len(hub.launches) == 1
+
+
+def test_old_reply_outside_lookback_does_not_launch(hub: Hub) -> None:
+    hub.pr(7, "bob")
+    hub.notify("n7", 7, "t1")
+    hub.review_comments["o/r#7"] = thread(fresh(5 * 60))
+    s = live_state()
+    app.poll(s, args("--lookback-hours", "2"), "me")
+    assert hub.launches == []
+    assert s["seen"] == {"n7": "t1"}
+
+
+def test_watched_pr_ignores_my_own_activity(hub: Hub) -> None:
+    hub.pr(5, "bob")
+    hub.eyes["o/r#5"] = "comment"
+    hub.activity["o/r#5"] = [
+        act(1, "2026-01-01"),
+        act(2, "2026-01-02", user="ME", body="tested this again"),
+    ]
+    s = watched_state("stale")
+    app.poll(s, args(), "me")
+    assert hub.launches == []
+    assert s["watched"]["o/r#5"]["fingerprint"] == app.fingerprint(
+        hub.activity["o/r#5"]
+    )
+
+    hub.activity["o/r#5"].append(act(3, "2099-01-01", body="please fix"))
+    app.poll(s, args(), "me")
+    [launch] = hub.launches
+    assert launch.scope is None  # 👀: the whole PR
+    assert launch.gated is not None
+    assert [x["id"] for x in launch.gated] == [3]
 
 
 def test_dry_run_changes_nothing(hub: Hub) -> None:

@@ -327,26 +327,41 @@ def pending_replies(repo: str, n: int, login: str) -> list[list[Json]]:
 
 
 def handle_replies(
-    s: State, a: Args, login: str, repo: str, n: int, pr: PR | None, baseline: bool
+    s: State,
+    a: Args,
+    login: str,
+    repo: str,
+    n: int,
+    pr: PR | None,
+    baseline: bool,
+    fresh_after: str,
 ) -> bool:
-    """Launch for unhandled replies to my review comments. False = retry."""
+    """Launch for unhandled replies to my review comments. False = retry.
+
+    Only replies newer than fresh_after count, so an old, unanswered thread
+    never triggers a session once the tool (re)starts watching the PR."""
     key = f"{repo}#{n}"
     done = set(s["replies"].get(key, []))
     try:
-        new = [cs for cs in pending_replies(repo, n, login) if cs[-1]["id"] not in done]
+        new = [
+            cs
+            for cs in pending_replies(repo, n, login)
+            if cs[-1]["id"] not in done and cs[-1].get("created_at", "") >= fresh_after
+        ]
         if new and not baseline:
             pr = pr or pr_view(repo, n)
             if pr.get("state") != "OPEN":
                 return True
-            links = " ".join(cs[-1].get("html_url", "") for cs in new)
+            urls = [cs[-1].get("html_url", "") for cs in new]
             thread = [activity_item("inline comment", c) for cs in new for c in cs]
             if not launch(
                 repo,
                 n,
                 pr,
-                f"reply to my review comment(s): {links}",
+                f"reply to my review comment(s): {' '.join(urls)}",
                 a,
                 gate=lambda: thread,
+                scope=urls,
             ):
                 return False
     except subprocess.CalledProcessError:
@@ -534,7 +549,9 @@ def worktree(repo: str, n: int) -> Path:
     return wt
 
 
-def prompt(repo: str, n: int, pr: PR, trigger: str) -> str:
+def prompt(
+    repo: str, n: int, pr: PR, trigger: str, scope: Sequence[str] | None = None
+) -> str:
     author = (pr.get("author") or {}).get("login", "")
     head = "{}/{}".format(
         (pr.get("headRepositoryOwner") or {}).get("login", "?"),
@@ -559,6 +576,18 @@ def prompt(repo: str, n: int, pr: PR, trigger: str) -> str:
   plain `git push`
 - if the branch is behind or conflicts with {base}, report it here instead"""
         force = "do NOT force-push"
+    if scope:
+        # a reply in my review thread: that thread only, not the whole PR
+        threads = "\n".join(f"- {u}" for u in scope)
+        work = f"""SCOPE: this session is ONLY about the review thread(s) below,
+where someone replied to Matthias's review comment:
+{threads}
+Read those threads (`gh api repos/{repo}/pulls/{n}/comments`, match the
+comment ids in the URLs) and handle only them. Do NOT review, summarize or
+act on anything else in this PR."""
+    else:
+        work = """Use gh/git to inspect recent reviews, inline review comments,
+PR discussion, commits and CI/checks."""
     return f"""Babysit this GitHub PR locally.
 
 Trigger: {trigger}
@@ -573,8 +602,7 @@ Base branch: {base}
 
 {branch_rule}
 
-Use gh/git to inspect recent reviews, inline review comments, PR discussion,
-commits and CI/checks.
+{work}
 
 If there is new, actionable, unambiguous feedback:
 - make the smallest appropriate change
@@ -625,14 +653,21 @@ def locks(stale_hours: float) -> list[Path]:
 
 
 def launch(
-    repo: str, n: int, pr: PR, trigger: str, a: Args, gate: Gate | None = None
+    repo: str,
+    n: int,
+    pr: PR,
+    trigger: str,
+    a: Args,
+    gate: Gate | None = None,
+    scope: Sequence[str] | None = None,
 ) -> bool:
     """True once the event is handled: agent started, or Jev said skip.
 
     gate: callable returning the new activity to judge first; None starts
-    the agent unconditionally (explicit 👀 opt-in)."""
+    the agent unconditionally (explicit 👀 opt-in).
+    scope: review thread URLs the session is limited to; None = whole PR."""
     try:
-        return _launch(repo, n, pr, trigger, a, gate)
+        return _launch(repo, n, pr, trigger, a, gate, scope)
     except (subprocess.CalledProcessError, OSError, RuntimeError) as e:
         err = getattr(e, "stderr", "") or e
         log(f"{repo}#{n}: launch failed; keeping event pending: {err}")
@@ -640,7 +675,13 @@ def launch(
 
 
 def _launch(
-    repo: str, n: int, pr: PR, trigger: str, a: Args, gate: Gate | None
+    repo: str,
+    n: int,
+    pr: PR,
+    trigger: str,
+    a: Args,
+    gate: Gate | None,
+    scope: Sequence[str] | None,
 ) -> bool:
     lock = ROOT / "locks" / f"{repo.replace('/', '__')}__{n}.lock"
     if lock.exists():
@@ -666,7 +707,7 @@ def _launch(
     session.mkdir(parents=True, exist_ok=True)
     pf = session / "prompt.txt"
     runner = session / "run-agent.command"
-    pf.write_text(prompt(repo, n, pr, trigger))
+    pf.write_text(prompt(repo, n, pr, trigger, scope))
 
     agent_path = shutil.which(a.agent)
     if not agent_path:
@@ -783,7 +824,7 @@ def poll(s: State, a: Args, login: str) -> None:
             s["candidates"][key]["seen_at"] = time.time()
             stats["candidate"] += 1
             if s["seen"].get(nid) != updated and not handle_replies(
-                s, a, login, repo, n, None, baseline
+                s, a, login, repo, n, None, baseline, window_start
             ):
                 continue  # keep the notification pending
             s["seen"][nid] = updated
@@ -807,7 +848,7 @@ def poll(s: State, a: Args, login: str) -> None:
             # notification, so a 👀 added later can still opt it in.
             s["candidates"][key] = {"repo": repo, "pr": n, "seen_at": time.time()}
             stats["candidate"] += 1
-            if handle_replies(s, a, login, repo, n, pr, baseline):
+            if handle_replies(s, a, login, repo, n, pr, baseline, window_start):
                 s["seen"][nid] = updated
             continue
 
@@ -913,6 +954,16 @@ def poll(s: State, a: Args, login: str) -> None:
             continue
 
         t = s["handled"].get(key)
+        if all(
+            (x["user"] or "").lower() == login.lower() for x in newer_than(items, t)
+        ):
+            # my own comments/reviews, or edits/deletions with nothing new
+            log(f"{repo}#{n}: nothing new from others; not launching")
+            if not a.dry_run:
+                w["fingerprint"] = fp
+                s["handled"][key] = now_iso()
+            continue
+
         if (
             launch(
                 repo,

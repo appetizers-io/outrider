@@ -45,3 +45,17 @@ def test_strict_rules_always_present() -> None:
         text = app.prompt("o/r", 1, pr(author), "t")
         assert "do NOT post comments" in text
         assert "do NOT merge/close the PR" in text
+
+
+def test_reply_session_is_scoped_to_its_threads() -> None:
+    urls = ["https://github.com/o/r/pull/1#discussion_r11"]
+    text = app.prompt("o/r", 1, pr("bob"), "reply", scope=urls)
+    assert "ONLY about the review thread(s)" in text
+    assert "- https://github.com/o/r/pull/1#discussion_r11" in text
+    assert "inspect recent reviews" not in text
+
+
+def test_whole_pr_without_scope() -> None:
+    text = app.prompt("o/r", 1, pr("bob"), "👀")
+    assert "inspect recent reviews" in text
+    assert "SCOPE" not in text
