@@ -68,9 +68,9 @@ def test_launch_errors_keep_event_pending(monkeypatch: pytest.MonkeyPatch) -> No
     assert not lock_for(1).exists()
 
 
-@pytest.mark.parametrize(("author", "no_push"), [("bob", "1"), ("me", "0")])
+@pytest.mark.parametrize(("author", "push"), [("bob", "review-only"), ("me", "ask")])
 def test_session_blocks_push_on_others_prs(
-    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, author: str, no_push: str
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, author: str, push: str
 ) -> None:
     import shutil
 
@@ -83,10 +83,10 @@ def test_session_blocks_push_on_others_prs(
     assert app.launch("o/r", 1, pr, "t", app.parse_args([]))
     session = app.ROOT / "sessions" / "o__r" / "pr-1"
     runner = (session / "run-agent.command").read_text()
-    assert f"export LLM_REVIEW_AGENT_NO_PUSH={no_push}" in runner
+    assert f"export LLM_REVIEW_AGENT_PUSH={push}" in runner
     assert (app.ROOT / "bin" / "git").read_text() == app.GIT_GUARD
     review_only = "REVIEW ONLY" in (session / "prompt.txt").read_text()
-    assert review_only is (no_push == "1")
+    assert review_only is (push == "review-only")
 
 
 def test_runner_stamps_its_pid_into_the_lock(

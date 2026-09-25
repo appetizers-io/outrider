@@ -1,9 +1,11 @@
 """The agent's gh shim must pass reads through and refuse every write."""
 
+import os
 import stat
 import subprocess
 import sys
 from pathlib import Path
+from typing import Any
 
 import pytest
 
@@ -97,7 +99,7 @@ def git_guard(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
     g = tmp_path / "git"
     g.write_text(app.GIT_GUARD)
     monkeypatch.setenv("LLM_REVIEW_AGENT_REAL_GIT", str(real))
-    monkeypatch.setenv("LLM_REVIEW_AGENT_NO_PUSH", "1")
+    monkeypatch.setenv("LLM_REVIEW_AGENT_PUSH", "review-only")
     return g
 
 
@@ -132,10 +134,89 @@ def test_git_reads_pass_through(git_guard: Path, args: list[str]) -> None:
     assert r.stdout.splitlines() == ["REAL", *args]
 
 
-def test_git_push_allowed_on_own_pr(
+def test_git_push_allowed_when_configured(
     git_guard: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    monkeypatch.setenv("LLM_REVIEW_AGENT_NO_PUSH", "0")
+    monkeypatch.setenv("LLM_REVIEW_AGENT_PUSH", "allow")
     r = gh(git_guard, "push")
     assert r.returncode == 0
     assert r.stdout.splitlines() == ["REAL", "push"]
+
+
+@pytest.mark.parametrize("args", [["push"], ["p"], ["-C", "/repo", "push"]])
+def test_git_push_blocked_when_pushing_is_off(
+    git_guard: Path, monkeypatch: pytest.MonkeyPatch, args: list[str]
+) -> None:
+    monkeypatch.setenv("LLM_REVIEW_AGENT_PUSH", "never")
+    r = gh(git_guard, *args)
+    assert r.returncode != 0
+    assert "Pushing is off" in r.stderr
+    assert "REAL" not in r.stdout
+
+
+def test_unknown_push_mode_is_review_only(
+    git_guard: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.delenv("LLM_REVIEW_AGENT_PUSH")
+    assert "review only" in gh(git_guard, "push").stderr
+
+
+@pytest.fixture
+def asking_guard(
+    git_guard: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> Any:
+    """Guard in ask mode with a fake osascript answering `button`."""
+    monkeypatch.setenv("LLM_REVIEW_AGENT_PUSH", "ask")
+    monkeypatch.setenv("GIT_CONFIG_COUNT", "1")
+    monkeypatch.setenv("GIT_CONFIG_KEY_0", "url.x://.pushInsteadOf")
+    real = Path(os.environ["LLM_REVIEW_AGENT_REAL_GIT"])
+    real.write_text(
+        real.read_text().replace(
+            "printf '%s\\n' REAL",
+            "printf 'count=%s\\n' \"$GIT_CONFIG_COUNT\"\nprintf '%s\\n' REAL",
+        )
+    )
+
+    def make(button: str | None) -> Path:
+        osa = tmp_path / "osascript"
+        if button is None:
+            osa.unlink(missing_ok=True)
+        else:
+            osa.write_text(
+                f'#!/bin/sh\necho "$@" > {tmp_path}/dialog\n'
+                + ("echo Push\n" if button == "Push" else "exit 1\n")
+            )
+            osa.chmod(0o755)
+        git_guard.write_text(
+            app.GIT_GUARD.replace('"/usr/bin/osascript"', repr(str(osa)))
+        )
+        return git_guard
+
+    return make
+
+
+def test_approved_push_runs_without_the_push_trap(
+    asking_guard: Any, tmp_path: Path
+) -> None:
+    r = gh(asking_guard("Push"), "push", "origin")
+    assert r.returncode == 0, r.stderr
+    assert "REAL\npush\norigin" in r.stdout
+    assert "count=\n" in r.stdout  # GIT_CONFIG_* dropped for the real push
+    assert "git push origin" in (tmp_path / "dialog").read_text()
+
+
+@pytest.mark.parametrize("button", ["Deny", None])
+def test_denied_or_unavailable_approval_blocks_push(
+    asking_guard: Any, button: str | None
+) -> None:
+    r = gh(asking_guard(button), "push")
+    assert r.returncode != 0
+    assert "did not approve" in r.stderr
+    assert "REAL\npush" not in r.stdout
+
+
+def test_ask_mode_does_not_ask_for_reads(asking_guard: Any, tmp_path: Path) -> None:
+    r = gh(asking_guard("Deny"), "status")
+    assert r.returncode == 0
+    assert "count=1" in r.stdout  # the push trap stays for everything else
+    assert not (tmp_path / "dialog").exists()

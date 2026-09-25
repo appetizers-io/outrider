@@ -529,6 +529,24 @@
       "title": "Mode",
       "type": "string"
     },
+    "push": {
+      "anyOf": [
+        {
+          "enum": [
+            "ask",
+            "never",
+            "allow"
+          ],
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "description": "Pushes in sessions that may push (your own PRs, others' PRs with others_prs.allow_push). ask: every `git push` opens a dialog and runs only after you click Push (macOS; elsewhere it is refused). never: commits stay local. allow: no question. null: ask in supervised mode, allow in autonomous mode.",
+      "title": "Push"
+    },
     "agent": {
       "default": "codex",
       "description": "Coding agent CLI to launch.",

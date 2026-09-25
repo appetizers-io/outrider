@@ -288,6 +288,14 @@ class Config(Model):
         "people's PRs are review only. autonomous: no tool gating, and pushing to "
         "other people's PRs follows others_prs.allow_push (default: allowed).",
     )
+    push: Literal["ask", "never", "allow"] | None = Field(
+        default=None,
+        description="Pushes in sessions that may push (your own PRs, others' PRs "
+        "with others_prs.allow_push). ask: every `git push` opens a dialog and runs "
+        "only after you click Push (macOS; elsewhere it is refused). never: "
+        "commits stay local. allow: no question. null: ask in supervised mode, "
+        "allow in autonomous mode.",
+    )
     agent: Literal["codex", "claude"] = Field(
         default="codex", description="Coding agent CLI to launch."
     )
@@ -363,6 +371,12 @@ def allow_push_to_others(cfg: Config) -> bool:
     if cfg.others_prs.allow_push is not None:
         return cfg.others_prs.allow_push
     return cfg.mode == "autonomous"
+
+
+def push_mode(cfg: Config) -> Literal["ask", "never", "allow"]:
+    if cfg.push is not None:
+        return cfg.push
+    return "ask" if cfg.mode == "supervised" else "allow"
 
 
 class ConfigError(Exception):
