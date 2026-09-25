@@ -4,7 +4,7 @@ from typing import Any
 
 import pytest
 
-from gh_review_agent import app
+from llm_review_agent import app
 
 PR: dict[str, Any] = {"title": "T", "author": {"login": "bob"}}
 
@@ -13,12 +13,14 @@ PR: dict[str, Any] = {"title": "T", "author": {"login": "bob"}}
 def jev_calls(monkeypatch: pytest.MonkeyPatch) -> list[str]:
     calls: list[str] = []
 
-    def fake(repo: str, n: int, pr: Any, trigger: str, new: Any) -> tuple[bool, str]:
+    def fake(
+        repo: str, n: int, pr: Any, trigger: str, new: Any, cfg: Any
+    ) -> tuple[bool, str]:
         calls.append(trigger)
-        return trigger != "noise", "jev test"
+        return trigger != "noise", "check test"
 
-    monkeypatch.setattr(app, "JEV", ["jev-use"])
-    monkeypatch.setattr(app, "jev_worth_it", fake)
+    monkeypatch.setattr(app, "LAUNCH_CHECK", object())
+    monkeypatch.setattr(app, "worth_launching", fake)
     return calls
 
 
@@ -64,3 +66,24 @@ def test_launch_errors_keep_event_pending(monkeypatch: pytest.MonkeyPatch) -> No
     monkeypatch.setattr(app, "worktree", boom)
     assert not app.launch("o/r", 1, PR, "t", app.parse_args([]))
     assert not lock_for(1).exists()
+
+
+@pytest.mark.parametrize(("author", "no_push"), [("bob", "1"), ("me", "0")])
+def test_session_blocks_push_on_others_prs(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, author: str, no_push: str
+) -> None:
+    import shutil
+
+    monkeypatch.setattr(app, "worktree", lambda repo, n: tmp_path)
+    monkeypatch.setattr(shutil, "which", lambda tool: f"/bin/{tool}")
+    monkeypatch.setattr(
+        app, "run", lambda *a, **k: subprocess.CompletedProcess([], 0, stdout="")
+    )
+    pr = {"title": "T", "author": {"login": author}}
+    assert app.launch("o/r", 1, pr, "t", app.parse_args([]))
+    session = app.ROOT / "sessions" / "o__r" / "pr-1"
+    runner = (session / "run-agent.command").read_text()
+    assert f"export LLM_REVIEW_AGENT_NO_PUSH={no_push}" in runner
+    assert (app.ROOT / "bin" / "git").read_text() == app.GIT_GUARD
+    review_only = "REVIEW ONLY" in (session / "prompt.txt").read_text()
+    assert review_only is (no_push == "1")

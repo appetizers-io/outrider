@@ -3,7 +3,7 @@ from typing import Any
 
 import pytest
 
-from gh_review_agent import app
+from llm_review_agent import app
 
 NO = {"reactionGroups": [{"content": "EYES", "viewerHasReacted": False}]}
 YES = {"reactionGroups": [{"content": "EYES", "viewerHasReacted": True}]}
@@ -58,7 +58,7 @@ def test_query_escapes_names(monkeypatch: pytest.MonkeyPatch) -> None:
 def test_one_broken_pr_does_not_hide_the_batch(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    def fake(prs: list[tuple[str, int]]) -> dict[str, str | None]:
+    def fake(prs: list[tuple[str, int]], *_: Any) -> dict[str, str | None]:
         if ("o/r", 2) in prs:
             raise subprocess.CalledProcessError(1, "gh")
         return {f"{r}#{n}": "comment" for r, n in prs}
@@ -71,10 +71,22 @@ def test_one_broken_pr_does_not_hide_the_batch(
 def test_batches(monkeypatch: pytest.MonkeyPatch) -> None:
     calls: list[int] = []
 
-    def fake(prs: list[tuple[str, int]]) -> dict[str, str | None]:
+    def fake(prs: list[tuple[str, int]], *_: Any) -> dict[str, str | None]:
         calls.append(len(prs))
         return {}
 
     monkeypatch.setattr(app, "_eyes_query", fake)
     app.my_eyes([("o/r", i) for i in range(23)])
     assert calls == [10, 10, 3]
+
+
+def test_configured_reaction_and_places(monkeypatch: pytest.MonkeyPatch) -> None:
+    rocket = {"reactionGroups": [{"content": "ROCKET", "viewerHasReacted": True}]}
+    data = {
+        "p0": pr(comments={"nodes": [rocket]}),  # rocket on a comment
+        "p1": pr(**YES),  # eyes on the description: not the configured reaction
+        "p2": pr(**rocket),  # rocket on the description
+    }
+    monkeypatch.setattr(app, "gh_json", lambda args: {"data": data})
+    got = app._eyes_query([("o/r", i) for i in range(3)], "rocket", ["description"])
+    assert got == {"o/r#0": None, "o/r#1": None, "o/r#2": "PR description"}

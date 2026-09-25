@@ -4,7 +4,7 @@ import sys
 
 import pytest
 
-from gh_review_agent import app
+from llm_review_agent import app
 
 
 @pytest.mark.parametrize(
@@ -86,6 +86,7 @@ def test_failing_checks() -> None:
 
 def test_load_state_defaults_and_migration() -> None:
     assert app.load_state()["watched"] == {}
+    app.STATE.parent.mkdir(parents=True)
     app.STATE.write_text(json.dumps({"123": "2026-01-01T00:00:00Z"}))
     s = app.load_state()
     assert s["seen"] == {"123": "2026-01-01T00:00:00Z"}
@@ -114,3 +115,17 @@ def test_gh_json_invalid_json(monkeypatch: pytest.MonkeyPatch) -> None:
     with pytest.raises(subprocess.CalledProcessError) as e:
         app.gh_json(["api", "user"])
     assert "invalid JSON" in e.value.stderr
+
+
+@pytest.mark.parametrize(
+    ("pattern", "login", "hit"),
+    [
+        ("*[bot]", "netlify[bot]", True),
+        ("*[bot]", "robot", False),  # brackets are literal, not a class
+        ("netlify[bot]", "Netlify[Bot]", True),
+        ("coderabbit?i*", "coderabbitai[bot]", True),
+        ("alice", "alice2", False),
+    ],
+)
+def test_login_glob(pattern: str, login: str, hit: bool) -> None:
+    assert bool(app.login_glob(pattern).fullmatch(login)) is hit

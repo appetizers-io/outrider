@@ -2,12 +2,12 @@
 
 import datetime as dt
 import subprocess
-from dataclasses import dataclass, field
 from typing import Any
 
 import pytest
+from pydantic import BaseModel, Field
 
-from gh_review_agent import app
+from llm_review_agent import app
 
 
 def act(id: int, at: str, user: str = "bob", body: str = "") -> app.ActivityItem:
@@ -24,23 +24,21 @@ def act(id: int, at: str, user: str = "bob", body: str = "") -> app.ActivityItem
     }
 
 
-@dataclass
-class Launch:
+class Launch(BaseModel):
     key: str
     trigger: str
     gated: list[app.ActivityItem] | None
     scope: list[str] | None = None
 
 
-@dataclass
-class Hub:
-    notifications: list[dict[str, Any]] = field(default_factory=list)
-    prs: dict[str, dict[str, Any]] = field(default_factory=dict)
-    activity: dict[str, list[app.ActivityItem]] = field(default_factory=dict)
-    review_comments: dict[str, list[dict[str, Any]]] = field(default_factory=dict)
-    eyes: dict[str, str | None] = field(default_factory=dict)
-    involved: dict[str, tuple[str, int, str]] = field(default_factory=dict)
-    launches: list[Launch] = field(default_factory=list)
+class Hub(BaseModel):
+    notifications: list[dict[str, Any]] = Field(default_factory=list)
+    prs: dict[str, dict[str, Any]] = Field(default_factory=dict)
+    activity: dict[str, list[app.ActivityItem]] = Field(default_factory=dict)
+    review_comments: dict[str, list[dict[str, Any]]] = Field(default_factory=dict)
+    eyes: dict[str, str | None] = Field(default_factory=dict)
+    involved: dict[str, tuple[str, int, str]] = Field(default_factory=dict)
+    launches: list[Launch] = Field(default_factory=list)
     launch_ok: bool = True
 
     def pr(self, n: int, author: str, state: str = "OPEN") -> None:
@@ -89,11 +87,14 @@ def hub(monkeypatch: pytest.MonkeyPatch) -> Hub:
         a: app.Args,
         gate: app.Gate | None = None,
         scope: list[str] | None = None,
+        scope_why: str | None = None,
     ) -> bool:
         # Always evaluate the gate: it runs inside poll's scope, where a
         # shadowed name once turned it into "'str' object is not callable".
         gated = gate() if gate else None
-        h.launches.append(Launch(f"{repo}#{n}", trigger, gated, scope))
+        h.launches.append(
+            Launch(key=f"{repo}#{n}", trigger=trigger, gated=gated, scope=scope)
+        )
         return h.launch_ok
 
     monkeypatch.setattr(app, "api", api)
@@ -104,7 +105,7 @@ def hub(monkeypatch: pytest.MonkeyPatch) -> Hub:
     monkeypatch.setattr(
         app,
         "my_eyes",
-        lambda prs: {
+        lambda prs, reaction="eyes", where=app.WHERE_ALL: {
             f"{r}#{n}": h.eyes[f"{r}#{n}"] for r, n in prs if f"{r}#{n}" in h.eyes
         },
     )
@@ -337,3 +338,187 @@ def test_search_failure_is_not_fatal(hub: Hub, monkeypatch: pytest.MonkeyPatch) 
 
     monkeypatch.setattr(app, "involved_prs", boom)
     app.poll(live_state(), args(), "me")
+
+
+# --- behaviour configured through the YAML file ------------------------------
+
+
+@pytest.fixture
+def cfg_args(tmp_path: Any) -> Any:
+    def make(text: str, *extra: str) -> app.Args:
+        p = tmp_path / "config.yaml"
+        p.write_text(text)
+        return app.parse_args(["--once", "--config", str(p), *extra])
+
+    return make
+
+
+def test_own_prs_disabled(hub: Hub, cfg_args: Any) -> None:
+    hub.pr(1, "me")
+    hub.notify("n1", 1, "t1")
+    s = live_state()
+    app.poll(s, cfg_args("triggers: {own_prs: {enabled: false}}"), "me")
+    assert hub.launches == []
+    assert s["seen"] == {"n1": "t1"}
+
+
+def test_gate_none_launches_without_jev(hub: Hub, cfg_args: Any) -> None:
+    hub.pr(1, "me")
+    hub.notify("n1", 1, "t1")
+    app.poll(live_state(), cfg_args("triggers: {own_prs: {check: false}}"), "me")
+    [launch] = hub.launches
+    assert launch.gated is None
+
+
+def test_ignore_authors_on_own_pr(hub: Hub, cfg_args: Any) -> None:
+    hub.pr(1, "me")
+    hub.notify("n1", 1, "t1")
+    hub.activity["o/r#1"] = [act(1, "2026-01-02", user="netlify[bot]")]
+    s = live_state()
+    app.poll(s, cfg_args('ignore_authors: ["*[bot]"]'), "me")
+    assert hub.launches == []
+    assert s["seen"] == {"n1": "t1"}
+
+    hub.notifications[0]["updated_at"] = "t2"
+    hub.activity["o/r#1"].append(act(2, "2099-01-01", user="alice"))
+    app.poll(s, cfg_args('ignore_authors: ["*[bot]"]'), "me")
+    assert len(hub.launches) == 1
+
+
+def test_ignore_authors_on_watched_pr(hub: Hub, cfg_args: Any) -> None:
+    hub.pr(5, "bob")
+    hub.eyes["o/r#5"] = "comment"
+    hub.activity["o/r#5"] = [act(2, "2026-01-02", user="coderabbitai[bot]")]
+    app.poll(
+        watched_state("stale"), cfg_args('ignore_authors: ["coderabbitai*"]'), "me"
+    )
+    assert hub.launches == []
+
+
+def test_own_activity_relaunches_when_not_ignored(hub: Hub, cfg_args: Any) -> None:
+    hub.pr(5, "bob")
+    hub.eyes["o/r#5"] = "comment"
+    hub.activity["o/r#5"] = [act(2, "2026-01-02", user="me")]
+    text = "triggers: {opt_in: {on_change: {ignore_own_activity: false}}}"
+    app.poll(watched_state("stale"), cfg_args(text), "me")
+    assert len(hub.launches) == 1
+
+
+def test_opt_in_disabled_skips_reaction_lookups(hub: Hub, cfg_args: Any) -> None:
+    hub.pr(5, "bob")
+    hub.involved = {"o/r#5": ("o/r", 5, "bob")}
+    hub.eyes["o/r#5"] = "comment"
+    s = watched_state("stale")
+    app.poll(s, cfg_args("triggers: {opt_in: {enabled: false}}"), "me")
+    assert hub.launches == []
+    assert s["candidates"] == {}
+
+
+def test_custom_reaction_in_trigger(hub: Hub, cfg_args: Any) -> None:
+    hub.pr(5, "bob")
+    hub.involved = {"o/r#5": ("o/r", 5, "bob")}
+    hub.eyes["o/r#5"] = "PR description"
+    app.poll(live_state(), cfg_args("triggers: {opt_in: {reaction: rocket}}"), "me")
+    [launch] = hub.launches
+    assert launch.trigger == "🚀 opt-in (on PR description)"
+
+
+def test_replies_scope_pr_and_disabled(hub: Hub, cfg_args: Any) -> None:
+    hub.pr(7, "bob")
+    hub.notify("n7", 7, "t1")
+    hub.review_comments["o/r#7"] = thread(fresh(5))
+    app.poll(live_state(), cfg_args("triggers: {review_replies: {scope: pr}}"), "me")
+    [launch] = hub.launches
+    assert launch.scope is None
+
+    hub.launches.clear()
+    text = "triggers: {review_replies: {enabled: false}}"
+    app.poll(live_state(), cfg_args(text), "me")
+    assert hub.launches == []
+
+
+def test_replies_freshness_window(hub: Hub, cfg_args: Any) -> None:
+    hub.pr(7, "bob")
+    hub.notify("n7", 7, "t1")
+    hub.review_comments["o/r#7"] = thread(fresh(3 * 60))  # 3h old
+    text = "triggers: {review_replies: {fresh_within_hours: 2}}"
+    app.poll(live_state(), cfg_args(text, "--lookback-hours", "24"), "me")
+    assert hub.launches == []
+    hub.notifications[0]["updated_at"] = "t2"  # the next notification
+    text = "triggers: {review_replies: {fresh_within_hours: 4}}"
+    app.poll(live_state(), cfg_args(text, "--lookback-hours", "24"), "me")
+    assert len(hub.launches) == 1
+
+
+# --- @mentions ----------------------------------------------------------------
+
+
+def mention(id: int, at: str, body: str, user: str = "bob") -> app.ActivityItem:
+    return {**act(id, at, user=user, body=body), "url": f"https://x/c{id}"}
+
+
+def test_mention_on_others_pr_launches_scoped(hub: Hub) -> None:
+    hub.pr(9, "bob")
+    hub.notify("n9", 9, "t1", reason="mention")
+    hub.activity["o/r#9"] = [
+        mention(1, fresh(600), "@me old mention"),  # outside the 2h window
+        mention(2, fresh(5), "what do you think, @Me?"),
+        mention(3, fresh(5), "cc @meadow and me@example.com"),  # not me
+        mention(4, fresh(5), "note to self @me", user="me"),  # my own
+    ]
+    s = live_state()
+    app.poll(s, args("--lookback-hours", "2"), "me")
+    [launch] = hub.launches
+    assert launch.trigger == "@me mentioned: https://x/c2"
+    assert launch.scope == ["https://x/c2"]
+    assert launch.gated is not None
+    assert [x["id"] for x in launch.gated] == [2]
+    assert s["mentions"]["o/r#9"] == ["comment:2"]
+
+    hub.notifications[0]["updated_at"] = "t2"  # same mention, next notification
+    app.poll(s, args("--lookback-hours", "2"), "me")
+    assert len(hub.launches) == 1
+
+
+def test_mention_in_description(hub: Hub) -> None:
+    hub.pr(9, "bob")
+    hub.prs["o/r#9"].update(
+        body="Implements X. @me could you review?",
+        createdAt=fresh(10),
+        url="https://github.com/o/r/pull/9",
+    )
+    hub.notify("n9", 9, "t1", reason="mention")
+    app.poll(live_state(), args(), "me")
+    [launch] = hub.launches
+    assert launch.scope == ["https://github.com/o/r/pull/9"]
+
+
+def test_mention_that_is_a_handled_reply_does_not_launch_twice(hub: Hub) -> None:
+    hub.pr(7, "bob")
+    hub.notify("n7", 7, "t1")
+    hub.review_comments["o/r#7"] = thread(fresh(5))  # reply id 11
+    hub.activity["o/r#7"] = [mention(11, fresh(5), "@me because")]
+    app.poll(live_state(), args(), "me")
+    assert [x.trigger.split(":")[0] for x in hub.launches] == [
+        "reply to my review comment(s)"
+    ]
+
+
+def test_mentions_disabled_and_scope_pr(hub: Hub, cfg_args: Any) -> None:
+    hub.pr(9, "bob")
+    hub.notify("n9", 9, "t1", reason="mention")
+    hub.activity["o/r#9"] = [mention(2, fresh(5), "@me?")]
+    app.poll(live_state(), cfg_args("triggers: {mentions: {enabled: false}}"), "me")
+    assert hub.launches == []
+    hub.notifications[0]["updated_at"] = "t2"
+    app.poll(live_state(), cfg_args("triggers: {mentions: {scope: pr}}"), "me")
+    [launch] = hub.launches
+    assert launch.scope is None
+
+
+def test_mention_by_ignored_author(hub: Hub, cfg_args: Any) -> None:
+    hub.pr(9, "bob")
+    hub.notify("n9", 9, "t1", reason="mention")
+    hub.activity["o/r#9"] = [mention(2, fresh(5), "@me ping", user="renovate[bot]")]
+    app.poll(live_state(), cfg_args('ignore_authors: ["*[bot]"]'), "me")
+    assert hub.launches == []
