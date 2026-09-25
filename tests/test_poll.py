@@ -10,18 +10,21 @@ from pydantic import BaseModel, Field
 from llm_review_agent import app
 
 
-def act(id: int, at: str, user: str = "bob", body: str = "") -> app.ActivityItem:
-    return {
-        "kind": "comment",
-        "id": id,
-        "state": None,
-        "updated_at": at,
-        "submitted_at": None,
-        "user": user,
-        "path": None,
-        "at": at,
-        "body": body,
-    }
+def act(
+    id: int, at: str, user: str = "bob", body: str = "", url: str | None = None
+) -> app.ActivityItem:
+    return app.ActivityItem(
+        kind="comment",
+        id=id,
+        state=None,
+        updated_at=at,
+        submitted_at=None,
+        user=user,
+        path=None,
+        at=at,
+        body=body,
+        url=url,
+    )
 
 
 class Launch(BaseModel):
@@ -118,7 +121,7 @@ def args(*extra: str) -> app.Args:
 
 def live_state() -> app.State:
     s = app.load_state()
-    s["initialized"] = True
+    s.initialized = True
     return s
 
 
@@ -128,8 +131,8 @@ def test_first_run_only_records_existing_own_notifications(hub: Hub) -> None:
     s = app.load_state()
     app.poll(s, args(), "me")
     assert hub.launches == []
-    assert s["seen"] == {"n1": "t1"}
-    assert s["initialized"]
+    assert s.seen == {"n1": "t1"}
+    assert s.initialized
 
 
 def test_own_pr_notification_launches_with_new_activity(hub: Hub) -> None:
@@ -137,14 +140,14 @@ def test_own_pr_notification_launches_with_new_activity(hub: Hub) -> None:
     hub.notify("n1", 1, "t1", reason="review_requested")
     hub.activity["o/r#1"] = [act(1, "2026-01-01"), act(2, "2026-01-03")]
     s = live_state()
-    s["handled"]["o/r#1"] = "2026-01-02"
+    s.handled["o/r#1"] = "2026-01-02"
     app.poll(s, args(), "me")
     [launch] = hub.launches
     assert launch.trigger == "my PR notification (review_requested)"
     assert launch.gated is not None
-    assert [x["id"] for x in launch.gated] == [2]
-    assert s["seen"] == {"n1": "t1"}
-    assert s["handled"]["o/r#1"] > "2026-01-02"
+    assert [x.id for x in launch.gated] == [2]
+    assert s.seen == {"n1": "t1"}
+    assert s.handled["o/r#1"] > "2026-01-02"
 
     app.poll(s, args(), "me")  # same notification again: nothing new
     assert len(hub.launches) == 1
@@ -156,11 +159,11 @@ def test_failed_launch_keeps_notification_pending(hub: Hub) -> None:
     hub.launch_ok = False
     s = live_state()
     app.poll(s, args(), "me")
-    assert s["seen"] == {}
+    assert s.seen == {}
     hub.launch_ok = True
     app.poll(s, args(), "me")
     assert len(hub.launches) == 2
-    assert s["seen"] == {"n1": "t1"}
+    assert s.seen == {"n1": "t1"}
 
 
 def test_closed_pr_is_ignored(hub: Hub) -> None:
@@ -169,7 +172,7 @@ def test_closed_pr_is_ignored(hub: Hub) -> None:
     s = live_state()
     app.poll(s, args(), "me")
     assert hub.launches == []
-    assert s["seen"] == {"n1": "t1"}
+    assert s.seen == {"n1": "t1"}
 
 
 def test_repo_filter(hub: Hub) -> None:
@@ -190,24 +193,22 @@ def test_eyes_on_involved_pr_opts_in_without_gate(hub: Hub) -> None:
     [launch] = hub.launches
     assert launch.trigger == "👀 opt-in (on review comment)"
     assert launch.gated is None  # explicit opt-in never asks Jev
-    assert "o/r#5" in s["watched"]
-    assert s["watched"]["o/r#5"]["fingerprint"] == app.fingerprint(
-        hub.activity["o/r#5"]
-    )
-    assert "o/r#5" not in s["candidates"]
+    assert "o/r#5" in s.watched
+    assert s.watched["o/r#5"].fingerprint == app.fingerprint(hub.activity["o/r#5"])
+    assert "o/r#5" not in s.candidates
 
 
 def test_own_prs_from_search_are_not_candidates(hub: Hub) -> None:
     hub.involved = {"o/r#6": ("o/r", 6, "me")}
     s = live_state()
     app.poll(s, args(), "me")
-    assert s["candidates"] == {}
+    assert s.candidates == {}
 
 
 def watched_state(fp: str | None) -> app.State:
     s = live_state()
-    s["watched"]["o/r#5"] = {"repo": "o/r", "pr": 5, "fingerprint": fp}
-    s["handled"]["o/r#5"] = "2026-01-01"
+    s.watched["o/r#5"] = app.Watched(repo="o/r", pr=5, fingerprint=fp)
+    s.handled["o/r#5"] = "2026-01-01"
     return s
 
 
@@ -220,10 +221,8 @@ def test_watched_pr_relaunches_on_change_with_gate(hub: Hub) -> None:
     [launch] = hub.launches
     assert launch.trigger == "review/discussion changed"
     assert launch.gated is not None
-    assert [x["id"] for x in launch.gated] == [2]
-    assert s["watched"]["o/r#5"]["fingerprint"] == app.fingerprint(
-        hub.activity["o/r#5"]
-    )
+    assert [x.id for x in launch.gated] == [2]
+    assert s.watched["o/r#5"].fingerprint == app.fingerprint(hub.activity["o/r#5"])
 
 
 def test_watched_pr_unchanged_does_nothing(hub: Hub) -> None:
@@ -240,14 +239,14 @@ def test_removing_eyes_stops_watch(hub: Hub) -> None:
     hub.eyes["o/r#5"] = None
     s = watched_state("x")
     app.poll(s, args(), "me")
-    assert "o/r#5" not in s["watched"]
+    assert "o/r#5" not in s.watched
 
 
 def test_failed_eyes_lookup_keeps_watch(hub: Hub) -> None:
     hub.pr(5, "bob")  # my_eyes returns nothing for o/r#5
     s = watched_state("x")
     app.poll(s, args(), "me")
-    assert "o/r#5" in s["watched"]
+    assert "o/r#5" in s.watched
     assert hub.launches == []
 
 
@@ -282,8 +281,8 @@ def test_reply_in_my_thread_launches_scoped_to_that_thread(hub: Hub) -> None:
     assert launch.trigger == "reply to my review comment(s): https://x/c11"
     assert launch.scope == ["https://x/c11"]
     assert launch.gated is not None
-    assert [x["body"] for x in launch.gated] == ["why?", "because"]
-    assert s["replies"]["o/r#7"] == [11]
+    assert [x.body for x in launch.gated] == ["why?", "because"]
+    assert s.replies["o/r#7"] == [11]
 
     hub.notifications[0]["updated_at"] = "t2"  # new notification, same reply
     app.poll(s, args(), "me")
@@ -297,7 +296,7 @@ def test_old_reply_outside_lookback_does_not_launch(hub: Hub) -> None:
     s = live_state()
     app.poll(s, args("--lookback-hours", "2"), "me")
     assert hub.launches == []
-    assert s["seen"] == {"n7": "t1"}
+    assert s.seen == {"n7": "t1"}
 
 
 def test_watched_pr_ignores_my_own_activity(hub: Hub) -> None:
@@ -310,16 +309,14 @@ def test_watched_pr_ignores_my_own_activity(hub: Hub) -> None:
     s = watched_state("stale")
     app.poll(s, args(), "me")
     assert hub.launches == []
-    assert s["watched"]["o/r#5"]["fingerprint"] == app.fingerprint(
-        hub.activity["o/r#5"]
-    )
+    assert s.watched["o/r#5"].fingerprint == app.fingerprint(hub.activity["o/r#5"])
 
     hub.activity["o/r#5"].append(act(3, "2099-01-01", body="please fix"))
     app.poll(s, args(), "me")
     [launch] = hub.launches
     assert launch.scope is None  # 👀: the whole PR
     assert launch.gated is not None
-    assert [x["id"] for x in launch.gated] == [3]
+    assert [x.id for x in launch.gated] == [3]
 
 
 def test_dry_run_changes_nothing(hub: Hub) -> None:
@@ -328,7 +325,7 @@ def test_dry_run_changes_nothing(hub: Hub) -> None:
     s = live_state()
     app.poll(s, args("--dry-run"), "me")
     assert len(hub.launches) == 1
-    assert s["seen"] == {}
+    assert s.seen == {}
     assert not app.STATE.exists()
 
 
@@ -359,7 +356,7 @@ def test_own_prs_disabled(hub: Hub, cfg_args: Any) -> None:
     s = live_state()
     app.poll(s, cfg_args("triggers: {own_prs: {enabled: false}}"), "me")
     assert hub.launches == []
-    assert s["seen"] == {"n1": "t1"}
+    assert s.seen == {"n1": "t1"}
 
 
 def test_gate_none_launches_without_jev(hub: Hub, cfg_args: Any) -> None:
@@ -377,7 +374,7 @@ def test_ignore_authors_on_own_pr(hub: Hub, cfg_args: Any) -> None:
     s = live_state()
     app.poll(s, cfg_args('ignore_authors: ["*[bot]"]'), "me")
     assert hub.launches == []
-    assert s["seen"] == {"n1": "t1"}
+    assert s.seen == {"n1": "t1"}
 
     hub.notifications[0]["updated_at"] = "t2"
     hub.activity["o/r#1"].append(act(2, "2099-01-01", user="alice"))
@@ -411,7 +408,7 @@ def test_opt_in_disabled_skips_reaction_lookups(hub: Hub, cfg_args: Any) -> None
     s = watched_state("stale")
     app.poll(s, cfg_args("triggers: {opt_in: {enabled: false}}"), "me")
     assert hub.launches == []
-    assert s["candidates"] == {}
+    assert s.candidates == {}
 
 
 def test_custom_reaction_in_trigger(hub: Hub, cfg_args: Any) -> None:
@@ -454,7 +451,7 @@ def test_replies_freshness_window(hub: Hub, cfg_args: Any) -> None:
 
 
 def mention(id: int, at: str, body: str, user: str = "bob") -> app.ActivityItem:
-    return {**act(id, at, user=user, body=body), "url": f"https://x/c{id}"}
+    return act(id, at, user=user, body=body, url=f"https://x/c{id}")
 
 
 def test_mention_on_others_pr_launches_scoped(hub: Hub) -> None:
@@ -472,8 +469,8 @@ def test_mention_on_others_pr_launches_scoped(hub: Hub) -> None:
     assert launch.trigger == "@me mentioned: https://x/c2"
     assert launch.scope == ["https://x/c2"]
     assert launch.gated is not None
-    assert [x["id"] for x in launch.gated] == [2]
-    assert s["mentions"]["o/r#9"] == ["comment:2"]
+    assert [x.id for x in launch.gated] == [2]
+    assert s.mentions["o/r#9"] == ["comment:2"]
 
     hub.notifications[0]["updated_at"] = "t2"  # same mention, next notification
     app.poll(s, args("--lookback-hours", "2"), "me")

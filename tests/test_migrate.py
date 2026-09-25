@@ -53,7 +53,7 @@ def test_state_config_and_cache_move_and_worktrees_relink(tmp_path: Path) -> Non
     app.migrate_legacy()
 
     assert not old.exists()
-    assert app.load_state()["seen"] == {"1": "t"}
+    assert app.load_state().seen == {"1": "t"}
     assert config.load(config.find(None)).agent == "claude"
     new_clone = app.ROOT / "repos" / "o__r"
     for main, wt in (
@@ -85,7 +85,7 @@ def test_existing_new_dirs_are_never_overwritten() -> None:
     app.STATE.parent.mkdir(parents=True, exist_ok=True)
     app.STATE.write_text('{"seen": {"new": "y"}}')
     app.migrate_legacy()
-    assert app.load_state()["seen"] == {"new": "y"}
+    assert app.load_state().seen == {"new": "y"}
 
 
 def test_running_old_watcher_blocks_the_move(monkeypatch: pytest.MonkeyPatch) -> None:

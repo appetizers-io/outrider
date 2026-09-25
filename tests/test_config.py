@@ -5,6 +5,7 @@ from typing import Any
 import jsonschema
 import pytest
 import yaml
+from pydantic import BaseModel
 
 from llm_review_agent import app, config
 
@@ -193,3 +194,51 @@ def test_local_classifier_config() -> None:
     assert sorted(c.classifiers) == ["jev", "local"]  # jev stays defined
     assert isinstance(c.classifiers["local"], config.CommandClassifier)
     assert c.tool_gate.classifier is None
+
+
+# --- config generate ----------------------------------------------------------
+
+
+def field_paths(model: type[BaseModel], prefix: str = "") -> list[str]:
+    out = []
+    for name, f in model.model_fields.items():
+        t = f.annotation
+        if isinstance(t, type) and issubclass(t, BaseModel):
+            out += field_paths(t, f"{prefix}{name}.")
+        else:
+            out.append(prefix + name)
+    return out
+
+
+def test_generated_config_is_exactly_the_defaults() -> None:
+    data = yaml.safe_load(config.generate())
+    assert config.parse(data) == config.Config()
+    # and editors agree
+    jsonschema.Draft202012Validator(config.json_schema()).validate(data)
+
+
+def test_generated_config_documents_every_option() -> None:
+    text = config.generate()
+    keys = {line.split(":")[0].strip().lstrip("# ") for line in text.splitlines()}
+    for path in field_paths(config.Config):
+        assert path.split(".")[-1] in keys, path
+    for name in config.CommandClassifier.model_fields:  # the commented example
+        assert f"#   {name}:" in text, name
+    assert "# (one of: supervised, autonomous)" in text
+    assert "# (>= 10)" in text
+
+
+def test_cli_generate(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
+    assert run_cli("generate") == 0
+    assert yaml.safe_load(capsys.readouterr().out)["mode"] == "supervised"
+
+    out = tmp_path / "c.yaml"
+    assert run_cli("generate", "-o", str(out)) == 0
+    assert (tmp_path / "config.schema.json").exists()
+    assert run_cli("generate", "-o", str(out)) == 1  # never overwrite silently
+    assert "use --force" in capsys.readouterr().err
+    assert run_cli("generate", "-o", str(out), "--force") == 0
+
+    assert run_cli("generate", "--write") == 0
+    assert config.find(None) == config.default_path()
+    assert run_cli("check") == 0
