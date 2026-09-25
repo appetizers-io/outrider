@@ -29,6 +29,15 @@ do plus your `tool_gate.rules`. Each session writes a `policy.json` describing
 all of this; the prompt points the agent to it. Only your own PRs get fixes
 pushed (rebased, `--force-with-lease`). `mode: autonomous` drops the tool
 gating and allows pushing to others' PRs unless `others_prs.allow_push: false`.
+
+**Pushes need your approval.** With `push: ask` (the default in supervised
+mode) every `git push` in a session opens a macOS dialog, and the push runs
+only if you click **Push** (it denies after 5 minutes or where there is no
+dialog). `push: never` keeps commits local, and `push: allow` pushes without
+asking (the default in autonomous mode). Apart from the `git` guard, sessions
+get `pushInsteadOf` rewrites in their environment, so a push through the real
+git binary goes to a dead URL. Claude sessions also may not run `osascript`,
+so they can't click the dialog themselves.
 Codex sessions get the guards, the prompt and the gate's environment; its
 hooks need a one-time trust (`/hooks`), so the gate hook isn't wired there.
 
@@ -76,7 +85,8 @@ All rules live in an optional YAML file, `--config PATH`,
 `$LLM_REVIEW_AGENT_CONFIG`, or `~/.config/llm-review-agent/config.yaml`. Every key
 is optional; [`config.example.yaml`](config.example.yaml) shows them all:
 
-- `mode: supervised | autonomous` and `others_prs.allow_push`
+- `mode: supervised | autonomous`, `push: ask | never | allow` and
+  `others_prs.allow_push`
 - which triggers run (`own_prs`, `opt_in`, `review_replies`, `mentions`), and
   whether each runs the launch check first (`check`)
 - `classifiers`, `launch_check` and `tool_gate` (see above)

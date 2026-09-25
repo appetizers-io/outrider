@@ -6,7 +6,8 @@ GitHub PR notifications -> local interactive Codex (or Claude) prototype.
 - max 1 active agent by default
 - GitHub notifications stay untouched (read-only polling, local dedupe)
 - agent review output stays local; no PR comments/replies/reactions/reviews
-- the agent's `gh` is a read-only guard shim (git push still works)
+- the agent's `gh` is a read-only guard shim; its `git` guard refuses pushes
+  on others' PRs and asks the owner before any other push
 """
 
 import argparse
@@ -166,11 +167,18 @@ os.execv(REAL, [REAL, *a])
 """
 
 
-# Put first on the agent's PATH in review-only sessions: refuses `git push`
-# (also through aliases), so a session on someone else's PR can't change it.
+# Put first on the agent's PATH in every session. $LLM_REVIEW_AGENT_PUSH decides
+# what `git push` (also through aliases) does:
+#   review-only / never: refused
+#   ask: a native dialog asks the owner; only a click on "Push" lets it through
+#   allow: passes
+# The runner also sets pushInsteadOf through GIT_CONFIG_* so a push that goes
+# around this guard (the real git binary) hits a dead URL; an approved push
+# drops those entries before running the real git.
 GIT_GUARD = r"""#!/usr/bin/env python3
 import os, subprocess, sys
 REAL = os.environ["LLM_REVIEW_AGENT_REAL_GIT"]
+OSASCRIPT = "/usr/bin/osascript"
 a = sys.argv[1:]
 WITH_VALUE = {"-C", "-c", "--git-dir", "--work-tree", "--namespace",
               "--exec-path", "--config-env"}
@@ -191,11 +199,42 @@ def expands_to_push(cmd):
     alias = subprocess.run([REAL, "config", "--get", "alias." + (cmd or "")],
                            capture_output=True, text=True).stdout.strip()
     return bool(alias) and "push" in alias.lstrip("!").split()
-if os.environ.get("LLM_REVIEW_AGENT_NO_PUSH") == "1" and expands_to_push(subcommand(a)):
-    sys.exit("llm-review-agent guard: blocked `git " + " ".join(a) + "`. This is "
-             "someone else's PR: review only, never push. Suggest the change "
-             "in this session instead.")
-os.execv(REAL, [REAL, *a])
+def deny(why):
+    sys.exit("llm-review-agent guard: blocked `git " + " ".join(a) + "`. " + why)
+def approved():
+    if not os.path.exists(OSASCRIPT):  # macOS only; elsewhere: refused
+        return False
+    branch = subprocess.run([REAL, "rev-parse", "--abbrev-ref", "HEAD"],
+                            capture_output=True, text=True).stdout.strip()
+    what = os.environ.get("LLM_REVIEW_AGENT_SESSION", "agent session")
+    text = (what + " wants to run:\n\ngit " + " ".join(a) + "\n\nbranch: "
+            + (branch or "?") + "\nin: " + os.getcwd())
+    script = ("on run argv\n"
+              "display dialog (item 1 of argv) with title \"llm-review-agent: "
+              "approve push?\" buttons {\"Deny\", \"Push\"} default button "
+              "\"Deny\" cancel button \"Deny\" with icon caution giving up after 300\n"
+              "if gave up of result then return \"timeout\"\n"
+              "return button returned of result\nend run")
+    r = subprocess.run([OSASCRIPT, "-e", script, text],
+                       capture_output=True, text=True)
+    return r.returncode == 0 and r.stdout.strip() == "Push"
+mode = os.environ.get("LLM_REVIEW_AGENT_PUSH", "review-only")
+env = dict(os.environ)
+if mode != "allow" and expands_to_push(subcommand(a)):
+    if mode == "review-only":
+        deny("This is someone else's PR: review only, never push. Suggest the "
+             "change in this session instead.")
+    if mode != "ask":
+        deny("Pushing is off for these sessions. Keep the commits local and "
+             "tell the owner what is ready to push.")
+    if not approved():
+        deny("The owner did not approve this push. Do not retry or work around "
+             "it; keep the commits local and explain what is ready to push.")
+    for k in [k for k in env if k == "GIT_CONFIG_COUNT"
+              or k.startswith(("GIT_CONFIG_KEY_", "GIT_CONFIG_VALUE_"))]:
+        del env[k]
+    env["LLM_REVIEW_AGENT_PUSH"] = "allow"  # this one push, not asked twice
+os.execve(REAL, [REAL, *a], env)
 """
 
 
@@ -797,6 +836,7 @@ def prompt(
     allow_push: bool = False,
     scope_why: str | None = None,
     policy_file: str | None = None,
+    push: str = "ask",
 ) -> str:
     author = (pr.get("author") or {}).get("login", "")
     head = "{}/{}".format(
@@ -806,6 +846,17 @@ def prompt(
     base = pr.get("baseRefName")
     remote = LOCAL[repo][1] if repo in LOCAL else "origin"  # upstream for forks
     own = author.lower() == LOGIN.lower()
+    if push == "ask":
+        push_rule = f"""- `git push` opens a dialog for {OWNER} and runs only if they
+  click Push. Push once, when the work is committed and tested. If the push
+  is denied, do NOT retry it or work around it (no other git binary, no
+  changed environment, no API): keep the commits local and explain what is
+  ready"""
+    elif push == "never":
+        push_rule = f"""- do NOT push: pushing is off and `git push` is blocked. Keep
+  the commits local and tell {OWNER} what is ready to push"""
+    else:
+        push_rule = ""
     if own:
         # own work: keep it current with the base branch
         branch_rule = f"""This is {OWNER}'s OWN PR (own work):
@@ -814,6 +865,8 @@ def prompt(
 - if a rebase conflicts, stop and explain it here; do not force-resolve
 - push the rebased branch with `git push --force-with-lease` (only to this
   PR's branch)"""
+        if push_rule:
+            branch_rule += "\n" + push_rule
         force = "do NOT force-push, except `--force-with-lease` after the rebase"
     elif allow_push:
         # someone else's PR, pushing explicitly allowed by config
@@ -822,6 +875,8 @@ def prompt(
 - add commits on top of the current PR head; push fast-forward only with
   plain `git push`
 - if the branch is behind or conflicts with {base}, report it here instead"""
+        if push_rule:
+            branch_rule += "\n" + push_rule
         force = "do NOT force-push"
     else:
         # someone else's PR: review only, their branch is not ours to change
@@ -844,13 +899,23 @@ else in this PR."""
     else:
         work = """Use gh/git to inspect recent reviews, inline review comments,
 PR discussion, commits and CI/checks."""
-    if own or allow_push:
+    if (own or allow_push) and push == "never":
+        act = f"""If there is new, actionable, unambiguous feedback:
+- make the smallest appropriate change
+- run focused tests/lint
+- commit locally with a concise human-style message; do not push
+
+Tell {OWNER} what changed and that it is ready to push.
+If nothing is actionable, change nothing.
+If a human/architectural decision is needed, explain it to {OWNER} here."""
+    elif own or allow_push:
+        approval = f" (`git push` asks {OWNER} first)" if push == "ask" else ""
         act = f"""If there is new, actionable, unambiguous feedback:
 - make the smallest appropriate change
 - run focused tests/lint
 - commit with a concise human-style message
 - VERIFY push access to the existing PR head repository/branch
-- only then push to that EXISTING branch
+- only then push to that EXISTING branch{approval}
 
 If you cannot push, keep the patch local and explain it to {OWNER}.
 If nothing is actionable, change nothing.
@@ -912,8 +977,10 @@ DENY_REVIEW_ONLY = [
     "Bash(git cherry-pick:*)",
     "Bash(git merge:*)",
     "Bash(git am:*)",
+    "Bash(osascript:*)",
 ]
 DENY_OWN = [
+    "Bash(osascript:*)",  # the push approval dialog is for the owner to click
     "Bash(git push --force:*)",
     "Bash(git push -f:*)",
     "Bash(git push --delete:*)",
@@ -922,9 +989,24 @@ DENY_OWN = [
 ]
 
 
-def session_rules(repo: str, n: int, author: str, own: bool, no_push: bool) -> str:
+def deny_rules(push: str) -> list[str]:
+    if push == "review-only":
+        return DENY_REVIEW_ONLY
+    return DENY_OWN + (["Bash(git push:*)"] if push == "never" else [])
+
+
+PUSH_GATE_RULES = {
+    "ask": " Every git push must go through the plain `git push` command, which "
+    "asks the owner in a dialog. Deny any push by another route: a git binary by "
+    "absolute path, unsetting or changing GIT_CONFIG_* or LLM_REVIEW_AGENT_* "
+    "variables, git remote/config changes to push URLs, curl or API calls.",
+    "never": " Deny every git push, by any route.",
+}
+
+
+def session_rules(repo: str, n: int, author: str, own: bool, push: str) -> str:
     """What this session may do, for the tool gate."""
-    if no_push:
+    if push == "review-only":
         rules = (
             "REVIEW ONLY: deny every file edit, git commit, git push, rebase, "
             "reset, merge or any other change to the branch or to GitHub. "
@@ -943,6 +1025,7 @@ def session_rules(repo: str, n: int, author: str, own: bool, no_push: bool) -> s
             "of the PR head are fine. Deny force pushes, rebases, history "
             "rewrites, pushes to other branches and any GitHub write."
         )
+    rules += PUSH_GATE_RULES.get(push, "")
     return (
         f"Automated coding-agent session for GitHub PR {repo}#{n} by {author}, "
         f"launched by llm-review-agent for {OWNER}. Nobody is watching live. " + rules
@@ -950,13 +1033,13 @@ def session_rules(repo: str, n: int, author: str, own: bool, no_push: bool) -> s
 
 
 def gate_text(
-    cfg: config.Config, repo: str, n: int, author: str, own: bool, no_push: bool
+    cfg: config.Config, repo: str, n: int, author: str, own: bool, push: str
 ) -> str:
     """Session rules plus the user's own tool_gate rules."""
     extra = list(cfg.tool_gate.rules)
     if cfg.tool_gate.include_prompt_extra and cfg.prompts.extra.strip():
         extra.append(cfg.prompts.extra.strip())
-    text = session_rules(repo, n, author, own, no_push)
+    text = session_rules(repo, n, author, own, push)
     if extra:
         text += (
             " Also enforce these rules from "
@@ -968,12 +1051,10 @@ def gate_text(
 
 
 def claude_settings(
-    cfg: config.Config, no_push: bool, hook_env: dict[str, str]
+    cfg: config.Config, push: str, hook_env: dict[str, str]
 ) -> dict[str, Any]:
     """--settings for a supervised Claude session: deny rules plus tool gate."""
-    settings: dict[str, Any] = {
-        "permissions": {"deny": DENY_REVIEW_ONLY if no_push else DENY_OWN}
-    }
+    settings: dict[str, Any] = {"permissions": {"deny": deny_rules(push)}}
     if TOOL_GATE and TOOL_GATE.hook_cmd:
         settings["env"] = hook_env
         settings["hooks"] = {
@@ -994,6 +1075,18 @@ def claude_settings(
         }
     return settings
 
+
+# A push that goes around the git guard (the real git binary) is rewritten to
+# a URL no transport handles; the guard drops these for an approved push.
+PUSH_PREFIXES = ("git@", "ssh://", "https://", "http://", "git://")
+PUSH_TRAP = "\n".join(
+    [f"export GIT_CONFIG_COUNT={len(PUSH_PREFIXES)}"]
+    + [
+        f"export GIT_CONFIG_KEY_{i}=url.llm-review-agent-push-blocked://"
+        f".pushInsteadOf GIT_CONFIG_VALUE_{i}={shlex.quote(prefix)}"
+        for i, prefix in enumerate(PUSH_PREFIXES)
+    ]
+)
 
 LAUNCH_GRACE_SECONDS = 60
 
@@ -1098,8 +1191,13 @@ def _launch(
     own = author.lower() == LOGIN.lower()
     allow_push = config.allow_push_to_others(a.cfg)
     no_push = not own and not allow_push
+    push = "review-only" if no_push else config.push_mode(a.cfg)
     supervised = a.cfg.mode == "supervised"
-    mode = ", review only: git push blocked" if no_push else ""
+    mode = {
+        "review-only": ", review only: git push blocked",
+        "never": ", git push blocked",
+        "ask": ", git push asks you first",
+    }.get(push, "")
     gated = supervised and TOOL_GATE is not None
     if supervised:
         mode += ", tools gated by " + (
@@ -1116,6 +1214,7 @@ def _launch(
             allow_push=allow_push,
             scope_why=scope_why,
             policy_file=str(session / "policy.json"),
+            push=push,
         )
     )
 
@@ -1131,7 +1230,7 @@ def _launch(
         (guard_bin / name).write_text(script)
         (guard_bin / name).chmod(0o755)
 
-    rules = gate_text(a.cfg, repo, n, author, own, no_push)
+    rules = gate_text(a.cfg, repo, n, author, own, push)
     policy_file = session / "policy.json"
     policy_file.write_text(
         json.dumps(
@@ -1145,9 +1244,10 @@ def _launch(
                 "trigger": trigger,
                 "mode": a.cfg.mode,
                 "review_only": no_push,
-                "push_allowed": not no_push,
+                "push_allowed": push in ("ask", "allow"),
+                "push": push,
                 "scope": list(scope) if scope else None,
-                "deny_rules": (DENY_REVIEW_ONLY if no_push else DENY_OWN)
+                "deny_rules": deny_rules(push)
                 if supervised and a.agent == "claude"
                 else [],
                 "tool_gate": {
@@ -1176,7 +1276,7 @@ def _launch(
         agent_args = f"--name {name} --remote-control {name}"
         if supervised:
             sf = session / "claude-settings.json"
-            sf.write_text(json.dumps(claude_settings(a.cfg, no_push, env), indent=2))
+            sf.write_text(json.dumps(claude_settings(a.cfg, push, env), indent=2))
             agent_args += f" --settings {shlex.quote(str(sf))}"
 
     tmux = None
@@ -1196,8 +1296,9 @@ trap 'rm -f "$LOCK"' EXIT INT TERM HUP
 cd {shlex.quote(str(wt))} || exit 1
 export LLM_REVIEW_AGENT_REAL_GH={shlex.quote(gh_path)}
 export LLM_REVIEW_AGENT_REAL_GIT={shlex.quote(git_path)}
-export LLM_REVIEW_AGENT_NO_PUSH={"1" if no_push else "0"}
-{exports}
+export LLM_REVIEW_AGENT_PUSH={push}
+export LLM_REVIEW_AGENT_SESSION={shlex.quote(f"PR {repo}#{n}")}
+{PUSH_TRAP if push != "allow" else ""}{exports}
 export PATH={shlex.quote(str(guard_bin))}:"$PATH"
 clear
 echo "GitHub PR review agent: {repo}#{n}"

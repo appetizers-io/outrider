@@ -61,7 +61,7 @@ def test_review_only_session_denies_edits_and_pushes(
     assert hook["hooks"][0]["command"] == "jev-use hook gate"
     assert "REVIEW ONLY" in got["settings"]["env"]["JEV_GATE_STATE"]
     assert got["uses_settings"]
-    assert "LLM_REVIEW_AGENT_NO_PUSH=1" in got["runner"]
+    assert "LLM_REVIEW_AGENT_PUSH=review-only" in got["runner"]
 
 
 def test_own_pr_session_allows_work_but_not_force(
@@ -72,8 +72,25 @@ def test_own_pr_session_allows_work_but_not_force(
     deny = got["settings"]["permissions"]["deny"]
     assert "Edit" not in deny
     assert "Bash(git push --force:*)" in deny
+    assert "Bash(git push:*)" not in deny
+    assert "Bash(osascript:*)" in deny  # can't click its own approval dialog
     assert "own PR" in got["settings"]["env"]["JEV_GATE_STATE"]
-    assert "LLM_REVIEW_AGENT_NO_PUSH=0" in got["runner"]
+    assert "asks the owner" in got["settings"]["env"]["JEV_GATE_STATE"]
+    assert "LLM_REVIEW_AGENT_PUSH=ask" in got["runner"]
+    assert "GIT_CONFIG_COUNT=5" in got["runner"]
+    assert got["policy"]["push"] == "ask"
+    assert "opens a dialog for" in got["prompt"]
+
+
+def test_push_never_keeps_commits_local(
+    launched: Any, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(app, "TOOL_GATE", JEV_GATE)
+    got = launched("me", cfg="push: never\n")
+    assert "Bash(git push:*)" in got["settings"]["permissions"]["deny"]
+    assert "LLM_REVIEW_AGENT_PUSH=never" in got["runner"]
+    assert "do not push" in got["prompt"]
+    assert not got["policy"]["push_allowed"]
 
 
 def test_without_jev_deny_rules_still_apply(launched: Any) -> None:
@@ -86,12 +103,18 @@ def test_autonomous_mode_has_no_gating_and_may_push(launched: Any) -> None:
     got = launched("bob", cfg="mode: autonomous\n")
     assert got["settings"] is None
     assert not got["uses_settings"]
-    assert "LLM_REVIEW_AGENT_NO_PUSH=0" in got["runner"]
+    assert "LLM_REVIEW_AGENT_PUSH=allow" in got["runner"]
+    assert "GIT_CONFIG_COUNT" not in got["runner"]
+
+
+def test_autonomous_mode_can_still_ask_before_pushing(launched: Any) -> None:
+    got = launched("me", cfg="mode: autonomous\npush: ask\n")
+    assert "LLM_REVIEW_AGENT_PUSH=ask" in got["runner"]
 
 
 def test_autonomous_mode_respects_explicit_review_only(launched: Any) -> None:
     got = launched("bob", cfg="mode: autonomous\nothers_prs: {allow_push: false}\n")
-    assert "LLM_REVIEW_AGENT_NO_PUSH=1" in got["runner"]
+    assert "LLM_REVIEW_AGENT_PUSH=review-only" in got["runner"]
     assert got["settings"] is None
 
 
@@ -111,7 +134,7 @@ def test_allow_push_follows_mode(text: str, allowed: bool, tmp_path: Path) -> No
 
 
 def test_policy_names_the_pr_and_rules() -> None:
-    text = app.session_rules("o/r", 7, "bob", own=False, no_push=True)
+    text = app.session_rules("o/r", 7, "bob", own=False, push="review-only")
     assert "o/r#7 by bob" in text
     assert "deny every file edit, git commit, git push" in text
 
