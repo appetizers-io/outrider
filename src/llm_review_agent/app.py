@@ -15,6 +15,7 @@ import datetime as dt
 import fnmatch
 import hashlib
 import json
+import os
 import re
 import shlex
 import shutil
@@ -994,6 +995,19 @@ def claude_settings(
     return settings
 
 
+LAUNCH_GRACE_SECONDS = 60
+
+
+def alive(pid: int) -> bool:
+    try:
+        os.kill(pid, 0)
+    except ProcessLookupError:
+        return False
+    except PermissionError:
+        pass
+    return True
+
+
 def locks(stale_hours: float) -> list[Path]:
     d = ROOT / "locks"
     d.mkdir(parents=True, exist_ok=True)
@@ -1001,14 +1015,20 @@ def locks(stale_hours: float) -> list[Path]:
     out = []
     for p in d.glob("*.lock"):
         try:
-            tmux = json.loads(p.read_text()).get("tmux")
+            meta = json.loads(p.read_text())
         except OSError, ValueError:
-            tmux = None
+            meta = {}
+        tmux, pid = meta.get("tmux"), meta.get("pid")
         gone = (
             tmux
             and run(["tmux", "has-session", "-t", f"={tmux}"], check=False).returncode
             != 0
         )
+        if isinstance(pid, int):
+            gone = gone or not alive(pid)
+        elif "pid" in meta:  # locks from before pid stamping have no key
+            age = time.time() - float(meta.get("started") or 0)
+            gone = gone or age > LAUNCH_GRACE_SECONDS  # runner never started
         if gone or p.stat().st_mtime < cutoff:
             log(f"removing stale lock {p.name}")
             p.unlink(missing_ok=True)
@@ -1162,13 +1182,17 @@ def _launch(
     tmux = None
     if LAUNCHER == "tmux":
         tmux = re.sub(r"[^A-Za-z0-9_-]", "-", f"pr-{repo}-{n}")
-    lock.write_text(
-        json.dumps({"repo": repo, "pr": n, "started": time.time(), "tmux": tmux})
-    )
+    meta = {"repo": repo, "pr": n, "started": time.time(), "tmux": tmux}
+    lock.write_text(json.dumps({**meta, "pid": None}))
+    # the runner stamps its pid so locks() can tell a live agent from one
+    # that never started (e.g. Terminal's typed command got mangled)
+    head = json.dumps(meta)[:-1] + ', "pid": '
+    stamp = f"printf '%s%s}}\\n' {shlex.quote(head)} $$"
     runner.write_text(f"""#!/usr/bin/env zsh
 set -u
 LOCK={shlex.quote(str(lock))}
 trap 'rm -f "$LOCK"' EXIT INT TERM HUP
+{stamp} > "$LOCK"
 cd {shlex.quote(str(wt))} || exit 1
 export LLM_REVIEW_AGENT_REAL_GH={shlex.quote(gh_path)}
 export LLM_REVIEW_AGENT_REAL_GIT={shlex.quote(git_path)}
@@ -1209,7 +1233,9 @@ exit $status
             )
             log(f"{repo}#{n}: attach with: tmux attach -t {tmux}")
         else:
-            subprocess.run(["open", "-a", "Terminal", str(runner)], check=True)
+            # -g: no focus steal, so keystrokes meant for another app can't
+            # leak into the command Terminal types into the new shell
+            subprocess.run(["open", "-g", "-a", "Terminal", str(runner)], check=True)
     except subprocess.CalledProcessError, OSError:
         lock.unlink(missing_ok=True)
         raise

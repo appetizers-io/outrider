@@ -87,3 +87,49 @@ def test_session_blocks_push_on_others_prs(
     assert (app.ROOT / "bin" / "git").read_text() == app.GIT_GUARD
     review_only = "REVIEW ONLY" in (session / "prompt.txt").read_text()
     assert review_only is (no_push == "1")
+
+
+def test_runner_stamps_its_pid_into_the_lock(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    import json
+    import shutil
+
+    monkeypatch.setattr(app, "worktree", lambda repo, n: tmp_path)
+    monkeypatch.setattr(shutil, "which", lambda tool: f"/bin/{tool}")
+    monkeypatch.setattr(
+        app, "run", lambda *a, **k: subprocess.CompletedProcess([], 0, stdout="")
+    )
+    assert app.launch("o/r", 1, PR, "t", app.parse_args([]))
+    assert json.loads(lock_for(1).read_text())["pid"] is None
+    runner = (app.ROOT / "sessions" / "o__r" / "pr-1" / "run-agent.command").read_text()
+    stamp = next(line for line in runner.splitlines() if line.startswith("printf"))
+    out = subprocess.run(
+        ["sh", "-c", stamp.replace('"$LOCK"', "/dev/stdout") + "; echo $$"],
+        capture_output=True,
+        text=True,
+        check=True,
+    ).stdout.splitlines()
+    meta = json.loads(out[0])
+    assert meta["pid"] == int(out[1])
+    assert (meta["repo"], meta["pr"]) == ("o/r", 1)
+
+
+def test_locks_drop_dead_and_never_started_agents() -> None:
+    import json
+    import os
+    import time
+
+    old = time.time() - 2 * app.LAUNCH_GRACE_SECONDS
+    cases: dict[int, dict[str, Any]] = {
+        1: {"started": old, "pid": os.getpid()},  # running
+        2: {"started": old, "pid": 2**22 + 12345},  # exited without cleanup
+        3: {"started": old, "pid": None},  # runner never started
+        4: {"started": time.time(), "pid": None},  # still starting
+        5: {"started": old},  # lock from before pid stamping
+    }
+    for n, meta in cases.items():
+        lock_for(n).write_text(json.dumps({"tmux": None, **meta}))
+    assert sorted(p.name for p in app.locks(24)) == [
+        f"o__r__{n}.lock" for n in (1, 4, 5)
+    ]
