@@ -10,6 +10,7 @@
 owner_name: Matthias          # default: first name from your GitHub profile
 mode: supervised              # autonomous: no tool gating, may push to others' PRs
 push: ask                     # every git push waits for your click; never | allow
+github_writes: ask            # every gh comment/review waits for your click; never | allow
 agent: claude
 max_agents: 3
 lookback_hours: 2

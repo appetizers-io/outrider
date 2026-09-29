@@ -5,9 +5,12 @@ GitHub PR notifications -> local interactive Codex (or Claude) prototype.
 - 👀 on a non-owned PR opts it in
 - max 1 active agent by default
 - GitHub notifications stay untouched (read-only polling, local dedupe)
-- agent review output stays local; no PR comments/replies/reactions/reviews
-- the agent's `gh` is a read-only guard shim; its `git` guard refuses pushes
-  on others' PRs and asks the owner before any other push
+- agent review output stays local unless the owner lets the agent post a
+  comment, reply, review or reaction on the session's PR (github_writes)
+- the agent's `gh` is a guard shim: reads pass, comment-like writes on the
+  session's PR follow github_writes (by default a dialog asks the owner),
+  everything else is refused; its `git` guard refuses pushes on others' PRs
+  and asks the owner before any other push
 """
 
 import argparse
@@ -123,11 +126,22 @@ LAUNCH_CHECK: classifiers.Resolved | None = None
 TOOL_GATE: classifiers.Resolved | None = None
 LOCAL: dict[str, tuple[Path, str]] = {}  # owner/repo -> (checkout, remote)
 
-# Put first on the agent's PATH. Blocks every GitHub write through gh except
-# local checkout; pushing goes through git, not gh.
+# Put first on the agent's PATH. Reads pass through. $LLM_REVIEW_AGENT_GH_WRITES
+# decides what comment-like writes on the session's PR do (comments, review
+# comments and replies, reviews, reactions):
+#   never: refused
+#   ask: a native dialog shows the command and text; only "Post" lets it through
+#   allow: passes
+# Every other GitHub write (merge, close, edits of the PR, labels, graphql
+# mutations, other repos or PRs) is refused in every mode. Pushing goes through
+# git, not gh.
 GH_GUARD = r"""#!/usr/bin/env python3
-import os, sys
+import os, re, shlex, subprocess, sys
 REAL = os.environ["LLM_REVIEW_AGENT_REAL_GH"]
+OSASCRIPT = "/usr/bin/osascript"
+MODE = os.environ.get("LLM_REVIEW_AGENT_GH_WRITES", "never")
+REPO = os.environ.get("LLM_REVIEW_AGENT_REPO", "").lower()
+PR = os.environ.get("LLM_REVIEW_AGENT_PR", "")
 a = sys.argv[1:]
 READ = {
     "pr": {"view", "diff", "checks", "list", "status", "checkout"},
@@ -135,34 +149,168 @@ READ = {
     "repo": {"view"}, "auth": {"status"}, "issue": {"view", "list"},
     "search": {"prs", "issues", "code", "commits"}, "browse": None,
 }
+WRITES = {"pr": {"comment", "review"}, "issue": {"comment"}}
+N, ID = r"(?P<n>\d+)", r"\d+"
+API_WRITES = [
+    ("POST", rf"pulls/{N}/comments"),
+    ("POST", rf"pulls/{N}/comments/{ID}/replies"),
+    ("POST", rf"pulls/{N}/reviews"),
+    ("POST", rf"pulls/{N}/reviews/{ID}/events"),
+    ("POST", rf"issues/{N}/comments"),
+    ("PATCH", rf"(issues|pulls)/comments/{ID}"),
+    ("POST", rf"issues/{N}/reactions"),
+    ("POST", rf"(issues|pulls)/comments/{ID}/reactions"),
+    ("DELETE", rf"issues/{N}/reactions/{ID}"),
+    ("DELETE", rf"(issues|pulls)/comments/{ID}/reactions/{ID}"),
+]
+API_VALUE = {"-X", "--method", "-f", "-F", "--field", "--raw-field", "-H",
+             "--header", "--input", "-q", "--jq", "-t", "--template",
+             "--hostname", "--cache", "-p", "--preview"}
+CLI_VALUE = {"-b", "--body", "-F", "--body-file", "-R", "--repo"}
+TARGET = "PR " + (REPO or "?") + "#" + (PR or "?")
 def deny(why):
     sys.exit(f"llm-review-agent guard: blocked `gh {' '.join(a)}` ({why}). "
-             "GitHub is read-only here; explain it locally instead.")
+             + ("GitHub is read-only here; explain it locally instead."
+                if MODE not in ("ask", "allow") else
+                "Only comments, review comments and replies, reviews and "
+                f"reactions on {TARGET} can be posted, through plain `gh`; "
+                "explain anything else locally instead."))
+def options(args, with_value):
+    # (flag, value) pairs and positionals
+    opts, pos, i = [], [], 0
+    while i < len(args):
+        x = args[i]
+        if x.startswith("--") and "=" in x:
+            opts.append(tuple(x.split("=", 1)))
+        elif x in with_value and i + 1 < len(args):
+            opts.append((x, args[i + 1]))
+            i += 1
+        elif len(x) > 2 and x[:2] in with_value and x[1] != "-":
+            opts.append((x[:2], x[2:]))  # -XPOST, -fbody=x
+        elif x.startswith("-"):
+            opts.append((x, None))
+        else:
+            pos.append(x)
+        i += 1
+    return opts, pos
+def read_file(path):
+    if path == "-":
+        deny("reading the text from stdin; use a file")
+    try:
+        with open(os.path.expanduser(path)) as f:
+            return f.read()
+    except OSError as e:
+        deny(f"cannot read {path}: {e.strerror}")
+def on_this_pr(repo, n):
+    if not REPO or not PR:
+        deny("no session PR known")
+    if repo is not None and repo.lower() != REPO:
+        deny(f"only {TARGET} can be written to")
+    if n is not None and n != PR:
+        deny(f"only {TARGET} can be written to")
+def api_call():
+    # None for a read, else the text a write would post
+    opts, pos = options(a[1:], API_VALUE)
+    method, text = None, []
+    for k, v in opts:
+        if k in ("-X", "--method"):
+            method = (v or "").upper()
+        elif k in ("-f", "-F", "--field", "--raw-field"):
+            if v is None:
+                continue
+            key, _, val = v.partition("=")
+            if k in ("-F", "--field") and val.startswith("@"):
+                if "graphql" in pos:
+                    deny("graphql query from file")
+                val = read_file(val[1:])
+            text.append(f"{key}: {val}")
+        elif k == "--input":
+            text.append(read_file(v or "-"))
+    if "graphql" in pos:
+        if any("mutation" in x.lower() for x in a):
+            deny("graphql mutation")
+        return None
+    method = method or ("POST" if text else "GET")
+    if method == "GET":
+        return None
+    endpoint = (pos[0] if pos else "").lstrip("/").split("?")[0]
+    m = re.fullmatch(r"repos/([^/]+/[^/]+)/(.+)", endpoint)
+    if not m:
+        deny("non-GET api call")
+    for want, pattern in API_WRITES:
+        hit = re.fullmatch(pattern, m.group(2))
+        if hit and method == want:
+            on_this_pr(m.group(1), hit.groupdict().get("n"))
+            return "\n".join(text)
+    deny("non-GET api call")
+def cli_call():
+    # the text a `gh pr comment|review` / `gh issue comment` would post
+    opts, pos = options(a[2:], CLI_VALUE)
+    repo, text = None, []
+    for k, v in opts:
+        if k in ("-R", "--repo"):
+            repo = v
+        elif k in ("-b", "--body"):
+            text.append(v or "")
+        elif k in ("-F", "--body-file"):
+            text.append(read_file(v or "-"))
+        elif k in ("-w", "--web", "-e", "--editor", "--edit-last",
+                   "--delete-last"):
+            deny(k)
+    if len(pos) != 1:
+        deny("name the PR number explicitly")
+    ref = pos[0]
+    m = re.fullmatch(r"https://github\.com/([^/]+/[^/]+)/(?:pull|issues)/(\d+)"
+                     r"(?:[/#?].*)?", ref)
+    if m:
+        repo, ref = m.group(1), m.group(2)
+    if not ref.lstrip("#").isdigit():
+        deny("name the PR number explicitly")
+    if repo is not None:
+        repo = re.sub(r"^(https://)?github\.com/", "", repo).removesuffix(".git")
+    on_this_pr(repo, ref.lstrip("#"))
+    kind = [k for k, _ in opts if k in ("-a", "--approve", "-r",
+                                       "--request-changes", "-c", "--comment")]
+    return (" ".join(kind) + "\n" if kind else "") + "\n".join(text)
+def approved(text):
+    if not os.path.exists(OSASCRIPT):  # macOS only; elsewhere: refused
+        return False
+    what = os.environ.get("LLM_REVIEW_AGENT_SESSION", "agent session")
+    if len(text) > 1500:
+        text = text[:1500] + "\n[... " + str(len(text) - 1500) + " more characters]"
+    cmd = shlex.join(["gh", *a])
+    if len(cmd) > 300:
+        cmd = cmd[:300] + " ..."
+    body = (what + " wants to post to GitHub:\n\n" + cmd
+            + ("\n\n" + text if text.strip() else ""))
+    script = ("on run argv\n"
+              "display dialog (item 1 of argv) with title \"llm-review-agent: "
+              "post to GitHub?\" buttons {\"Deny\", \"Post\"} default button "
+              "\"Deny\" cancel button \"Deny\" with icon caution giving up after 300\n"
+              "if gave up of result then return \"timeout\"\n"
+              "return button returned of result\nend run")
+    r = subprocess.run([OSASCRIPT, "-e", script, body],
+                       capture_output=True, text=True)
+    return r.returncode == 0 and r.stdout.strip() == "Post"
 if not a:
     deny("no command")
+write = None
 if a[0] == "api":
-    method, fields = None, False
-    for i, x in enumerate(a):
-        if x in ("-X", "--method") and i + 1 < len(a):
-            method = a[i + 1].upper()
-        elif x.startswith("--method="):
-            method = x.split("=", 1)[1].upper()
-        elif x.startswith("-X") and len(x) > 2:
-            method = x[2:].upper()
-        elif x == "--input" or x.startswith("--input="):
-            deny("--input")
-        elif x in ("-f", "-F", "--field", "--raw-field") or x.startswith(
-                ("--field=", "--raw-field=")):
-            fields = True
-    if "graphql" in a:
-        if any("mutation" in x.lower() or "=@" in x for x in a):
-            deny("graphql mutation or query from file")
-    elif (method or ("POST" if fields else "GET")) != "GET":
-        deny("non-GET api call")
+    write = api_call()
+elif a[0] in WRITES and len(a) > 1 and a[1] in WRITES[a[0]]:
+    if MODE not in ("ask", "allow"):
+        deny("subcommand not allowlisted")
+    write = cli_call()
 elif a[0] not in READ:
     deny("command not allowlisted")
 elif READ[a[0]] is not None and (len(a) < 2 or a[1] not in READ[a[0]]):
     deny("subcommand not allowlisted")
+if write is not None:
+    if MODE not in ("ask", "allow"):
+        deny("GitHub writes are off")
+    if MODE == "ask" and not approved(write):
+        deny("the owner did not approve this post. Do not retry or work around "
+             "it; keep the text in this session")
 os.execv(REAL, [REAL, *a])
 """
 
@@ -837,6 +985,7 @@ def prompt(
     scope_why: str | None = None,
     policy_file: str | None = None,
     push: str = "ask",
+    gh_writes: str = "never",
 ) -> str:
     author = (pr.get("author") or {}).get("login", "")
     head = "{}/{}".format(
@@ -943,17 +1092,11 @@ Base branch: {base}
 
 {act}
 
-STRICT TEST PHASE:
-- keep ALL review summaries/questions in this local session
-- do NOT post comments or review replies
+{github_rules(n, gh_writes)}
 - do NOT resolve threads
-- do NOT add/remove reactions
-- do NOT submit/approve/reject reviews
 - do NOT change GitHub notification state
 - do NOT merge/close the PR
 - {force}
-The `gh` on PATH is read-only and will refuse GitHub writes; do not try to
-work around it (no curl/API tokens).
 """
         + (
             f"Session policy (what you may do here, and why an action gets blocked): "
@@ -963,6 +1106,34 @@ work around it (no curl/API tokens).
         )
         + (f"\n{extra.strip()}\n" if extra.strip() else "")
     )
+
+
+def github_rules(n: int, gh_writes: str) -> str:
+    """The prompt's rules for writing to GitHub."""
+    if gh_writes not in ("ask", "allow"):
+        return """STRICT TEST PHASE:
+- keep ALL review summaries/questions in this local session
+- do NOT post comments or review replies
+- do NOT add/remove reactions
+- do NOT submit/approve/reject reviews
+The `gh` on PATH is read-only and will refuse GitHub writes; do not try to
+work around it (no curl/API tokens)."""
+    ask = (
+        f" Each post opens a dialog for {OWNER} showing the text, and runs only "
+        "if they click Post. If a post is denied, do NOT retry it or work around "
+        "it; keep the text here."
+        if gh_writes == "ask"
+        else ""
+    )
+    return f"""GITHUB:
+- keep review summaries/questions in this local session by default
+- post to GitHub only when {OWNER} asks for it in this session, and only
+  what they asked for: a comment, an inline review comment or reply, a
+  review, or a reaction on PR #{n}. Draft the text here first.
+- post only with plain `gh` (`gh pr comment {n}`, `gh pr review {n}`, or
+  `gh api repos/.../pulls/{n}/comments` and the like, with the text in
+  -f/-F fields or a --body-file). Any other GitHub write is refused; do not
+  try to work around it (no curl/API tokens, no graphql mutations).{ask}"""
 
 
 # Deterministic Claude Code deny rules per session kind (supervised mode).
@@ -1004,12 +1175,27 @@ PUSH_GATE_RULES = {
 }
 
 
-def session_rules(repo: str, n: int, author: str, own: bool, push: str) -> str:
+GH_WRITE_GATE_RULES = {
+    "ask": " Posting a comment, review comment or reply, review or reaction on "
+    "this PR with plain `gh` is fine; the gh guard asks the owner first. Deny "
+    "GitHub writes by any other route (curl, tokens, graphql mutations, changed "
+    "LLM_REVIEW_AGENT_* variables) and every other GitHub write (merge, close, "
+    "labels, edits of the PR).",
+    "allow": " Posting a comment, review comment or reply, review or reaction on "
+    "this PR with plain `gh` is fine. Deny every other GitHub write (merge, "
+    "close, labels, edits of the PR) and writes by any other route.",
+}
+
+
+def session_rules(
+    repo: str, n: int, author: str, own: bool, push: str, gh_writes: str = "never"
+) -> str:
     """What this session may do, for the tool gate."""
     if push == "review-only":
         rules = (
             "REVIEW ONLY: deny every file edit, git commit, git push, rebase, "
-            "reset, merge or any other change to the branch or to GitHub. "
+            "reset, merge or any other change to the branch or to GitHub "
+            "(except the posts allowed below). "
             "Reading files, git log/diff/fetch, building and running tests is fine."
         )
     elif own:
@@ -1017,15 +1203,18 @@ def session_rules(repo: str, n: int, author: str, own: bool, push: str) -> str:
             f"This is {OWNER}'s own PR: edits, commits, rebasing onto the base "
             "branch and `git push --force-with-lease` to this PR branch are fine. "
             "Deny pushes to any other branch, deleting branches, plain force "
-            "pushes, and any GitHub write (comments, reviews, merges)."
+            "pushes, and any GitHub write not allowed below (comments, reviews, "
+            "merges)."
         )
     else:
         rules = (
             "Someone else's PR with pushing allowed: fast-forward commits on top "
             "of the PR head are fine. Deny force pushes, rebases, history "
-            "rewrites, pushes to other branches and any GitHub write."
+            "rewrites, pushes to other branches and any GitHub write not "
+            "allowed below."
         )
     rules += PUSH_GATE_RULES.get(push, "")
+    rules += GH_WRITE_GATE_RULES.get(gh_writes, "")
     return (
         f"Automated coding-agent session for GitHub PR {repo}#{n} by {author}, "
         f"launched by llm-review-agent for {OWNER}. Nobody is watching live. " + rules
@@ -1033,13 +1222,19 @@ def session_rules(repo: str, n: int, author: str, own: bool, push: str) -> str:
 
 
 def gate_text(
-    cfg: config.Config, repo: str, n: int, author: str, own: bool, push: str
+    cfg: config.Config,
+    repo: str,
+    n: int,
+    author: str,
+    own: bool,
+    push: str,
+    gh_writes: str = "never",
 ) -> str:
     """Session rules plus the user's own tool_gate rules."""
     extra = list(cfg.tool_gate.rules)
     if cfg.tool_gate.include_prompt_extra and cfg.prompts.extra.strip():
         extra.append(cfg.prompts.extra.strip())
-    text = session_rules(repo, n, author, own, push)
+    text = session_rules(repo, n, author, own, push, gh_writes)
     if extra:
         text += (
             " Also enforce these rules from "
@@ -1192,12 +1387,17 @@ def _launch(
     allow_push = config.allow_push_to_others(a.cfg)
     no_push = not own and not allow_push
     push = "review-only" if no_push else config.push_mode(a.cfg)
+    gh_writes = config.github_writes_mode(a.cfg)
     supervised = a.cfg.mode == "supervised"
     mode = {
         "review-only": ", review only: git push blocked",
         "never": ", git push blocked",
         "ask": ", git push asks you first",
     }.get(push, "")
+    gh_note = {
+        "ask": "gh posts to this PR ask you first",
+        "allow": "gh may post to this PR",
+    }.get(gh_writes, "gh is read-only")
     gated = supervised and TOOL_GATE is not None
     if supervised:
         mode += ", tools gated by " + (
@@ -1215,6 +1415,7 @@ def _launch(
             scope_why=scope_why,
             policy_file=str(session / "policy.json"),
             push=push,
+            gh_writes=gh_writes,
         )
     )
 
@@ -1230,7 +1431,7 @@ def _launch(
         (guard_bin / name).write_text(script)
         (guard_bin / name).chmod(0o755)
 
-    rules = gate_text(a.cfg, repo, n, author, own, push)
+    rules = gate_text(a.cfg, repo, n, author, own, push, gh_writes)
     policy_file = session / "policy.json"
     policy_file.write_text(
         json.dumps(
@@ -1246,6 +1447,7 @@ def _launch(
                 "review_only": no_push,
                 "push_allowed": push in ("ask", "allow"),
                 "push": push,
+                "github_writes": gh_writes,
                 "scope": list(scope) if scope else None,
                 "deny_rules": deny_rules(push)
                 if supervised and a.agent == "claude"
@@ -1297,12 +1499,15 @@ cd {shlex.quote(str(wt))} || exit 1
 export LLM_REVIEW_AGENT_REAL_GH={shlex.quote(gh_path)}
 export LLM_REVIEW_AGENT_REAL_GIT={shlex.quote(git_path)}
 export LLM_REVIEW_AGENT_PUSH={push}
+export LLM_REVIEW_AGENT_GH_WRITES={gh_writes}
+export LLM_REVIEW_AGENT_REPO={shlex.quote(repo)}
+export LLM_REVIEW_AGENT_PR={n}
 export LLM_REVIEW_AGENT_SESSION={shlex.quote(f"PR {repo}#{n}")}
 {PUSH_TRAP if push != "allow" else ""}{exports}
 export PATH={shlex.quote(str(guard_bin))}:"$PATH"
 clear
 echo "GitHub PR review agent: {repo}#{n}"
-echo "agent: {a.agent} (gh is read-only{mode})"
+echo "agent: {a.agent} ({gh_note}{mode})"
 echo
 {shlex.quote(agent_path)} {agent_args} "$(cat {shlex.quote(str(pf))})"
 status=$?
@@ -1615,6 +1820,12 @@ def parse_args(argv: Sequence[str] | None = None) -> Args:
         choices=["auto", "terminal", "tmux"],
         help="auto: Terminal on a macOS desktop session, else tmux",
     )
+    p.add_argument(
+        "--github-writes",
+        choices=["ask", "never", "allow"],
+        help="comments, reviews and reactions the agent posts on its PR with gh "
+        "(ask: a dialog asks you first; default: ask in supervised mode)",
+    )
     p.add_argument("--interval", type=int, help="seconds between polls")
     p.add_argument("--lookback-hours", type=int)
     p.add_argument("--max-agents", type=int)
@@ -1655,6 +1866,7 @@ def parse_args(argv: Sequence[str] | None = None) -> Args:
             for k, v in (
                 ("agent", ns.agent),
                 ("launcher", ns.launcher),
+                ("github_writes", ns.github_writes),
                 ("interval_seconds", ns.interval),
                 ("lookback_hours", ns.lookback_hours),
                 ("max_agents", ns.max_agents),

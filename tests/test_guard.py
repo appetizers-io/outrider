@@ -1,4 +1,5 @@
-"""The agent's gh shim must pass reads through and refuse every write."""
+"""The agent's gh shim passes reads, gates posts on the session PR, refuses the
+rest; its git shim gates pushes."""
 
 import os
 import stat
@@ -78,6 +79,133 @@ def test_writes_are_blocked(guard: Path, args: list[str]) -> None:
     assert r.returncode != 0
     assert "blocked" in r.stderr
     assert "REAL" not in r.stdout
+
+
+# --- gh: posts on the session's PR follow LLM_REVIEW_AGENT_GH_WRITES --------
+
+POSTS = [
+    ["pr", "comment", "7", "-b", "hi"],
+    ["pr", "comment", "https://github.com/o/r/pull/7", "--body=hi"],
+    ["pr", "review", "7", "--comment", "-b", "hi"],
+    ["pr", "review", "7", "-R", "o/r", "--approve"],
+    ["issue", "comment", "7", "-b", "hi"],
+    ["api", "repos/o/r/pulls/7/comments", "-f", "body=hi", "-F", "line=3"],
+    ["api", "/repos/O/R/pulls/7/comments/11/replies", "-f", "body=hi"],
+    ["api", "-X", "POST", "repos/o/r/pulls/7/reviews", "-f", "event=COMMENT"],
+    ["api", "repos/o/r/issues/7/comments", "-f", "body=hi"],
+    ["api", "-X", "PATCH", "repos/o/r/issues/comments/9", "-f", "body=hi"],
+    ["api", "repos/o/r/pulls/comments/9/reactions", "-f", "content=+1"],
+    ["api", "-XDELETE", "repos/o/r/issues/comments/9/reactions/2"],
+]
+
+NEVER_POSTS = [
+    ["pr", "merge", "7"],
+    ["pr", "close", "7"],
+    ["pr", "edit", "7", "--add-label", "x"],
+    ["pr", "comment", "8", "-b", "hi"],  # another PR
+    ["pr", "comment", "7", "-R", "o/other", "-b", "hi"],
+    ["pr", "comment", "-b", "hi"],  # PR from the branch: not explicit
+    ["pr", "comment", "7", "--web"],
+    ["pr", "comment", "7", "--body-file", "-"],
+    ["api", "repos/o/r/pulls/8/comments", "-f", "body=hi"],
+    ["api", "repos/o/other/pulls/7/comments", "-f", "body=hi"],
+    ["api", "-X", "PUT", "repos/o/r/pulls/7/merge"],
+    ["api", "-X", "PATCH", "repos/o/r/pulls/7", "-f", "state=closed"],
+    ["api", "-X", "DELETE", "repos/o/r/issues/comments/9"],
+    ["api", "repos/o/r/issues/7/labels", "-f", "labels[]=x"],
+    ["api", "repos/{owner}/{repo}/pulls/7/comments", "-f", "body=hi"],
+    ["api", "graphql", "-f", "query=mutation { addComment }"],
+]
+
+
+@pytest.fixture
+def posting_guard(guard: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Any:
+    """gh guard for PR o/r#7 in a mode, with a fake osascript answering `button`."""
+    monkeypatch.setenv("LLM_REVIEW_AGENT_REPO", "o/r")
+    monkeypatch.setenv("LLM_REVIEW_AGENT_PR", "7")
+
+    def make(mode: str, button: str | None = "Post") -> Path:
+        monkeypatch.setenv("LLM_REVIEW_AGENT_GH_WRITES", mode)
+        osa = tmp_path / "osascript"
+        if button is None:
+            osa.unlink(missing_ok=True)
+        else:
+            osa.write_text(
+                f'#!/bin/sh\necho "$@" > {tmp_path}/dialog\n'
+                + ("echo Post\n" if button == "Post" else "exit 1\n")
+            )
+            osa.chmod(0o755)
+        guard.write_text(app.GH_GUARD.replace('"/usr/bin/osascript"', repr(str(osa))))
+        return guard
+
+    return make
+
+
+@pytest.mark.parametrize("args", POSTS)
+def test_posts_are_blocked_when_writes_are_off(
+    posting_guard: Any, args: list[str]
+) -> None:
+    r = gh(posting_guard("never"), *args)
+    assert r.returncode != 0
+    assert "read-only" in r.stderr
+    assert "REAL" not in r.stdout
+
+
+@pytest.mark.parametrize("args", POSTS)
+def test_posts_on_the_session_pr_pass_when_allowed(
+    posting_guard: Any, tmp_path: Path, args: list[str]
+) -> None:
+    r = gh(posting_guard("allow"), *args)
+    assert r.returncode == 0, r.stderr
+    assert r.stdout.splitlines() == ["REAL", *args]
+    assert not (tmp_path / "dialog").exists()
+
+
+@pytest.mark.parametrize("mode", ["ask", "allow"])
+@pytest.mark.parametrize("args", NEVER_POSTS)
+def test_other_writes_stay_blocked(
+    posting_guard: Any, tmp_path: Path, mode: str, args: list[str]
+) -> None:
+    r = gh(posting_guard(mode), *args)
+    assert r.returncode != 0
+    assert "blocked" in r.stderr
+    assert "REAL" not in r.stdout
+    assert not (tmp_path / "dialog").exists()
+
+
+def test_ask_shows_the_text_and_posts_after_approval(
+    posting_guard: Any, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.chdir(tmp_path)
+    (tmp_path / "comment.md").write_text("Please handle the error here.")
+    args = [
+        "api", "repos/o/r/pulls/7/comments", "-f", "path=store.go",
+        "-F", "line=618", "-F", "body=@comment.md",
+    ]  # fmt: skip
+    r = gh(posting_guard("ask"), *args)
+    assert r.returncode == 0, r.stderr
+    assert r.stdout.splitlines() == ["REAL", *args]
+    dialog = (tmp_path / "dialog").read_text()
+    assert "gh api repos/o/r/pulls/7/comments" in dialog
+    assert "body: Please handle the error here." in dialog
+
+
+@pytest.mark.parametrize("button", ["Deny", None])
+def test_denied_or_unavailable_approval_blocks_post(
+    posting_guard: Any, button: str | None
+) -> None:
+    r = gh(posting_guard("ask", button), "pr", "comment", "7", "-b", "hi")
+    assert r.returncode != 0
+    assert "did not approve" in r.stderr
+    assert "REAL" not in r.stdout
+
+
+def test_ask_mode_does_not_ask_before_gh_reads(
+    posting_guard: Any, tmp_path: Path
+) -> None:
+    r = gh(posting_guard("ask", "Deny"), "api", "repos/o/r/pulls/7/comments")
+    assert r.returncode == 0
+    assert not (tmp_path / "dialog").exists()
 
 
 # --- git: review-only sessions must not push --------------------------------

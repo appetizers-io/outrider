@@ -185,3 +185,44 @@ def test_policy_file_describes_the_session(
     assert "Bash(git push:*)" in policy["deny_rules"]
     assert "policy.json" in got["prompt"]
     assert "LLM_REVIEW_AGENT_POLICY_FILE=" in got["runner"]
+
+
+def test_github_writes_ask_by_default_in_supervised_mode(launched: Any) -> None:
+    got = launched("bob")
+    assert "export LLM_REVIEW_AGENT_GH_WRITES=ask" in got["runner"]
+    assert "export LLM_REVIEW_AGENT_REPO=o/r" in got["runner"]
+    assert "export LLM_REVIEW_AGENT_PR=1" in got["runner"]
+    assert got["policy"]["github_writes"] == "ask"
+    assert "post to GitHub only when" in got["prompt"]
+    assert "opens a dialog for" in got["prompt"]
+    assert "do NOT post comments" not in got["prompt"]
+    assert "do NOT merge/close the PR" in got["prompt"]
+
+
+def test_github_writes_never_keeps_github_read_only(launched: Any) -> None:
+    got = launched("me", cfg="github_writes: never\n")
+    assert "export LLM_REVIEW_AGENT_GH_WRITES=never" in got["runner"]
+    assert "gh is read-only" in got["runner"]
+    assert "do NOT post comments" in got["prompt"]
+
+
+def test_github_writes_follows_mode(launched: Any) -> None:
+    got = launched("me", cfg="mode: autonomous\n")
+    assert got["policy"]["github_writes"] == "allow"
+    assert "opens a dialog for Matthias showing" not in got["prompt"]
+
+
+def test_gate_text_allows_posts_only_through_gh() -> None:
+    text = app.session_rules("o/r", 7, "bob", own=False, push="review-only",
+                             gh_writes="ask")  # fmt: skip
+    assert "with plain `gh` is fine; the gh guard asks the owner" in text
+    assert "except the posts allowed below" in text
+    assert "with plain `gh`" not in app.session_rules(
+        "o/r", 7, "bob", own=False, push="review-only"
+    )
+
+
+def test_github_writes_flag_overrides_config(launched: Any) -> None:
+    got = launched("bob", "--github-writes", "allow", cfg="github_writes: never\n")
+    assert "export LLM_REVIEW_AGENT_GH_WRITES=allow" in got["runner"]
+    assert got["policy"]["github_writes"] == "allow"

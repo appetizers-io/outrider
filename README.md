@@ -17,8 +17,15 @@ Before launching, a **launch check** classifier (by default
 is actionable at all, so bot summaries and LGTMs don't cost an agent session.
 Unsure or unreachable means launch anyway.
 
-GitHub stays read-only: notifications are never marked read, and the agent's
-`gh` is a guard that refuses writes. Review output stays in the local session.
+Notifications are never marked read, and review output stays in the local
+session unless you ask the agent to post it. The agent's `gh` is a guard:
+reads pass, and comments, inline review comments and replies, reviews and
+reactions **on the session's PR** follow `github_writes`. With `ask` (the
+default in supervised mode) each one opens a macOS dialog showing the command
+and the text, and runs only if you click **Post**. `never` keeps GitHub
+read-only, `allow` posts without asking (the default in autonomous mode).
+Merging, closing, editing the PR, graphql mutations and writes to other PRs
+are refused in every mode.
 
 Sessions on **someone else's PR are review only**: the prompt forbids edits,
 commits and pushes (even lint fixes), and a `git` guard refuses `git push`.
@@ -76,7 +83,8 @@ llm-review-agent --remote upstream   # fork checkout: watch the upstream repo
 ```
 
 Useful flags: `--once`, `--dry-run`, `--config PATH`, `--repo owner/name`
-(glob, repeatable), `--agent`, `--max-agents`, `--no-jev`. Flags override the
+(glob, repeatable), `--agent`, `--max-agents`, `--no-jev`,
+`--github-writes ask|never|allow`. Flags override the
 config file. See `llm-review-agent --help`.
 
 ## Configure
@@ -85,8 +93,8 @@ All rules live in an optional YAML file, `--config PATH`,
 `$LLM_REVIEW_AGENT_CONFIG`, or `~/.config/llm-review-agent/config.yaml`. Every key
 is optional; [`config.example.yaml`](config.example.yaml) shows them all:
 
-- `mode: supervised | autonomous`, `push: ask | never | allow` and
-  `others_prs.allow_push`
+- `mode: supervised | autonomous`, `push: ask | never | allow`,
+  `github_writes: ask | never | allow` and `others_prs.allow_push`
 - which triggers run (`own_prs`, `opt_in`, `review_replies`, `mentions`), and
   whether each runs the launch check first (`check`)
 - `classifiers`, `launch_check` and `tool_gate` (see above)
