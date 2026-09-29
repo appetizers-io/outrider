@@ -296,6 +296,16 @@ class Config(Model):
         "commits stay local. allow: no question. null: ask in supervised mode, "
         "allow in autonomous mode.",
     )
+    github_writes: Literal["ask", "never", "allow"] | None = Field(
+        default=None,
+        description="Comments, review comments and replies, reviews and reactions "
+        "the agent posts with `gh` on the session's PR, in every session. ask: "
+        "each one opens a dialog showing the text and runs only after you click "
+        "Post (macOS; elsewhere it is refused). never: GitHub stays read-only. "
+        "allow: no question. Merging, closing, editing the PR and writes to other "
+        "PRs are always refused. null: ask in supervised mode, allow in "
+        "autonomous mode.",
+    )
     agent: Literal["codex", "claude"] = Field(
         default="codex", description="Coding agent CLI to launch."
     )
@@ -376,6 +386,12 @@ def allow_push_to_others(cfg: Config) -> bool:
 def push_mode(cfg: Config) -> Literal["ask", "never", "allow"]:
     if cfg.push is not None:
         return cfg.push
+    return "ask" if cfg.mode == "supervised" else "allow"
+
+
+def github_writes_mode(cfg: Config) -> Literal["ask", "never", "allow"]:
+    if cfg.github_writes is not None:
+        return cfg.github_writes
     return "ask" if cfg.mode == "supervised" else "allow"
 
 

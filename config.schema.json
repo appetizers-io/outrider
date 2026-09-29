@@ -547,6 +547,24 @@
       "description": "Pushes in sessions that may push (your own PRs, others' PRs with others_prs.allow_push). ask: every `git push` opens a dialog and runs only after you click Push (macOS; elsewhere it is refused). never: commits stay local. allow: no question. null: ask in supervised mode, allow in autonomous mode.",
       "title": "Push"
     },
+    "github_writes": {
+      "anyOf": [
+        {
+          "enum": [
+            "ask",
+            "never",
+            "allow"
+          ],
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "description": "Comments, review comments and replies, reviews and reactions the agent posts with `gh` on the session's PR, in every session. ask: each one opens a dialog showing the text and runs only after you click Post (macOS; elsewhere it is refused). never: GitHub stays read-only. allow: no question. Merging, closing, editing the PR and writes to other PRs are always refused. null: ask in supervised mode, allow in autonomous mode.",
+      "title": "Github Writes"
+    },
     "agent": {
       "default": "codex",
       "description": "Coding agent CLI to launch.",
