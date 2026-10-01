@@ -25,7 +25,7 @@ import (
 	"strings"
 	"unicode/utf8"
 
-	"github.com/kballard/go-shellquote"
+	"github.com/appetizers-io/llm-review-agent/internal/shell"
 )
 
 // Environment contract between the session runner and the guards.
@@ -397,13 +397,14 @@ func DecideGH(args []string, s GHSession) (d GHDecision) {
 
 // PostDialog is the approval dialog's text for a post.
 func PostDialog(session string, args []string, text string) string {
+	session = strings.TrimLeft(session, "-") // from the agent's environment; must not read as an option
 	if session == "" {
 		session = "agent session"
 	}
 	if n := utf8.RuneCountInString(text); n > 1500 {
 		text = string([]rune(text)[:1500]) + fmt.Sprintf("\n[... %d more characters]", n-1500)
 	}
-	cmd := shellquote.Join(append([]string{"gh"}, args...)...)
+	cmd := shell.Join(append([]string{"gh"}, args...)...)
 	if utf8.RuneCountInString(cmd) > 300 {
 		cmd = string([]rune(cmd)[:300]) + " ..."
 	}

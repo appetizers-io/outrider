@@ -30,6 +30,7 @@ import (
 
 	"github.com/appetizers-io/llm-review-agent/internal/config"
 	"github.com/appetizers-io/llm-review-agent/internal/proc"
+	"github.com/appetizers-io/llm-review-agent/internal/shell"
 )
 
 // Question is what the launch check asks about the new activity.
@@ -99,7 +100,7 @@ func Resolve(name string, c config.Classifier, lookPath LookPath) (*Resolved, st
 			HookCmd:             append(append([]string{}, base...), "hook", "gate"),
 			Timeout:             time.Duration(j.TimeoutSeconds) * time.Second,
 			ConfidenceThreshold: j.ConfidenceThreshold,
-		}, shellquote.Join(base...)
+		}, shell.Join(base...)
 	}
 	r := &Resolved{Name: name, Kind: config.KindCommand, Timeout: time.Duration(c.Command.TimeoutSeconds) * time.Second}
 	for _, cmd := range []struct {

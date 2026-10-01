@@ -11,31 +11,6 @@ import (
 	"github.com/appetizers-io/llm-review-agent/internal/github"
 )
 
-func TestRepoPattern(t *testing.T) {
-	for _, tc := range [][2]string{
-		{"owner/repo", "owner/repo"},
-		{"https://github.com/owner/repo", "owner/repo"},
-		{"https://github.com/owner/repo.git/", "owner/repo"},
-		{"git@github.com:owner/repo.git", "owner/repo"},
-		{"ssh://git@github.com/owner/repo.git", "owner/repo"},
-		{"  owner/* ", "owner/*"},
-	} {
-		require.Equal(t, tc[1], RepoPattern(tc[0]), tc[0])
-	}
-}
-
-func TestRepoOK(t *testing.T) {
-	require.True(t, RepoOK("o/r", nil, nil))
-	require.True(t, RepoOK("o/r", []string{"o/*"}, nil))
-	require.False(t, RepoOK("x/r", []string{"o/*"}, nil))
-	require.False(t, RepoOK("o/r", []string{"o/*"}, []string{"o/r"}))
-	require.True(t, RepoOK("o/r", []string{"*"}, nil)) // * spans the slash, like fnmatch
-	require.True(t, RepoOK("o/r1", []string{"o/r[0-9]"}, nil))
-	require.False(t, RepoOK("o/r1", []string{"o/r[!0-9]"}, nil))
-	require.True(t, RepoOK("o/r.x", []string{"o/r.x"}, nil))
-	require.False(t, RepoOK("o/rax", []string{"o/r.x"}, nil))
-}
-
 func at(at string, mod ...func(*github.Activity)) github.Activity {
 	a := github.Activity{Kind: "comment", ID: new(int64(1)), UpdatedAt: new(at), User: new("bob"), At: at}
 	for _, m := range mod {
@@ -110,22 +85,8 @@ func TestFingerprintMatchesThePythonVersion(t *testing.T) {
 	require.Equal(t, "\"\\u00fc\\ud83d\\ude80 <&>\\n\x7f\\u2028\"", got)
 }
 
-func TestLoginGlob(t *testing.T) {
-	for _, tc := range []struct {
-		pattern, login string
-		hit            bool
-	}{
-		{"*[bot]", "netlify[bot]", true},
-		{"*[bot]", "robot", false}, // brackets are literal, not a class
-		{"netlify[bot]", "Netlify[Bot]", true},
-		{"coderabbit?i*", "coderabbitai[bot]", true},
-		{"alice", "alice2", false},
-	} {
-		require.Equal(t, tc.hit, LoginGlob(tc.pattern, tc.login), tc)
-	}
-}
-
 func TestMentions(t *testing.T) {
+	mentions := Mentions("me")
 	for text, hit := range map[string]bool{
 		"@me":                           true,
 		"what do you think, @Me?":       true,
@@ -142,7 +103,7 @@ func TestMentions(t *testing.T) {
 		"nothing here":                  false,
 		"@meadow and later @me as well": true,
 	} {
-		require.Equal(t, hit, Mentions(text, "me"), text)
+		require.Equal(t, hit, mentions(text), text)
 	}
 }
 

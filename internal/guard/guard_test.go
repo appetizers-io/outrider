@@ -10,6 +10,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/kballard/go-shellquote"
 	"github.com/stretchr/testify/require"
 )
 
@@ -428,4 +429,22 @@ func TestCommandDispatchesOnTheBinaryName(t *testing.T) {
 	for _, name := range []string{"/usr/local/bin/llm-review-agent", "llm-review-agent.exe", "ghx"} {
 		require.Nil(t, Command(name), name)
 	}
+}
+
+// Security review F2: the session label comes from the agent's environment
+// and must not start a dialog text with "-".
+func TestDialogLabelCannotStartWithADash(t *testing.T) {
+	require.True(t, strings.HasPrefix(PostDialog("-e evil", []string{"pr", "view", "1"}, ""), "e evil wants to post"))
+	require.True(t, strings.HasPrefix(PushDialog("--x", []string{"push"}, "b", "/d"), "x wants to run"))
+}
+
+// Security review F3: a word starting with # must stay a word, not begin a
+// shell comment, in the command the dialog shows.
+func TestPostDialogQuotesHash(t *testing.T) {
+	args := []string{"pr", "comment", "5", "--body", "ok", "#x", "-R", "other/repo"}
+	cmd := strings.SplitN(PostDialog("s", args, ""), "\n\n", 3)[1]
+	back, err := shellquote.Split(cmd)
+	require.NoError(t, err)
+	require.Equal(t, append([]string{"gh"}, args...), back)
+	require.NotContains(t, cmd, " #x")
 }

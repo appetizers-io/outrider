@@ -24,14 +24,22 @@ type Poller struct {
 	GH              *github.Client
 	Cfg             *config.Config
 	Login           string
-	Include         []string // owner/repo globs; empty: every repo
-	Exclude         []string
+	Include         config.Globs // owner/repo globs; empty: every repo
+	Exclude         config.Globs
+	IgnoreAuthors   config.Globs // ignore_authors, compiled
 	ProcessExisting bool
 	DryRun          bool
 	StatePath       string // where finished passes save the state
 	Launch          func(context.Context, session.Request) bool
 	Log             *slog.Logger
 	Now             func() time.Time
+
+	mentioned func(text string) bool // compiled once for Login
+}
+
+// repoOK tells whether a repo passes the include and exclude globs.
+func repoOK(repo string, include, exclude config.Globs) bool {
+	return (len(include) == 0 || include.Match(repo)) && !exclude.Match(repo)
 }
 
 var prNumber = regexp.MustCompile(`/pulls/(\d+)$`)
@@ -62,6 +70,9 @@ func (p *Poller) Poll(ctx context.Context, s *State) error {
 	now := p.Now()
 	cfg, trig := p.Cfg, p.Cfg.Triggers
 	windowStart := p.hoursAgo(now, cfg.LookbackHours)
+	if p.mentioned == nil {
+		p.mentioned = Mentions(p.Login)
+	}
 	ps := &pass{Poller: p, s: s, now: now, repliesAfter: windowStart, mentionsAfter: windowStart}
 	if h := trig.ReviewReplies.FreshWithinHours; h != nil {
 		ps.repliesAfter = p.hoursAgo(now, *h)
@@ -84,7 +95,7 @@ func (p *Poller) Poll(ctx context.Context, s *State) error {
 	// 1) Notification feed: own PRs + discover non-owned candidates.
 	for _, x := range ns {
 		repo := x.Repository.FullName
-		if x.Subject.Type != "PullRequest" || !RepoOK(repo, p.Include, p.Exclude) {
+		if x.Subject.Type != "PullRequest" || !repoOK(repo, p.Include, p.Exclude) {
 			ps.ig++
 			continue
 		}
@@ -146,12 +157,12 @@ func (p *Poller) Poll(ctx context.Context, s *State) error {
 		}
 
 		t := s.Handled[k]
-		if len(cfg.IgnoreAuthors) > 0 {
+		if len(p.IgnoreAuthors) > 0 {
 			items, err := p.GH.Activity(ctx, repo, n)
 			if err != nil {
 				continue
 			}
-			if items = NewerThan(items, t); len(items) > 0 && OnlyNoise(items, p.Login, cfg.IgnoreAuthors, false) {
+			if items = NewerThan(items, t); len(items) > 0 && OnlyNoise(items, p.Login, p.IgnoreAuthors, false) {
 				p.Log.Info(k + ": only ignored authors; not launching")
 				if !p.DryRun {
 					s.Seen[nid] = updated
@@ -196,7 +207,7 @@ func (ps *pass) optIn(ctx context.Context) {
 	}
 	for k, x := range involved {
 		_, watched := s.Watched[k]
-		if strings.EqualFold(x.Author, ps.Login) || watched || !RepoOK(x.Repo, ps.Include, ps.Exclude) {
+		if strings.EqualFold(x.Author, ps.Login) || watched || !repoOK(x.Repo, ps.Include, ps.Exclude) {
 			continue
 		}
 		s.Candidates[k] = Candidate{Repo: x.Repo, PR: x.N, SeenAt: unix(ps.now)}
@@ -281,7 +292,7 @@ func (ps *pass) optIn(ctx context.Context) {
 		}
 		t := s.Handled[k]
 		newer := NewerThan(items, t)
-		if OnlyNoise(newer, ps.Login, cfg.IgnoreAuthors, optIn.OnChange.IgnoreOwnActivity) {
+		if OnlyNoise(newer, ps.Login, ps.IgnoreAuthors, optIn.OnChange.IgnoreOwnActivity) {
 			// my own or ignored authors' activity, or edits/deletions only
 			ps.Log.Info(k + ": nothing new from others; not launching")
 			if !ps.DryRun {
@@ -348,7 +359,7 @@ func (ps *pass) replies(ctx context.Context, repo string, n int, pr *github.PR) 
 		if last.ID != nil && slices.Contains(done, *last.ID) {
 			continue
 		}
-		if last.CreatedAt >= ps.repliesAfter && !IgnoredAuthor(last.UserLogin(), ps.Cfg.IgnoreAuthors) {
+		if last.CreatedAt >= ps.repliesAfter && !ps.IgnoreAuthors.MatchLogin(last.UserLogin()) {
 			fresh = append(fresh, cs)
 		}
 	}
@@ -434,9 +445,9 @@ func (ps *pass) mentions(ctx context.Context, repo string, n int, pr *github.PR)
 	}
 	var fresh []github.Activity
 	for _, x := range append([]github.Activity{desc}, items...) {
-		if x.At >= ps.mentionsAfter && Mentions(x.Body, ps.Login) &&
+		if x.At >= ps.mentionsAfter && ps.mentioned(x.Body) &&
 			!strings.EqualFold(x.UserLogin(), ps.Login) &&
-			!IgnoredAuthor(x.UserLogin(), ps.Cfg.IgnoreAuthors) &&
+			!ps.IgnoreAuthors.MatchLogin(x.UserLogin()) &&
 			!slices.Contains(done, x.Kind+":"+idString(x.ID)) &&
 			(x.ID == nil || !slices.Contains(replied, *x.ID)) {
 			fresh = append(fresh, x)

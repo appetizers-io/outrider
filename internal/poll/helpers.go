@@ -13,56 +13,20 @@ import (
 	"unicode/utf8"
 
 	"github.com/dlclark/regexp2"
-	"github.com/gobwas/glob"
 
+	"github.com/appetizers-io/llm-review-agent/internal/config"
 	"github.com/appetizers-io/llm-review-agent/internal/github"
 )
 
-var (
-	repoPrefix = regexp.MustCompile(`^(https?://|git@|ssh://git@)github\.com[/:]`)
-	// RepoName is an owner/repo without wildcards.
-	RepoName = regexp.MustCompile(`^[\w.-]+/[\w.-]+$`)
-)
-
-// RepoPattern accepts owner/repo globs as well as GitHub URLs.
-func RepoPattern(x string) string {
-	x = repoPrefix.ReplaceAllString(strings.TrimSpace(x), "")
-	return strings.TrimSuffix(strings.TrimRight(x, "/"), ".git")
-}
-
-// RepoOK tells whether a repo passes the include and exclude globs.
-func RepoOK(repo string, include, exclude []string) bool {
-	// shell globs like Python's fnmatch: * also matches "/", [seq] and [!seq] work
-	match := func(p string) bool {
-		g, err := glob.Compile(p)
-		return err == nil && g.Match(repo)
-	}
-	if len(include) > 0 && !slices.ContainsFunc(include, match) {
-		return false
-	}
-	return !slices.ContainsFunc(exclude, match)
-}
-
-// loginLiterals are glob characters that are literal in logins like "netlify[bot]".
-var loginLiterals = strings.NewReplacer("[", `\[`, "]", `\]`, "{", `\{`, "}", `\}`, `\`, `\\`)
-
-// LoginGlob matches logins case-insensitively with * and ? only.
-func LoginGlob(pattern string, login string) bool {
-	g, err := glob.Compile(loginLiterals.Replace(strings.ToLower(pattern)))
-	return err == nil && g.Match(strings.ToLower(login))
-}
-
-// IgnoredAuthor tells whether ignore_authors matches the login.
-func IgnoredAuthor(user string, ignore []string) bool {
-	return slices.ContainsFunc(ignore, func(p string) bool { return LoginGlob(p, user) })
-}
+// RepoName is an owner/repo without wildcards.
+var RepoName = regexp.MustCompile(`^[\w.-]+/[\w.-]+$`)
 
 // OnlyNoise tells whether nothing in items needs me: all by ignored authors
 // (or by me when mineToo).
-func OnlyNoise(items []github.Activity, login string, ignore []string, mineToo bool) bool {
+func OnlyNoise(items []github.Activity, login string, ignore config.Globs, mineToo bool) bool {
 	for _, x := range items {
 		mine := mineToo && strings.EqualFold(x.UserLogin(), login)
-		if !mine && !IgnoredAuthor(x.UserLogin(), ignore) {
+		if !mine && !ignore.MatchLogin(x.UserLogin()) {
 			return false
 		}
 	}
@@ -127,11 +91,13 @@ func Fingerprint(items []github.Activity) string {
 	return hex.EncodeToString(sum[:])
 }
 
-// Mentions tells whether text @mentions login: not inside a word, an email
-// address or a path, and not a longer login. The Python version's regexp,
-// with lookbehind (regexp2: Go's regexp has none).
-func Mentions(text, login string) bool {
+// Mentions returns a matcher for text that @mentions login: not inside a
+// word, an email address or a path, and not a longer login. The Python
+// version's regexp, with lookbehind (regexp2: Go's regexp has none).
+func Mentions(login string) func(text string) bool {
 	rx := regexp2.MustCompile(`(?<![\w@/])@`+regexp2.Escape(login)+`(?![\w-])`, regexp2.IgnoreCase)
-	ok, err := rx.MatchString(text)
-	return err == nil && ok
+	return func(text string) bool {
+		ok, err := rx.MatchString(text)
+		return err == nil && ok
+	}
 }

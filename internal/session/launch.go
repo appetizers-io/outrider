@@ -17,13 +17,12 @@ import (
 	"strings"
 	"time"
 
-	"github.com/kballard/go-shellquote"
-
 	"github.com/appetizers-io/llm-review-agent/internal/classifier"
 	"github.com/appetizers-io/llm-review-agent/internal/config"
 	"github.com/appetizers-io/llm-review-agent/internal/github"
 	"github.com/appetizers-io/llm-review-agent/internal/guard"
 	"github.com/appetizers-io/llm-review-agent/internal/proc"
+	"github.com/appetizers-io/llm-review-agent/internal/shell"
 )
 
 func itoa(n int) string { return strconv.Itoa(n) }
@@ -436,7 +435,7 @@ func writeScript(dir, goos string, runner []string) (string, error) {
 		return p, writeExec(p, "@echo off\r\n"+strings.Join(quoted, " ")+"\r\n")
 	}
 	p := filepath.Join(dir, "run-agent.command")
-	return p, writeExec(p, "#!/bin/sh\nexec "+shellquote.Join(runner...)+"\n")
+	return p, writeExec(p, "#!/bin/sh\nexec "+shell.Join(runner...)+"\n")
 }
 
 func writeExec(p, text string) error {

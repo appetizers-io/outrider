@@ -289,7 +289,7 @@
             "minLength": 1
           },
           "type": "array",
-          "description": "owner/repo globs or GitHub URLs. Empty: the checkout you run in, else every repo."
+          "description": "owner/repo globs (*, ?, [abc], [!abc], {a,b}) or GitHub URLs. Empty: the checkout you run in, else every repo."
         },
         "exclude": {
           "items": {

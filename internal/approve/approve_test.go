@@ -28,7 +28,12 @@ func TestMacOSUsesOsascript(t *testing.T) {
 	r.Equal("/usr/bin/osascript", d.args[0])
 	r.Contains(d.args[2], `with title (item 2 of argv)`)
 	r.Contains(d.args[2], `buttons {"Deny", (item 3 of argv)} default button "Deny" cancel button "Deny"`)
-	r.Equal([]string{"body", `t "x"`, "Push"}, d.args[3:]) // texts are arguments only
+	r.Equal([]string{"--", "body", `t "x"`, "Push"}, d.args[3:]) // texts are arguments only
+	// security review F2: without "--" osascript reads a body starting with
+	// "-" as its own option (-e adds script text)
+	d, err = platform("darwin", nil, "/usr/bin/osascript").dialogFor("t", "-e do shell script \"x\"", "Push")
+	r.NoError(err)
+	r.Equal([]string{"--", "-e do shell script \"x\"", "t", "Push"}, d.args[3:])
 	r.Contains(d.args[2], "giving up after 300")
 	r.True(d.ok("Push\n"))
 	r.False(d.ok("timeout\n"))

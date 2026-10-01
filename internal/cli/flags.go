@@ -6,7 +6,6 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/appetizers-io/llm-review-agent/internal/config"
-	"github.com/appetizers-io/llm-review-agent/internal/poll"
 	"github.com/appetizers-io/llm-review-agent/internal/watch"
 )
 
@@ -87,10 +86,10 @@ func (f *flags) settings(cmd *cobra.Command) (watch.Settings, error) {
 		ProcessExisting: f.processExisting, Once: f.once, DryRun: f.dryRun, ResetState: f.resetState,
 	}
 	for _, p := range cfg.Repos.Include {
-		s.Include = append(s.Include, poll.RepoPattern(p))
+		s.Include = append(s.Include, config.RepoPattern(p))
 	}
 	for _, p := range cfg.Repos.Exclude {
-		s.Exclude = append(s.Exclude, poll.RepoPattern(p))
+		s.Exclude = append(s.Exclude, config.RepoPattern(p))
 	}
 	return s, nil
 }

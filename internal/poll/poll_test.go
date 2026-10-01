@@ -174,8 +174,10 @@ func (h *hub) launch(ctx context.Context, r session.Request) bool {
 func (h *hub) poller(cfgText string) *Poller {
 	cfg, err := config.Parse([]byte(cfgText), "c.yaml")
 	require.NoError(h.t, err)
+	ignore, err := config.LoginGlobs(cfg.IgnoreAuthors)
+	require.NoError(h.t, err)
 	return &Poller{
-		GH: &github.Client{Run: h.gh}, Cfg: &cfg, Login: "me", Launch: h.launch,
+		GH: &github.Client{Run: h.gh}, Cfg: &cfg, Login: "me", Launch: h.launch, IgnoreAuthors: ignore,
 		Log: slog.New(slog.DiscardHandler), Now: time.Now, StatePath: filepath.Join(h.t.TempDir(), "state.json"),
 	}
 }
@@ -281,7 +283,9 @@ func TestRepoFilter(t *testing.T) {
 	h.pr(1, "me")
 	h.notify("n1", 1, "t1")
 	p := h.poller("")
-	p.Include = []string{"other/*"}
+	include, err := config.RepoGlobs([]string{"other/*"})
+	require.NoError(t, err)
+	p.Include = include
 	h.poll(p, liveState(t))
 	require.Empty(t, h.launches)
 }

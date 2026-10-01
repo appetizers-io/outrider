@@ -180,8 +180,12 @@ at its default (`llm-review-agent config generate` prints it):
 - `classifiers`, `launch_check` and `tool_gate` (see above)
 - the opt-in reaction and where it counts
 - `ignore_own_activity` (default on): your own comments never relaunch
-- `ignore_authors`: login globs (`*` and `?`) whose activity alone never
-  triggers, e.g. `"*[bot]"`
+- `repos.include` / `repos.exclude` (and `--repo` / `--exclude-repo`):
+  `owner/repo` globs or GitHub URLs. `*` (also across `/`), `?`, `[abc]`,
+  `[!abc]` and `{a,b}` work, e.g. `my-org/{api,web}`. A broken glob (an
+  unclosed `[` or `{`) stops startup instead of silently matching nothing.
+- `ignore_authors`: login globs (`*` and `?`; brackets and braces are literal)
+  whose activity alone never triggers, e.g. `"*[bot]"`
 - reply sessions scoped to the replied thread, and how fresh a reply must be
 - Jev (`classifiers.jev.enabled: auto` turns it on when `jev-use`/`npx` and a
   backend key exist)

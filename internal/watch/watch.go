@@ -48,7 +48,7 @@ func localCheckout(ctx context.Context, s *Settings, d Deps) (string, session.Lo
 	}
 	checkout := strings.TrimSpace(top.Stdout)
 	url, _ := d.Run(ctx, proc.Cmd{Args: []string{"git", "remote", "get-url", remote}, Dir: checkout})
-	repo := poll.RepoPattern(strings.TrimSpace(url.Stdout))
+	repo := config.RepoPattern(strings.TrimSpace(url.Stdout))
 	if !poll.RepoName.MatchString(repo) {
 		if s.Remote != "" {
 			return "", session.Local{}, fmt.Errorf("remote '%s' is not a GitHub repo here", s.Remote)
@@ -171,6 +171,19 @@ func Run(ctx context.Context, s Settings, d Deps, log *slog.Logger) error {
 			s.Include = []string{repo}
 		}
 	}
+	// globs are compiled once; config and flags were checked when loaded
+	include, err := config.RepoGlobs(s.Include)
+	if err != nil {
+		return fmt.Errorf("repos: %w", err)
+	}
+	exclude, err := config.RepoGlobs(s.Exclude)
+	if err != nil {
+		return fmt.Errorf("excluded repos: %w", err)
+	}
+	ignore, err := config.LoginGlobs(cfg.IgnoreAuthors)
+	if err != nil {
+		return fmt.Errorf("ignore_authors: %w", err)
+	}
 
 	launchCheck, checkNote := classifier.ResolveRole(cfg, cfg.LaunchCheck.Classifier, d.LookPath)
 	toolGate, gateNote := classifier.ResolveRole(cfg, cfg.ToolGate.Classifier, d.LookPath)
@@ -247,7 +260,7 @@ func Run(ctx context.Context, s Settings, d Deps, log *slog.Logger) error {
 		Local: local, DryRun: s.DryRun, GOOS: d.GOOS, Run: d.Run, LookPath: d.LookPath, Log: log,
 	}
 	p := &poll.Poller{
-		GH: gh, Cfg: cfg, Login: user.Login, Include: s.Include, Exclude: s.Exclude,
+		GH: gh, Cfg: cfg, Login: user.Login, Include: include, Exclude: exclude, IgnoreAuthors: ignore,
 		ProcessExisting: s.ProcessExisting, DryRun: s.DryRun, StatePath: state,
 		Launch: launch.Launch, Log: log, Now: time.Now,
 	}

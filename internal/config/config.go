@@ -53,7 +53,7 @@ type Config struct {
 
 // Repos limits which repositories are watched.
 type Repos struct {
-	Include []string `yaml:"include" jsonschema:"minLength=1" jsonschema_description:"owner/repo globs or GitHub URLs. Empty: the checkout you run in, else every repo."`
+	Include []string `yaml:"include" jsonschema:"minLength=1" jsonschema_description:"owner/repo globs (*, ?, [abc], [!abc], {a,b}) or GitHub URLs. Empty: the checkout you run in, else every repo."`
 	Exclude []string `yaml:"exclude" jsonschema:"minLength=1" jsonschema_description:"owner/repo globs or GitHub URLs that never trigger."`
 }
 
@@ -260,6 +260,19 @@ func (c *Config) crossCheck() []string {
 	if _, ok := c.Classifiers["jev"]; !ok {
 		// keep the built-in available when only others are added
 		c.Classifiers["jev"] = DefaultJev()
+	}
+	for _, globs := range []struct {
+		key      string
+		patterns []string
+		compile  func([]string) (Globs, error)
+	}{
+		{"repos.include", c.Repos.Include, RepoGlobs},
+		{"repos.exclude", c.Repos.Exclude, RepoGlobs},
+		{"ignore_authors", c.IgnoreAuthors, LoginGlobs},
+	} {
+		if _, err := globs.compile(globs.patterns); err != nil {
+			errs = append(errs, globs.key+": "+err.Error())
+		}
 	}
 	for _, role := range []struct {
 		name, needs string

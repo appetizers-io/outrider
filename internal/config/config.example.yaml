@@ -60,7 +60,8 @@ stale_lock_hours: 12
 
 repos:
   # owner/repo globs or GitHub URLs. Empty: the checkout you run in, else
-  # every repo. Example: ["open-component-model/*"]
+  # every repo. * (also across "/"), ?, [abc], [!abc] and {a,b} work, e.g.
+  # ["open-component-model/*", "my-org/{api,web}"]. A broken glob is an error.
   include: []
   # owner/repo globs or GitHub URLs that never trigger.
   exclude: []

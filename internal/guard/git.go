@@ -84,6 +84,7 @@ func DecideGit(args []string, mode string, alias func(global []string, name stri
 
 // PushDialog is the approval dialog's text for a push.
 func PushDialog(session string, args []string, branch, dir string) string {
+	session = strings.TrimLeft(session, "-") // from the agent's environment; must not read as an option
 	if session == "" {
 		session = "agent session"
 	}

@@ -172,9 +172,12 @@ func TestInvalidFlagsAndConfig(t *testing.T) {
 		require.ErrorContains(t, err, "flags and config is invalid", flag)
 		require.ErrorContains(t, err, at, flag)
 	}
+	// a broken glob stops startup instead of silently excluding nothing
+	_, err := effective(t, "--exclude-repo", "secret-org/{internal,private")
+	require.ErrorContains(t, err, "repos.exclude: bad glob")
 	p := filepath.Join(dir, "c.yaml")
 	require.NoError(t, os.WriteFile(p, []byte("max_agents: 0\n"), 0o600))
-	_, err := effective(t, "--config", p)
+	_, err = effective(t, "--config", p)
 	require.ErrorContains(t, err, "/max_agents")
 	require.ErrorContains(t, err, p)
 }

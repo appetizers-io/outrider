@@ -75,7 +75,7 @@ func (p Platform) dialogFor(title, body, ok string) (dialog, error) {
 			"if gave up of result then return \"timeout\"\n" +
 			"return button returned of result\nend run"
 		return dialog{
-			args: []string{osascriptPath, "-e", script, body, title, ok},
+			args: []string{osascriptPath, "-e", script, "--", body, title, ok}, // "--": a body starting with "-" is no option
 			ok:   func(out string) bool { return strings.TrimSpace(out) == ok },
 		}, nil
 	case "windows":

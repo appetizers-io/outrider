@@ -78,6 +78,10 @@ func TestInvalid(t *testing.T) {
 		{"- not\n- a\n- mapping", "got array, want object"},
 		{"terminal: konsole2", "/terminal"},
 		{"terminal: [alacritty, -e]", "/terminal"},
+		// security review F1: a broken glob must not silently match nothing
+		{`repos: {exclude: ["org/[abc"]}`, "repos.exclude: bad glob \"org/[abc\""},
+		{`repos: {exclude: ["org/{a,b"]}`, "repos.exclude: bad glob \"org/{a,b\""},
+		{`repos: {include: ["org/x\\"]}`, "repos.include: bad glob"},
 	} {
 		t.Run(tc.yaml, func(t *testing.T) {
 			_, err := Parse([]byte(tc.yaml), "c.yaml")
