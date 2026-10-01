@@ -322,6 +322,13 @@ func TestNoGateNeverAsks(t *testing.T) {
 	require.Empty(t, c.args)
 }
 
+func TestStaleLockOfThisPRDoesNotBlockItsLaunch(t *testing.T) {
+	l, _ := newLauncher(t, "")
+	old := float64(time.Now().Add(-2 * LaunchGrace).Unix())
+	require.NoError(t, os.WriteFile(l.lock(t, 1), []byte(fmt.Sprintf(`{"started": %v, "pid": null}`, old)), 0o600)) // runner never started
+	require.True(t, l.Launch(t.Context(), Request{Repo: "o/r", N: 1, PR: pr("bob"), Trigger: "t"}))
+}
+
 func TestRunningAgentKeepsEventPendingWithoutAsking(t *testing.T) {
 	l, c := newLauncher(t, "")
 	l.LaunchCheck = &classifier.Resolved{Name: "jev", Kind: "jev", LaunchCmd: []string{"jev-use", "judge"}}
@@ -416,7 +423,9 @@ func TestLocksDropDeadAndNeverStartedAgents(t *testing.T) {
 		2: fmt.Sprintf(`{"started": %v, "pid": %d, "tmux": null}`, old, 1<<22+12345), // exited without cleanup
 		3: fmt.Sprintf(`{"started": %v, "pid": null, "tmux": null}`, old),            // runner never started
 		4: fmt.Sprintf(`{"started": %v, "pid": null, "tmux": null}`, float64(time.Now().Unix())),
-		5: fmt.Sprintf(`{"started": %v, "tmux": null}`, old), // lock from before pid stamping
+		5: fmt.Sprintf(`{"started": %v, "tmux": null}`, old),            // lock from before pid stamping
+		6: fmt.Sprintf(`{"started": %v, "pid": 0, "tmux": null}`, old),  // 0 would signal our own process group
+		7: fmt.Sprintf(`{"started": %v, "pid": -1, "tmux": null}`, old), // so would negatives
 	}
 	for n, meta := range cases {
 		require.NoError(t, os.WriteFile(l.lock(t, n), []byte(meta), 0o600))

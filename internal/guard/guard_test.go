@@ -169,6 +169,13 @@ func TestPostTextIsShown(t *testing.T) {
 
 	d = DecideGH([]string{"pr", "review", "7", "--request-changes", "-F", "missing.md"}, gh("ask"))
 	r.Contains(d.Deny, "cannot read missing.md")
+	r.NoError(os.WriteFile("q.json", []byte(`{"query": "MUTATION { addComment(input: {}) { clientMutationId } }"}`), 0o600))
+	r.NoError(os.WriteFile("read.json", []byte(`{"query": "query { viewer { login } }"}`), 0o600))
+	for _, mode := range []string{"never", "ask", "allow"} {
+		r.Contains(DecideGH([]string{"api", "graphql", "--input", "q.json"}, gh(mode)).Deny, "graphql mutation")
+		r.Equal(GHDecision{}, DecideGH([]string{"api", "graphql", "--input", "read.json"}, gh(mode)))
+	}
+
 	d = DecideGH([]string{"pr", "review", "7", "-r", "-b", "fix it"}, gh("ask"))
 	r.Equal("-r\nfix it", d.Text)
 }

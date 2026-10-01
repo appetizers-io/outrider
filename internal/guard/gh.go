@@ -229,7 +229,9 @@ func (s GHSession) apiCall(args []string) (bool, string) {
 		}
 	}
 	if slices.Contains(pos, "graphql") {
-		if slices.ContainsFunc(args, func(x string) bool { return strings.Contains(strings.ToLower(x), "mutation") }) {
+		// the query can also come from --input; any mention of a mutation is refused
+		all := strings.ToLower(strings.Join(args, "\n") + "\n" + strings.Join(text, "\n"))
+		if strings.Contains(all, "mutation") {
 			s.deny(args, "graphql mutation")
 		}
 		return false, ""

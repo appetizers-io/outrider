@@ -77,11 +77,15 @@ func (l *Launcher) Launch(ctx context.Context, r Request) bool {
 func (l *Launcher) launch(ctx context.Context, r Request) (bool, error) {
 	key := fmt.Sprintf("%s#%d", r.Repo, r.N)
 	lock := lockPath(l.Root, r.Repo, r.N)
+	var live []string
+	if !l.DryRun {
+		live = Locks(ctx, l.Root, l.Cfg.StaleLockHours, l.Run, l.Log) // drops stale locks, this PR's too
+	}
 	if _, err := os.Stat(lock); err == nil {
 		l.Log.Info(key + ": already running; keeping event pending")
 		return false, nil
 	}
-	if !l.DryRun && len(Locks(ctx, l.Root, l.Cfg.StaleLockHours, l.Run, l.Log)) >= l.Cfg.MaxAgents {
+	if !l.DryRun && len(live) >= l.Cfg.MaxAgents {
 		l.Log.Info(fmt.Sprintf("%s: agent limit reached (%d); keeping event pending", key, l.Cfg.MaxAgents))
 		return false, nil
 	}
