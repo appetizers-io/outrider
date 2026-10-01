@@ -1,0 +1,31 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!-- A launchd user agent for outrider. Copy to ~/Library/LaunchAgents/,
+     replace /Users/you, then: launchctl load ~/Library/LaunchAgents/io.appetizers.outrider.plist -->
+<plist version="1.0">
+<dict>
+  <key>Label</key>
+  <string>io.appetizers.outrider</string>
+  <key>ProgramArguments</key>
+  <array>
+    <string>/Users/you/.local/bin/outrider</string>
+    <string>--log-format</string>
+    <string>json</string>
+  </array>
+  <!-- outrider watches this checkout's repo; or pass repos with --repo / repos.include -->
+  <key>WorkingDirectory</key>
+  <string>/Users/you/dev/some-repo</string>
+  <key>EnvironmentVariables</key>
+  <dict>
+    <!-- gh, git and the agent must be on PATH -->
+    <key>PATH</key>
+    <string>/Users/you/.local/bin:/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin</string>
+  </dict>
+  <key>RunAtLoad</key>
+  <true/>
+  <key>KeepAlive</key>
+  <true/>
+  <key>StandardErrorPath</key>
+  <string>/Users/you/Library/Logs/outrider.log</string>
+</dict>
+</plist>

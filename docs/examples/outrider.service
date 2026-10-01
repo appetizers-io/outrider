@@ -1,0 +1,20 @@
+# A systemd user service for outrider. Copy to ~/.config/systemd/user/,
+# then: systemctl --user daemon-reload && systemctl --user enable --now outrider
+# Logs: journalctl --user -u outrider -f
+[Unit]
+Description=outrider: coding agent sessions for your pull requests
+After=network-online.target
+
+[Service]
+# outrider watches this checkout's repo; or pass repos with --repo / repos.include
+WorkingDirectory=%h/dev/some-repo
+# No display in a service: sessions open in tmux (attach with the command in
+# the log), and approval dialogs can't show, so ask-mode pushes and posts are
+# denied. Set push/github_writes to never or allow, knowingly.
+ExecStart=%h/.local/bin/outrider --launcher tmux --log-format json
+Environment=PATH=%h/.local/bin:/usr/local/bin:/usr/bin:/bin
+Restart=on-failure
+RestartSec=30
+
+[Install]
+WantedBy=default.target
