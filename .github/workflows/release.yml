@@ -1,50 +1,36 @@
 name: Release
 
-# release-please keeps a release PR open with the next version and its
-# CHANGELOG.md entry, built from the Conventional Commit titles merged to main.
-# Merging that PR creates the tag and the GitHub release; GoReleaser then
-# builds the archives and attaches them to it.
-#
-# It uses GITHUB_TOKEN, and GitHub starts no workflows for PRs opened with it,
-# so CI doesn't run on the release PR by itself: close and reopen the PR once
-# before merging to run the required checks.
+# Run by hand (Actions → Release → Run workflow) on main. svu picks the next
+# version from the Conventional Commit titles since the last tag (feat: minor,
+# fix: patch, feat!: major), or the bump you choose. GoReleaser then creates
+# the tag and the GitHub release with a grouped changelog and attaches the
+# archives.
 
 on:
-  push:
-    branches: [main]
+  workflow_dispatch:
+    inputs:
+      bump:
+        description: Version bump
+        type: choice
+        options: [auto, patch, minor, major]
+        default: auto
 
-permissions: {}
+permissions:
+  contents: read
 
 concurrency:
   group: release
   cancel-in-progress: false
 
 jobs:
-  release-please:
+  release:
+    if: github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
     permissions:
-      contents: write # tag, release, CHANGELOG.md on the release branch
-      pull-requests: write # the release PR
-    outputs:
-      release_created: ${{ steps.release.outputs.release_created }}
-      tag_name: ${{ steps.release.outputs.tag_name }}
-    steps:
-      - uses: googleapis/release-please-action@45996ed1f6d02564a971a2fa1b5860e934307cf7 # v5.0.0
-        id: release
-        with:
-          config-file: release-please-config.json
-          manifest-file: .release-please-manifest.json
-
-  goreleaser:
-    needs: release-please
-    if: needs.release-please.outputs.release_created == 'true'
-    runs-on: ubuntu-latest
-    permissions:
-      contents: write # attach the archives to the release
+      contents: write # create the tag and the release
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          ref: ${{ needs.release-please.outputs.tag_name }}
           persist-credentials: false
           fetch-depth: 0
       - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
@@ -55,6 +41,18 @@ jobs:
         with:
           version: 3.x
       - run: task test
+      - name: Next version
+        id: version
+        env:
+          BUMP: ${{ inputs.bump }}
+        run: |
+          cmd=$([ "$BUMP" = auto ] && echo next || echo "$BUMP")
+          version=$(go run github.com/caarlos0/svu/v3@v3.4.1 "$cmd")
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          echo "Releasing $version" >> "$GITHUB_STEP_SUMMARY"
+      # Local tag only: GoReleaser needs it; GitHub creates the remote tag
+      # together with the release.
+      - run: git tag "${{ steps.version.outputs.version }}"
       - uses: goreleaser/goreleaser-action@f06c13b6b1a9625abc9e6e439d9c05a8f2190e94 # v7.2.3
         with:
           version: v2.18.2

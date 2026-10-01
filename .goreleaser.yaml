@@ -29,10 +29,25 @@ archives:
 checksum:
   name_template: checksums.txt
 
-# release-please creates the release and its notes (CHANGELOG.md); only attach
-# the archives and checksums, keep its title and notes.
 release:
-  mode: keep-existing
+  # the commit the workflow tested; GitHub creates the tag on it
+  target_commitish: "{{ .Commit }}"
 
 changelog:
-  disable: true
+  use: github # commit links and authors
+  sort: asc
+  filters:
+    exclude:
+      - "^(chore|ci|test|build|style)(\\(.*\\))?:"
+  groups:
+    - title: Breaking changes
+      regexp: '^\w+(\(.+\))?!:'
+      order: 0
+    - title: Features
+      regexp: '^feat(\(.+\))?:'
+      order: 1
+    - title: Bug fixes
+      regexp: '^fix(\(.+\))?:'
+      order: 2
+    - title: Other changes
+      order: 999
