@@ -2,10 +2,12 @@ package migrate
 
 import (
 	"bytes"
+	"encoding/json"
 	"log/slog"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -16,6 +18,18 @@ func git(t *testing.T, dir string, args ...string) string {
 	out, err := exec.Command("git", append([]string{"-C", dir}, args...)...).CombinedOutput()
 	require.NoError(t, err, string(out))
 	return string(out)
+}
+
+// messages are the msg fields of JSON log lines.
+func messages(t *testing.T, log string) []string {
+	t.Helper()
+	var out []string
+	for _, line := range strings.Split(strings.TrimSpace(log), "\n") {
+		var rec struct{ Msg string }
+		require.NoError(t, json.Unmarshal([]byte(line), &rec), line)
+		out = append(out, rec.Msg)
+	}
+	return out
 }
 
 func TestDirsMovesOldDirsOnce(t *testing.T) {
@@ -38,20 +52,20 @@ func TestDirsMovesOldDirsOnce(t *testing.T) {
 	git(t, clone, "worktree", "add", "-q", "--detach", wt)
 
 	var log bytes.Buffer
-	Dirs(home, config, slog.New(slog.NewTextHandler(&log, nil)))
+	Dirs(home, config, slog.New(slog.NewJSONHandler(&log, nil)))
 
 	r.FileExists(filepath.Join(config, "outrider", "config.yaml"))
 	r.FileExists(filepath.Join(home, ".local", "state", "outrider", "state.json"))
 	r.NoDirExists(filepath.Join(config, "llm-review-agent"))
 	r.NoDirExists(filepath.Join(home, ".cache", "llm-review-agent"))
-	r.Contains(log.String(), "moved "+filepath.Join(config, "llm-review-agent")+" to "+filepath.Join(config, "outrider"))
+	r.Contains(messages(t, log.String()), "moved "+filepath.Join(config, "llm-review-agent")+" to "+filepath.Join(config, "outrider")+" (renamed to outrider)")
 	// the moved worktree still works
 	git(t, filepath.Join(home, ".cache", "outrider", "worktrees", "o__r", "pr-1"), "status", "--porcelain")
 
 	// a second start changes nothing; an existing new dir wins over an old one
 	r.NoError(os.MkdirAll(filepath.Join(config, "llm-review-agent"), 0o700))
 	log.Reset()
-	Dirs(home, config, slog.New(slog.NewTextHandler(&log, nil)))
+	Dirs(home, config, slog.New(slog.NewJSONHandler(&log, nil)))
 	r.Empty(log.String())
 	r.DirExists(filepath.Join(config, "llm-review-agent"))
 }

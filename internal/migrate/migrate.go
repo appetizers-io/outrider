@@ -25,18 +25,24 @@ func Dirs(home, configBase string, log *slog.Logger) {
 		if _, err := os.Stat(old); err != nil {
 			continue
 		}
+		// git may have recorded the worktrees through a resolved symlink
+		// (e.g. /var -> /private/var on macOS)
+		oldReal, err := filepath.EvalSymlinks(old)
+		if err != nil {
+			oldReal = old
+		}
 		if err := os.Rename(old, cur); err != nil {
 			log.Warn(fmt.Sprintf("could not move %s to %s: %v", old, cur, err))
 			continue
 		}
 		log.Info(fmt.Sprintf("moved %s to %s (renamed to outrider)", old, cur))
-		repairWorktrees(old, cur, log)
+		repairWorktrees([]string{old, oldReal}, cur, log)
 	}
 }
 
 // repairWorktrees re-links the PR worktrees in a moved cache: git records
 // them by absolute path, also for the clones that moved along.
-func repairWorktrees(old, cur string, log *slog.Logger) {
+func repairWorktrees(olds []string, cur string, log *slog.Logger) {
 	dotgits, _ := filepath.Glob(filepath.Join(cur, "worktrees", "*", "*", ".git"))
 	for _, dotgit := range dotgits {
 		raw, err := os.ReadFile(dotgit)
@@ -45,8 +51,11 @@ func repairWorktrees(old, cur string, log *slog.Logger) {
 		}
 		admin := strings.TrimSpace(strings.TrimPrefix(string(raw), "gitdir:"))
 		admin = filepath.ToSlash(admin)
-		if oldSlash := filepath.ToSlash(old); strings.HasPrefix(admin, oldSlash+"/") {
-			admin = filepath.ToSlash(cur) + strings.TrimPrefix(admin, oldSlash) // a cached clone moved too
+		for _, old := range olds {
+			if oldSlash := filepath.ToSlash(old); strings.HasPrefix(admin, oldSlash+"/") {
+				admin = filepath.ToSlash(cur) + strings.TrimPrefix(admin, oldSlash) // a cached clone moved too
+				break
+			}
 		}
 		i := strings.LastIndex(admin, "/worktrees/")
 		if i < 0 {

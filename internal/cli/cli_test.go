@@ -356,11 +356,12 @@ func TestOldDirsAreMovedAndTheirConfigLoaded(t *testing.T) {
 	old := filepath.Join(d.Home, "xdg", "llm-review-agent", "config.yaml") // isolate's XDG_CONFIG_HOME
 	r.NoError(os.MkdirAll(filepath.Dir(old), 0o700))
 	r.NoError(os.WriteFile(old, []byte("owner_name: Matze\n"), 0o600))
-	o := cli(t, d, "--once", "--dry-run", "--launcher", "tmux")
+	o := cli(t, d, "--once", "--dry-run", "--launcher", "tmux", "--log-format", "json")
 	r.Equal(0, o.code, o.stderr)
 	moved := filepath.Join(d.Home, "xdg", "outrider")
-	r.Contains(o.stderr, "moved "+filepath.Dir(old)+" to "+moved)
-	r.Contains(o.stderr, "config: "+filepath.Join(moved, "config.yaml"))
+	msgs := messages(t, o.stderr)
+	r.Contains(msgs, "moved "+filepath.Dir(old)+" to "+moved+" (renamed to outrider)")
+	r.Contains(msgs, "config: "+filepath.Join(moved, "config.yaml"))
 	r.Contains(o.stderr, "prompts call you Matze")
 }
 
@@ -370,10 +371,11 @@ func TestLegacyConfigEnvVarStillWorks(t *testing.T) {
 	p := filepath.Join(d.Home, "c.yaml")
 	r.NoError(os.WriteFile(p, []byte("owner_name: Matze\n"), 0o600))
 	t.Setenv(config.LegacyEnvVar, p)
-	o := cli(t, d, "--once", "--dry-run", "--launcher", "tmux")
+	o := cli(t, d, "--once", "--dry-run", "--launcher", "tmux", "--log-format", "json")
 	r.Equal(0, o.code, o.stderr)
-	r.Contains(o.stderr, "$LLM_REVIEW_AGENT_CONFIG is deprecated, use $OUTRIDER_CONFIG")
-	r.Contains(o.stderr, "config: "+p)
+	msgs := messages(t, o.stderr)
+	r.Contains(msgs, "$LLM_REVIEW_AGENT_CONFIG is deprecated, use $OUTRIDER_CONFIG")
+	r.Contains(msgs, "config: "+p)
 	t.Setenv(config.EnvVar, filepath.Join(d.Home, "missing.yaml")) // the new one wins
 	r.Contains(cli(t, d, "--once", "--dry-run").stderr, "missing.yaml")
 }
@@ -386,4 +388,16 @@ func TestSchemaAndSessionCommandsMoveNothing(t *testing.T) {
 	require.Equal(t, 0, cli(t, d, "config", "schema").code)
 	require.DirExists(t, old)
 	require.NoDirExists(t, filepath.Join(d.Home, ".cache", "outrider"))
+}
+
+// messages are the msg fields of JSON log lines.
+func messages(t *testing.T, log string) []string {
+	t.Helper()
+	var out []string
+	for _, line := range strings.Split(strings.TrimSpace(log), "\n") {
+		var rec struct{ Msg string }
+		require.NoError(t, json.Unmarshal([]byte(line), &rec), line)
+		out = append(out, rec.Msg)
+	}
+	return out
 }
