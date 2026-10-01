@@ -238,7 +238,8 @@ dialogs), `internal/classifier`, and `prompts/` (the prompt template).
 and activity fingerprints to what the former Python version produced.
 
 CI and the release workflow only call these tasks. Releases are built by
-GoReleaser when a `v*` tag is pushed.
+GoReleaser when a GitHub release is published (e.g.
+`gh release create v0.1.0 --generate-notes`); the archives are attached to it.
 
 ## License
 

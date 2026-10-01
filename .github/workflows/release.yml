@@ -1,8 +1,10 @@
 name: Release
 
+# Runs when a GitHub release is published (UI or `gh release create`); builds
+# the archives and attaches them to that release.
 on:
-  push:
-    tags: ["v*"]
+  release:
+    types: [published]
 
 permissions:
   contents: write

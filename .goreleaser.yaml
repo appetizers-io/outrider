@@ -29,5 +29,10 @@ archives:
 checksum:
   name_template: checksums.txt
 
+# The release already exists (created in GitHub, with its notes); only attach
+# the archives and checksums, keep its title and notes.
+release:
+  mode: keep-existing
+
 changelog:
-  sort: asc
+  disable: true
