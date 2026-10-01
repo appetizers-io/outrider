@@ -12,7 +12,7 @@ import (
 	"errors"
 	"os"
 	"os/exec"
-	"path/filepath"
+	"path"
 	"strings"
 	"time"
 )
@@ -51,8 +51,9 @@ var linuxDirs = []string{"/usr/bin", "/bin", "/usr/local/bin"}
 
 func (p Platform) find(name string) string {
 	for _, d := range linuxDirs {
-		if path := filepath.Join(d, name); p.Exists(path) {
-			return path
+		// slash paths: these are Linux locations, whatever builds the test
+		if candidate := path.Join(d, name); p.Exists(candidate) {
+			return candidate
 		}
 	}
 	return ""
