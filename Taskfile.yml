@@ -1,14 +1,24 @@
 version: "3"
 
+# The single entrypoint for building and checking: CI and the release workflow
+# only call these tasks.
+
 vars:
   BIN: bin/llm-review-agent{{exeExt}}
 
 tasks:
   lint:
-    desc: golangci-lint and go vet
+    desc: golangci-lint
     cmds:
       - golangci-lint run
+
+  vet:
+    desc: go vet for every target OS
+    cmds:
       - go vet ./...
+      - GOOS=linux go vet ./...
+      - GOOS=darwin go vet ./...
+      - GOOS=windows go vet ./...
 
   test:
     desc: Unit tests with the race detector
@@ -34,9 +44,21 @@ tasks:
     cmds:
       - go run ./cmd/llm-review-agent config schema > config.schema.json
 
+  schema:check:
+    desc: Fail if config.schema.json is out of date
+    cmds:
+      - task: schema
+      - git diff --exit-code config.schema.json
+
+  release:snapshot:
+    desc: Local GoReleaser build of all archives into dist/ (no publishing)
+    cmds:
+      - goreleaser release --snapshot --clean
+
   all:
-    desc: lint + test + build
+    desc: lint + vet + test + build
     cmds:
       - task: lint
+      - task: vet
       - task: test
       - task: build

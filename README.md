@@ -206,11 +206,15 @@ Needs Go 1.27, [Task](https://taskfile.dev) and
 [golangci-lint](https://golangci-lint.run) v2.
 
 ```sh
-task lint     # golangci-lint + go vet
-task test     # go test -race ./...
-task build    # bin/llm-review-agent
-task all      # all three
-task schema   # regenerate config.schema.json after changing internal/config
+task lint              # golangci-lint
+task vet               # go vet for linux, darwin and windows
+task test              # go test -race ./...
+task build             # bin/llm-review-agent
+task all               # lint + vet + test + build
+task install           # build into ~/.local/bin (INSTALL_DIR=... to change)
+task schema            # regenerate config.schema.json after changing internal/config
+task schema:check      # fail if config.schema.json is out of date
+task release:snapshot  # local GoReleaser build into dist/, needs goreleaser
 ```
 
 Layout: `cmd/llm-review-agent` (cobra commands, multi-call guard dispatch),
@@ -222,7 +226,8 @@ dialogs), `internal/classifier`, and `prompts/` (the prompt template).
 `testdata/python-parity.json` pins prompts, gate rules, launch-check requests
 and activity fingerprints to what the former Python version produced.
 
-Releases are built by GoReleaser when a `v*` tag is pushed.
+CI and the release workflow only call these tasks. Releases are built by
+GoReleaser when a `v*` tag is pushed.
 
 ## License
 
