@@ -1140,7 +1140,7 @@
     "own": true,
     "push": "ask"
    },
-   "text": "Automated coding-agent session for GitHub PR o/r#7 by bob, launched by llm-review-agent for Matthias. Nobody is watching live. This is Matthias's own PR: edits, commits, rebasing onto the base branch and `git push --force-with-lease` to this PR branch are fine. Deny pushes to any other branch, deleting branches, plain force pushes, and any GitHub write not allowed below (comments, reviews, merges). Every git push must go through the plain `git push` command, which asks the owner in a dialog. Deny any push by another route: a git binary by absolute path, unsetting or changing GIT_CONFIG_* or LLM_REVIEW_AGENT_* variables, git remote/config changes to push URLs, curl or API calls. Posting a comment, review comment or reply, review or reaction on this PR with plain `gh` is fine; the gh guard asks the owner first. Deny GitHub writes by any other route (curl, tokens, graphql mutations, changed LLM_REVIEW_AGENT_* variables) and every other GitHub write (merge, close, labels, edits of the PR)."
+   "text": "Automated coding-agent session for GitHub PR o/r#7 by bob, launched by outrider for Matthias. Nobody is watching live. This is Matthias's own PR: edits, commits, rebasing onto the base branch and `git push --force-with-lease` to this PR branch are fine. Deny pushes to any other branch, deleting branches, plain force pushes, and any GitHub write not allowed below (comments, reviews, merges). Every git push must go through the plain `git push` command, which asks the owner in a dialog. Deny any push by another route: a git binary by absolute path, unsetting or changing GIT_CONFIG_* or OUTRIDER_* variables, git remote/config changes to push URLs, curl or API calls. Posting a comment, review comment or reply, review or reaction on this PR with plain `gh` is fine; the gh guard asks the owner first. Deny GitHub writes by any other route (curl, tokens, graphql mutations, changed OUTRIDER_* variables) and every other GitHub write (merge, close, labels, edits of the PR)."
   },
   {
    "args": {
@@ -1149,7 +1149,7 @@
     "own": true,
     "push": "ask"
    },
-   "text": "Automated coding-agent session for GitHub PR o/r#7 by bob, launched by llm-review-agent for Matthias. Nobody is watching live. This is Matthias's own PR: edits, commits, rebasing onto the base branch and `git push --force-with-lease` to this PR branch are fine. Deny pushes to any other branch, deleting branches, plain force pushes, and any GitHub write not allowed below (comments, reviews, merges). Every git push must go through the plain `git push` command, which asks the owner in a dialog. Deny any push by another route: a git binary by absolute path, unsetting or changing GIT_CONFIG_* or LLM_REVIEW_AGENT_* variables, git remote/config changes to push URLs, curl or API calls."
+   "text": "Automated coding-agent session for GitHub PR o/r#7 by bob, launched by outrider for Matthias. Nobody is watching live. This is Matthias's own PR: edits, commits, rebasing onto the base branch and `git push --force-with-lease` to this PR branch are fine. Deny pushes to any other branch, deleting branches, plain force pushes, and any GitHub write not allowed below (comments, reviews, merges). Every git push must go through the plain `git push` command, which asks the owner in a dialog. Deny any push by another route: a git binary by absolute path, unsetting or changing GIT_CONFIG_* or OUTRIDER_* variables, git remote/config changes to push URLs, curl or API calls."
   },
   {
    "args": {
@@ -1158,7 +1158,7 @@
     "own": true,
     "push": "ask"
    },
-   "text": "Automated coding-agent session for GitHub PR o/r#7 by bob, launched by llm-review-agent for Matthias. Nobody is watching live. This is Matthias's own PR: edits, commits, rebasing onto the base branch and `git push --force-with-lease` to this PR branch are fine. Deny pushes to any other branch, deleting branches, plain force pushes, and any GitHub write not allowed below (comments, reviews, merges). Every git push must go through the plain `git push` command, which asks the owner in a dialog. Deny any push by another route: a git binary by absolute path, unsetting or changing GIT_CONFIG_* or LLM_REVIEW_AGENT_* variables, git remote/config changes to push URLs, curl or API calls. Posting a comment, review comment or reply, review or reaction on this PR with plain `gh` is fine. Deny every other GitHub write (merge, close, labels, edits of the PR) and writes by any other route."
+   "text": "Automated coding-agent session for GitHub PR o/r#7 by bob, launched by outrider for Matthias. Nobody is watching live. This is Matthias's own PR: edits, commits, rebasing onto the base branch and `git push --force-with-lease` to this PR branch are fine. Deny pushes to any other branch, deleting branches, plain force pushes, and any GitHub write not allowed below (comments, reviews, merges). Every git push must go through the plain `git push` command, which asks the owner in a dialog. Deny any push by another route: a git binary by absolute path, unsetting or changing GIT_CONFIG_* or OUTRIDER_* variables, git remote/config changes to push URLs, curl or API calls. Posting a comment, review comment or reply, review or reaction on this PR with plain `gh` is fine. Deny every other GitHub write (merge, close, labels, edits of the PR) and writes by any other route."
   },
   {
    "args": {
@@ -1167,7 +1167,7 @@
     "own": true,
     "push": "never"
    },
-   "text": "Automated coding-agent session for GitHub PR o/r#7 by bob, launched by llm-review-agent for Matthias. Nobody is watching live. This is Matthias's own PR: edits, commits, rebasing onto the base branch and `git push --force-with-lease` to this PR branch are fine. Deny pushes to any other branch, deleting branches, plain force pushes, and any GitHub write not allowed below (comments, reviews, merges). Deny every git push, by any route. Posting a comment, review comment or reply, review or reaction on this PR with plain `gh` is fine; the gh guard asks the owner first. Deny GitHub writes by any other route (curl, tokens, graphql mutations, changed LLM_REVIEW_AGENT_* variables) and every other GitHub write (merge, close, labels, edits of the PR)."
+   "text": "Automated coding-agent session for GitHub PR o/r#7 by bob, launched by outrider for Matthias. Nobody is watching live. This is Matthias's own PR: edits, commits, rebasing onto the base branch and `git push --force-with-lease` to this PR branch are fine. Deny pushes to any other branch, deleting branches, plain force pushes, and any GitHub write not allowed below (comments, reviews, merges). Deny every git push, by any route. Posting a comment, review comment or reply, review or reaction on this PR with plain `gh` is fine; the gh guard asks the owner first. Deny GitHub writes by any other route (curl, tokens, graphql mutations, changed OUTRIDER_* variables) and every other GitHub write (merge, close, labels, edits of the PR)."
   },
   {
    "args": {
@@ -1176,7 +1176,7 @@
     "own": true,
     "push": "never"
    },
-   "text": "Automated coding-agent session for GitHub PR o/r#7 by bob, launched by llm-review-agent for Matthias. Nobody is watching live. This is Matthias's own PR: edits, commits, rebasing onto the base branch and `git push --force-with-lease` to this PR branch are fine. Deny pushes to any other branch, deleting branches, plain force pushes, and any GitHub write not allowed below (comments, reviews, merges). Deny every git push, by any route."
+   "text": "Automated coding-agent session for GitHub PR o/r#7 by bob, launched by outrider for Matthias. Nobody is watching live. This is Matthias's own PR: edits, commits, rebasing onto the base branch and `git push --force-with-lease` to this PR branch are fine. Deny pushes to any other branch, deleting branches, plain force pushes, and any GitHub write not allowed below (comments, reviews, merges). Deny every git push, by any route."
   },
   {
    "args": {
@@ -1185,7 +1185,7 @@
     "own": true,
     "push": "never"
    },
-   "text": "Automated coding-agent session for GitHub PR o/r#7 by bob, launched by llm-review-agent for Matthias. Nobody is watching live. This is Matthias's own PR: edits, commits, rebasing onto the base branch and `git push --force-with-lease` to this PR branch are fine. Deny pushes to any other branch, deleting branches, plain force pushes, and any GitHub write not allowed below (comments, reviews, merges). Deny every git push, by any route. Posting a comment, review comment or reply, review or reaction on this PR with plain `gh` is fine. Deny every other GitHub write (merge, close, labels, edits of the PR) and writes by any other route."
+   "text": "Automated coding-agent session for GitHub PR o/r#7 by bob, launched by outrider for Matthias. Nobody is watching live. This is Matthias's own PR: edits, commits, rebasing onto the base branch and `git push --force-with-lease` to this PR branch are fine. Deny pushes to any other branch, deleting branches, plain force pushes, and any GitHub write not allowed below (comments, reviews, merges). Deny every git push, by any route. Posting a comment, review comment or reply, review or reaction on this PR with plain `gh` is fine. Deny every other GitHub write (merge, close, labels, edits of the PR) and writes by any other route."
   },
   {
    "args": {
@@ -1194,7 +1194,7 @@
     "own": true,
     "push": "allow"
    },
-   "text": "Automated coding-agent session for GitHub PR o/r#7 by bob, launched by llm-review-agent for Matthias. Nobody is watching live. This is Matthias's own PR: edits, commits, rebasing onto the base branch and `git push --force-with-lease` to this PR branch are fine. Deny pushes to any other branch, deleting branches, plain force pushes, and any GitHub write not allowed below (comments, reviews, merges). Posting a comment, review comment or reply, review or reaction on this PR with plain `gh` is fine; the gh guard asks the owner first. Deny GitHub writes by any other route (curl, tokens, graphql mutations, changed LLM_REVIEW_AGENT_* variables) and every other GitHub write (merge, close, labels, edits of the PR)."
+   "text": "Automated coding-agent session for GitHub PR o/r#7 by bob, launched by outrider for Matthias. Nobody is watching live. This is Matthias's own PR: edits, commits, rebasing onto the base branch and `git push --force-with-lease` to this PR branch are fine. Deny pushes to any other branch, deleting branches, plain force pushes, and any GitHub write not allowed below (comments, reviews, merges). Posting a comment, review comment or reply, review or reaction on this PR with plain `gh` is fine; the gh guard asks the owner first. Deny GitHub writes by any other route (curl, tokens, graphql mutations, changed OUTRIDER_* variables) and every other GitHub write (merge, close, labels, edits of the PR)."
   },
   {
    "args": {
@@ -1203,7 +1203,7 @@
     "own": true,
     "push": "allow"
    },
-   "text": "Automated coding-agent session for GitHub PR o/r#7 by bob, launched by llm-review-agent for Matthias. Nobody is watching live. This is Matthias's own PR: edits, commits, rebasing onto the base branch and `git push --force-with-lease` to this PR branch are fine. Deny pushes to any other branch, deleting branches, plain force pushes, and any GitHub write not allowed below (comments, reviews, merges)."
+   "text": "Automated coding-agent session for GitHub PR o/r#7 by bob, launched by outrider for Matthias. Nobody is watching live. This is Matthias's own PR: edits, commits, rebasing onto the base branch and `git push --force-with-lease` to this PR branch are fine. Deny pushes to any other branch, deleting branches, plain force pushes, and any GitHub write not allowed below (comments, reviews, merges)."
   },
   {
    "args": {
@@ -1212,7 +1212,7 @@
     "own": true,
     "push": "allow"
    },
-   "text": "Automated coding-agent session for GitHub PR o/r#7 by bob, launched by llm-review-agent for Matthias. Nobody is watching live. This is Matthias's own PR: edits, commits, rebasing onto the base branch and `git push --force-with-lease` to this PR branch are fine. Deny pushes to any other branch, deleting branches, plain force pushes, and any GitHub write not allowed below (comments, reviews, merges). Posting a comment, review comment or reply, review or reaction on this PR with plain `gh` is fine. Deny every other GitHub write (merge, close, labels, edits of the PR) and writes by any other route."
+   "text": "Automated coding-agent session for GitHub PR o/r#7 by bob, launched by outrider for Matthias. Nobody is watching live. This is Matthias's own PR: edits, commits, rebasing onto the base branch and `git push --force-with-lease` to this PR branch are fine. Deny pushes to any other branch, deleting branches, plain force pushes, and any GitHub write not allowed below (comments, reviews, merges). Posting a comment, review comment or reply, review or reaction on this PR with plain `gh` is fine. Deny every other GitHub write (merge, close, labels, edits of the PR) and writes by any other route."
   },
   {
    "args": {
@@ -1221,7 +1221,7 @@
     "own": true,
     "push": "review-only"
    },
-   "text": "Automated coding-agent session for GitHub PR o/r#7 by bob, launched by llm-review-agent for Matthias. Nobody is watching live. REVIEW ONLY: deny every file edit, git commit, git push, rebase, reset, merge or any other change to the branch or to GitHub (except the posts allowed below). Reading files, git log/diff/fetch, building and running tests is fine. Posting a comment, review comment or reply, review or reaction on this PR with plain `gh` is fine; the gh guard asks the owner first. Deny GitHub writes by any other route (curl, tokens, graphql mutations, changed LLM_REVIEW_AGENT_* variables) and every other GitHub write (merge, close, labels, edits of the PR)."
+   "text": "Automated coding-agent session for GitHub PR o/r#7 by bob, launched by outrider for Matthias. Nobody is watching live. REVIEW ONLY: deny every file edit, git commit, git push, rebase, reset, merge or any other change to the branch or to GitHub (except the posts allowed below). Reading files, git log/diff/fetch, building and running tests is fine. Posting a comment, review comment or reply, review or reaction on this PR with plain `gh` is fine; the gh guard asks the owner first. Deny GitHub writes by any other route (curl, tokens, graphql mutations, changed OUTRIDER_* variables) and every other GitHub write (merge, close, labels, edits of the PR)."
   },
   {
    "args": {
@@ -1230,7 +1230,7 @@
     "own": true,
     "push": "review-only"
    },
-   "text": "Automated coding-agent session for GitHub PR o/r#7 by bob, launched by llm-review-agent for Matthias. Nobody is watching live. REVIEW ONLY: deny every file edit, git commit, git push, rebase, reset, merge or any other change to the branch or to GitHub (except the posts allowed below). Reading files, git log/diff/fetch, building and running tests is fine."
+   "text": "Automated coding-agent session for GitHub PR o/r#7 by bob, launched by outrider for Matthias. Nobody is watching live. REVIEW ONLY: deny every file edit, git commit, git push, rebase, reset, merge or any other change to the branch or to GitHub (except the posts allowed below). Reading files, git log/diff/fetch, building and running tests is fine."
   },
   {
    "args": {
@@ -1239,7 +1239,7 @@
     "own": true,
     "push": "review-only"
    },
-   "text": "Automated coding-agent session for GitHub PR o/r#7 by bob, launched by llm-review-agent for Matthias. Nobody is watching live. REVIEW ONLY: deny every file edit, git commit, git push, rebase, reset, merge or any other change to the branch or to GitHub (except the posts allowed below). Reading files, git log/diff/fetch, building and running tests is fine. Posting a comment, review comment or reply, review or reaction on this PR with plain `gh` is fine. Deny every other GitHub write (merge, close, labels, edits of the PR) and writes by any other route."
+   "text": "Automated coding-agent session for GitHub PR o/r#7 by bob, launched by outrider for Matthias. Nobody is watching live. REVIEW ONLY: deny every file edit, git commit, git push, rebase, reset, merge or any other change to the branch or to GitHub (except the posts allowed below). Reading files, git log/diff/fetch, building and running tests is fine. Posting a comment, review comment or reply, review or reaction on this PR with plain `gh` is fine. Deny every other GitHub write (merge, close, labels, edits of the PR) and writes by any other route."
   },
   {
    "args": {
@@ -1248,7 +1248,7 @@
     "own": false,
     "push": "ask"
    },
-   "text": "Automated coding-agent session for GitHub PR o/r#7 by bob, launched by llm-review-agent for Matthias. Nobody is watching live. Someone else's PR with pushing allowed: fast-forward commits on top of the PR head are fine. Deny force pushes, rebases, history rewrites, pushes to other branches and any GitHub write not allowed below. Every git push must go through the plain `git push` command, which asks the owner in a dialog. Deny any push by another route: a git binary by absolute path, unsetting or changing GIT_CONFIG_* or LLM_REVIEW_AGENT_* variables, git remote/config changes to push URLs, curl or API calls. Posting a comment, review comment or reply, review or reaction on this PR with plain `gh` is fine; the gh guard asks the owner first. Deny GitHub writes by any other route (curl, tokens, graphql mutations, changed LLM_REVIEW_AGENT_* variables) and every other GitHub write (merge, close, labels, edits of the PR)."
+   "text": "Automated coding-agent session for GitHub PR o/r#7 by bob, launched by outrider for Matthias. Nobody is watching live. Someone else's PR with pushing allowed: fast-forward commits on top of the PR head are fine. Deny force pushes, rebases, history rewrites, pushes to other branches and any GitHub write not allowed below. Every git push must go through the plain `git push` command, which asks the owner in a dialog. Deny any push by another route: a git binary by absolute path, unsetting or changing GIT_CONFIG_* or OUTRIDER_* variables, git remote/config changes to push URLs, curl or API calls. Posting a comment, review comment or reply, review or reaction on this PR with plain `gh` is fine; the gh guard asks the owner first. Deny GitHub writes by any other route (curl, tokens, graphql mutations, changed OUTRIDER_* variables) and every other GitHub write (merge, close, labels, edits of the PR)."
   },
   {
    "args": {
@@ -1257,7 +1257,7 @@
     "own": false,
     "push": "ask"
    },
-   "text": "Automated coding-agent session for GitHub PR o/r#7 by bob, launched by llm-review-agent for Matthias. Nobody is watching live. Someone else's PR with pushing allowed: fast-forward commits on top of the PR head are fine. Deny force pushes, rebases, history rewrites, pushes to other branches and any GitHub write not allowed below. Every git push must go through the plain `git push` command, which asks the owner in a dialog. Deny any push by another route: a git binary by absolute path, unsetting or changing GIT_CONFIG_* or LLM_REVIEW_AGENT_* variables, git remote/config changes to push URLs, curl or API calls."
+   "text": "Automated coding-agent session for GitHub PR o/r#7 by bob, launched by outrider for Matthias. Nobody is watching live. Someone else's PR with pushing allowed: fast-forward commits on top of the PR head are fine. Deny force pushes, rebases, history rewrites, pushes to other branches and any GitHub write not allowed below. Every git push must go through the plain `git push` command, which asks the owner in a dialog. Deny any push by another route: a git binary by absolute path, unsetting or changing GIT_CONFIG_* or OUTRIDER_* variables, git remote/config changes to push URLs, curl or API calls."
   },
   {
    "args": {
@@ -1266,7 +1266,7 @@
     "own": false,
     "push": "ask"
    },
-   "text": "Automated coding-agent session for GitHub PR o/r#7 by bob, launched by llm-review-agent for Matthias. Nobody is watching live. Someone else's PR with pushing allowed: fast-forward commits on top of the PR head are fine. Deny force pushes, rebases, history rewrites, pushes to other branches and any GitHub write not allowed below. Every git push must go through the plain `git push` command, which asks the owner in a dialog. Deny any push by another route: a git binary by absolute path, unsetting or changing GIT_CONFIG_* or LLM_REVIEW_AGENT_* variables, git remote/config changes to push URLs, curl or API calls. Posting a comment, review comment or reply, review or reaction on this PR with plain `gh` is fine. Deny every other GitHub write (merge, close, labels, edits of the PR) and writes by any other route."
+   "text": "Automated coding-agent session for GitHub PR o/r#7 by bob, launched by outrider for Matthias. Nobody is watching live. Someone else's PR with pushing allowed: fast-forward commits on top of the PR head are fine. Deny force pushes, rebases, history rewrites, pushes to other branches and any GitHub write not allowed below. Every git push must go through the plain `git push` command, which asks the owner in a dialog. Deny any push by another route: a git binary by absolute path, unsetting or changing GIT_CONFIG_* or OUTRIDER_* variables, git remote/config changes to push URLs, curl or API calls. Posting a comment, review comment or reply, review or reaction on this PR with plain `gh` is fine. Deny every other GitHub write (merge, close, labels, edits of the PR) and writes by any other route."
   },
   {
    "args": {
@@ -1275,7 +1275,7 @@
     "own": false,
     "push": "never"
    },
-   "text": "Automated coding-agent session for GitHub PR o/r#7 by bob, launched by llm-review-agent for Matthias. Nobody is watching live. Someone else's PR with pushing allowed: fast-forward commits on top of the PR head are fine. Deny force pushes, rebases, history rewrites, pushes to other branches and any GitHub write not allowed below. Deny every git push, by any route. Posting a comment, review comment or reply, review or reaction on this PR with plain `gh` is fine; the gh guard asks the owner first. Deny GitHub writes by any other route (curl, tokens, graphql mutations, changed LLM_REVIEW_AGENT_* variables) and every other GitHub write (merge, close, labels, edits of the PR)."
+   "text": "Automated coding-agent session for GitHub PR o/r#7 by bob, launched by outrider for Matthias. Nobody is watching live. Someone else's PR with pushing allowed: fast-forward commits on top of the PR head are fine. Deny force pushes, rebases, history rewrites, pushes to other branches and any GitHub write not allowed below. Deny every git push, by any route. Posting a comment, review comment or reply, review or reaction on this PR with plain `gh` is fine; the gh guard asks the owner first. Deny GitHub writes by any other route (curl, tokens, graphql mutations, changed OUTRIDER_* variables) and every other GitHub write (merge, close, labels, edits of the PR)."
   },
   {
    "args": {
@@ -1284,7 +1284,7 @@
     "own": false,
     "push": "never"
    },
-   "text": "Automated coding-agent session for GitHub PR o/r#7 by bob, launched by llm-review-agent for Matthias. Nobody is watching live. Someone else's PR with pushing allowed: fast-forward commits on top of the PR head are fine. Deny force pushes, rebases, history rewrites, pushes to other branches and any GitHub write not allowed below. Deny every git push, by any route."
+   "text": "Automated coding-agent session for GitHub PR o/r#7 by bob, launched by outrider for Matthias. Nobody is watching live. Someone else's PR with pushing allowed: fast-forward commits on top of the PR head are fine. Deny force pushes, rebases, history rewrites, pushes to other branches and any GitHub write not allowed below. Deny every git push, by any route."
   },
   {
    "args": {
@@ -1293,7 +1293,7 @@
     "own": false,
     "push": "never"
    },
-   "text": "Automated coding-agent session for GitHub PR o/r#7 by bob, launched by llm-review-agent for Matthias. Nobody is watching live. Someone else's PR with pushing allowed: fast-forward commits on top of the PR head are fine. Deny force pushes, rebases, history rewrites, pushes to other branches and any GitHub write not allowed below. Deny every git push, by any route. Posting a comment, review comment or reply, review or reaction on this PR with plain `gh` is fine. Deny every other GitHub write (merge, close, labels, edits of the PR) and writes by any other route."
+   "text": "Automated coding-agent session for GitHub PR o/r#7 by bob, launched by outrider for Matthias. Nobody is watching live. Someone else's PR with pushing allowed: fast-forward commits on top of the PR head are fine. Deny force pushes, rebases, history rewrites, pushes to other branches and any GitHub write not allowed below. Deny every git push, by any route. Posting a comment, review comment or reply, review or reaction on this PR with plain `gh` is fine. Deny every other GitHub write (merge, close, labels, edits of the PR) and writes by any other route."
   },
   {
    "args": {
@@ -1302,7 +1302,7 @@
     "own": false,
     "push": "allow"
    },
-   "text": "Automated coding-agent session for GitHub PR o/r#7 by bob, launched by llm-review-agent for Matthias. Nobody is watching live. Someone else's PR with pushing allowed: fast-forward commits on top of the PR head are fine. Deny force pushes, rebases, history rewrites, pushes to other branches and any GitHub write not allowed below. Posting a comment, review comment or reply, review or reaction on this PR with plain `gh` is fine; the gh guard asks the owner first. Deny GitHub writes by any other route (curl, tokens, graphql mutations, changed LLM_REVIEW_AGENT_* variables) and every other GitHub write (merge, close, labels, edits of the PR)."
+   "text": "Automated coding-agent session for GitHub PR o/r#7 by bob, launched by outrider for Matthias. Nobody is watching live. Someone else's PR with pushing allowed: fast-forward commits on top of the PR head are fine. Deny force pushes, rebases, history rewrites, pushes to other branches and any GitHub write not allowed below. Posting a comment, review comment or reply, review or reaction on this PR with plain `gh` is fine; the gh guard asks the owner first. Deny GitHub writes by any other route (curl, tokens, graphql mutations, changed OUTRIDER_* variables) and every other GitHub write (merge, close, labels, edits of the PR)."
   },
   {
    "args": {
@@ -1311,7 +1311,7 @@
     "own": false,
     "push": "allow"
    },
-   "text": "Automated coding-agent session for GitHub PR o/r#7 by bob, launched by llm-review-agent for Matthias. Nobody is watching live. Someone else's PR with pushing allowed: fast-forward commits on top of the PR head are fine. Deny force pushes, rebases, history rewrites, pushes to other branches and any GitHub write not allowed below."
+   "text": "Automated coding-agent session for GitHub PR o/r#7 by bob, launched by outrider for Matthias. Nobody is watching live. Someone else's PR with pushing allowed: fast-forward commits on top of the PR head are fine. Deny force pushes, rebases, history rewrites, pushes to other branches and any GitHub write not allowed below."
   },
   {
    "args": {
@@ -1320,7 +1320,7 @@
     "own": false,
     "push": "allow"
    },
-   "text": "Automated coding-agent session for GitHub PR o/r#7 by bob, launched by llm-review-agent for Matthias. Nobody is watching live. Someone else's PR with pushing allowed: fast-forward commits on top of the PR head are fine. Deny force pushes, rebases, history rewrites, pushes to other branches and any GitHub write not allowed below. Posting a comment, review comment or reply, review or reaction on this PR with plain `gh` is fine. Deny every other GitHub write (merge, close, labels, edits of the PR) and writes by any other route."
+   "text": "Automated coding-agent session for GitHub PR o/r#7 by bob, launched by outrider for Matthias. Nobody is watching live. Someone else's PR with pushing allowed: fast-forward commits on top of the PR head are fine. Deny force pushes, rebases, history rewrites, pushes to other branches and any GitHub write not allowed below. Posting a comment, review comment or reply, review or reaction on this PR with plain `gh` is fine. Deny every other GitHub write (merge, close, labels, edits of the PR) and writes by any other route."
   },
   {
    "args": {
@@ -1329,7 +1329,7 @@
     "own": false,
     "push": "review-only"
    },
-   "text": "Automated coding-agent session for GitHub PR o/r#7 by bob, launched by llm-review-agent for Matthias. Nobody is watching live. REVIEW ONLY: deny every file edit, git commit, git push, rebase, reset, merge or any other change to the branch or to GitHub (except the posts allowed below). Reading files, git log/diff/fetch, building and running tests is fine. Posting a comment, review comment or reply, review or reaction on this PR with plain `gh` is fine; the gh guard asks the owner first. Deny GitHub writes by any other route (curl, tokens, graphql mutations, changed LLM_REVIEW_AGENT_* variables) and every other GitHub write (merge, close, labels, edits of the PR)."
+   "text": "Automated coding-agent session for GitHub PR o/r#7 by bob, launched by outrider for Matthias. Nobody is watching live. REVIEW ONLY: deny every file edit, git commit, git push, rebase, reset, merge or any other change to the branch or to GitHub (except the posts allowed below). Reading files, git log/diff/fetch, building and running tests is fine. Posting a comment, review comment or reply, review or reaction on this PR with plain `gh` is fine; the gh guard asks the owner first. Deny GitHub writes by any other route (curl, tokens, graphql mutations, changed OUTRIDER_* variables) and every other GitHub write (merge, close, labels, edits of the PR)."
   },
   {
    "args": {
@@ -1338,7 +1338,7 @@
     "own": false,
     "push": "review-only"
    },
-   "text": "Automated coding-agent session for GitHub PR o/r#7 by bob, launched by llm-review-agent for Matthias. Nobody is watching live. REVIEW ONLY: deny every file edit, git commit, git push, rebase, reset, merge or any other change to the branch or to GitHub (except the posts allowed below). Reading files, git log/diff/fetch, building and running tests is fine."
+   "text": "Automated coding-agent session for GitHub PR o/r#7 by bob, launched by outrider for Matthias. Nobody is watching live. REVIEW ONLY: deny every file edit, git commit, git push, rebase, reset, merge or any other change to the branch or to GitHub (except the posts allowed below). Reading files, git log/diff/fetch, building and running tests is fine."
   },
   {
    "args": {
@@ -1347,7 +1347,7 @@
     "own": false,
     "push": "review-only"
    },
-   "text": "Automated coding-agent session for GitHub PR o/r#7 by bob, launched by llm-review-agent for Matthias. Nobody is watching live. REVIEW ONLY: deny every file edit, git commit, git push, rebase, reset, merge or any other change to the branch or to GitHub (except the posts allowed below). Reading files, git log/diff/fetch, building and running tests is fine. Posting a comment, review comment or reply, review or reaction on this PR with plain `gh` is fine. Deny every other GitHub write (merge, close, labels, edits of the PR) and writes by any other route."
+   "text": "Automated coding-agent session for GitHub PR o/r#7 by bob, launched by outrider for Matthias. Nobody is watching live. REVIEW ONLY: deny every file edit, git commit, git push, rebase, reset, merge or any other change to the branch or to GitHub (except the posts allowed below). Reading files, git log/diff/fetch, building and running tests is fine. Posting a comment, review comment or reply, review or reaction on this PR with plain `gh` is fine. Deny every other GitHub write (merge, close, labels, edits of the PR) and writes by any other route."
   },
   {
    "args": {
@@ -1356,7 +1356,7 @@
     "own": true,
     "push": "ask"
    },
-   "text": "Automated coding-agent session for GitHub PR o/r#7 by bob, launched by llm-review-agent for Matthias. Nobody is watching live. This is Matthias's own PR: edits, commits, rebasing onto the base branch and `git push --force-with-lease` to this PR branch are fine. Deny pushes to any other branch, deleting branches, plain force pushes, and any GitHub write not allowed below (comments, reviews, merges). Every git push must go through the plain `git push` command, which asks the owner in a dialog. Deny any push by another route: a git binary by absolute path, unsetting or changing GIT_CONFIG_* or LLM_REVIEW_AGENT_* variables, git remote/config changes to push URLs, curl or API calls. Posting a comment, review comment or reply, review or reaction on this PR with plain `gh` is fine; the gh guard asks the owner first. Deny GitHub writes by any other route (curl, tokens, graphql mutations, changed LLM_REVIEW_AGENT_* variables) and every other GitHub write (merge, close, labels, edits of the PR). Also enforce these rules from Matthias: (1) never modify generated/ (2) x (3) no make release"
+   "text": "Automated coding-agent session for GitHub PR o/r#7 by bob, launched by outrider for Matthias. Nobody is watching live. This is Matthias's own PR: edits, commits, rebasing onto the base branch and `git push --force-with-lease` to this PR branch are fine. Deny pushes to any other branch, deleting branches, plain force pushes, and any GitHub write not allowed below (comments, reviews, merges). Every git push must go through the plain `git push` command, which asks the owner in a dialog. Deny any push by another route: a git binary by absolute path, unsetting or changing GIT_CONFIG_* or OUTRIDER_* variables, git remote/config changes to push URLs, curl or API calls. Posting a comment, review comment or reply, review or reaction on this PR with plain `gh` is fine; the gh guard asks the owner first. Deny GitHub writes by any other route (curl, tokens, graphql mutations, changed OUTRIDER_* variables) and every other GitHub write (merge, close, labels, edits of the PR). Also enforce these rules from Matthias: (1) never modify generated/ (2) x (3) no make release"
   },
   {
    "args": {
@@ -1365,7 +1365,7 @@
     "own": true,
     "push": "ask"
    },
-   "text": "Automated coding-agent session for GitHub PR o/r#7 by bob, launched by llm-review-agent for Matthias. Nobody is watching live. This is Matthias's own PR: edits, commits, rebasing onto the base branch and `git push --force-with-lease` to this PR branch are fine. Deny pushes to any other branch, deleting branches, plain force pushes, and any GitHub write not allowed below (comments, reviews, merges). Every git push must go through the plain `git push` command, which asks the owner in a dialog. Deny any push by another route: a git binary by absolute path, unsetting or changing GIT_CONFIG_* or LLM_REVIEW_AGENT_* variables, git remote/config changes to push URLs, curl or API calls. Also enforce these rules from Matthias: (1) never modify generated/ (2) x (3) no make release"
+   "text": "Automated coding-agent session for GitHub PR o/r#7 by bob, launched by outrider for Matthias. Nobody is watching live. This is Matthias's own PR: edits, commits, rebasing onto the base branch and `git push --force-with-lease` to this PR branch are fine. Deny pushes to any other branch, deleting branches, plain force pushes, and any GitHub write not allowed below (comments, reviews, merges). Every git push must go through the plain `git push` command, which asks the owner in a dialog. Deny any push by another route: a git binary by absolute path, unsetting or changing GIT_CONFIG_* or OUTRIDER_* variables, git remote/config changes to push URLs, curl or API calls. Also enforce these rules from Matthias: (1) never modify generated/ (2) x (3) no make release"
   },
   {
    "args": {
@@ -1374,7 +1374,7 @@
     "own": true,
     "push": "ask"
    },
-   "text": "Automated coding-agent session for GitHub PR o/r#7 by bob, launched by llm-review-agent for Matthias. Nobody is watching live. This is Matthias's own PR: edits, commits, rebasing onto the base branch and `git push --force-with-lease` to this PR branch are fine. Deny pushes to any other branch, deleting branches, plain force pushes, and any GitHub write not allowed below (comments, reviews, merges). Every git push must go through the plain `git push` command, which asks the owner in a dialog. Deny any push by another route: a git binary by absolute path, unsetting or changing GIT_CONFIG_* or LLM_REVIEW_AGENT_* variables, git remote/config changes to push URLs, curl or API calls. Posting a comment, review comment or reply, review or reaction on this PR with plain `gh` is fine. Deny every other GitHub write (merge, close, labels, edits of the PR) and writes by any other route. Also enforce these rules from Matthias: (1) never modify generated/ (2) x (3) no make release"
+   "text": "Automated coding-agent session for GitHub PR o/r#7 by bob, launched by outrider for Matthias. Nobody is watching live. This is Matthias's own PR: edits, commits, rebasing onto the base branch and `git push --force-with-lease` to this PR branch are fine. Deny pushes to any other branch, deleting branches, plain force pushes, and any GitHub write not allowed below (comments, reviews, merges). Every git push must go through the plain `git push` command, which asks the owner in a dialog. Deny any push by another route: a git binary by absolute path, unsetting or changing GIT_CONFIG_* or OUTRIDER_* variables, git remote/config changes to push URLs, curl or API calls. Posting a comment, review comment or reply, review or reaction on this PR with plain `gh` is fine. Deny every other GitHub write (merge, close, labels, edits of the PR) and writes by any other route. Also enforce these rules from Matthias: (1) never modify generated/ (2) x (3) no make release"
   },
   {
    "args": {
@@ -1383,7 +1383,7 @@
     "own": true,
     "push": "never"
    },
-   "text": "Automated coding-agent session for GitHub PR o/r#7 by bob, launched by llm-review-agent for Matthias. Nobody is watching live. This is Matthias's own PR: edits, commits, rebasing onto the base branch and `git push --force-with-lease` to this PR branch are fine. Deny pushes to any other branch, deleting branches, plain force pushes, and any GitHub write not allowed below (comments, reviews, merges). Deny every git push, by any route. Posting a comment, review comment or reply, review or reaction on this PR with plain `gh` is fine; the gh guard asks the owner first. Deny GitHub writes by any other route (curl, tokens, graphql mutations, changed LLM_REVIEW_AGENT_* variables) and every other GitHub write (merge, close, labels, edits of the PR). Also enforce these rules from Matthias: (1) never modify generated/ (2) x (3) no make release"
+   "text": "Automated coding-agent session for GitHub PR o/r#7 by bob, launched by outrider for Matthias. Nobody is watching live. This is Matthias's own PR: edits, commits, rebasing onto the base branch and `git push --force-with-lease` to this PR branch are fine. Deny pushes to any other branch, deleting branches, plain force pushes, and any GitHub write not allowed below (comments, reviews, merges). Deny every git push, by any route. Posting a comment, review comment or reply, review or reaction on this PR with plain `gh` is fine; the gh guard asks the owner first. Deny GitHub writes by any other route (curl, tokens, graphql mutations, changed OUTRIDER_* variables) and every other GitHub write (merge, close, labels, edits of the PR). Also enforce these rules from Matthias: (1) never modify generated/ (2) x (3) no make release"
   },
   {
    "args": {
@@ -1392,7 +1392,7 @@
     "own": true,
     "push": "never"
    },
-   "text": "Automated coding-agent session for GitHub PR o/r#7 by bob, launched by llm-review-agent for Matthias. Nobody is watching live. This is Matthias's own PR: edits, commits, rebasing onto the base branch and `git push --force-with-lease` to this PR branch are fine. Deny pushes to any other branch, deleting branches, plain force pushes, and any GitHub write not allowed below (comments, reviews, merges). Deny every git push, by any route. Also enforce these rules from Matthias: (1) never modify generated/ (2) x (3) no make release"
+   "text": "Automated coding-agent session for GitHub PR o/r#7 by bob, launched by outrider for Matthias. Nobody is watching live. This is Matthias's own PR: edits, commits, rebasing onto the base branch and `git push --force-with-lease` to this PR branch are fine. Deny pushes to any other branch, deleting branches, plain force pushes, and any GitHub write not allowed below (comments, reviews, merges). Deny every git push, by any route. Also enforce these rules from Matthias: (1) never modify generated/ (2) x (3) no make release"
   },
   {
    "args": {
@@ -1401,7 +1401,7 @@
     "own": true,
     "push": "never"
    },
-   "text": "Automated coding-agent session for GitHub PR o/r#7 by bob, launched by llm-review-agent for Matthias. Nobody is watching live. This is Matthias's own PR: edits, commits, rebasing onto the base branch and `git push --force-with-lease` to this PR branch are fine. Deny pushes to any other branch, deleting branches, plain force pushes, and any GitHub write not allowed below (comments, reviews, merges). Deny every git push, by any route. Posting a comment, review comment or reply, review or reaction on this PR with plain `gh` is fine. Deny every other GitHub write (merge, close, labels, edits of the PR) and writes by any other route. Also enforce these rules from Matthias: (1) never modify generated/ (2) x (3) no make release"
+   "text": "Automated coding-agent session for GitHub PR o/r#7 by bob, launched by outrider for Matthias. Nobody is watching live. This is Matthias's own PR: edits, commits, rebasing onto the base branch and `git push --force-with-lease` to this PR branch are fine. Deny pushes to any other branch, deleting branches, plain force pushes, and any GitHub write not allowed below (comments, reviews, merges). Deny every git push, by any route. Posting a comment, review comment or reply, review or reaction on this PR with plain `gh` is fine. Deny every other GitHub write (merge, close, labels, edits of the PR) and writes by any other route. Also enforce these rules from Matthias: (1) never modify generated/ (2) x (3) no make release"
   },
   {
    "args": {
@@ -1410,7 +1410,7 @@
     "own": true,
     "push": "allow"
    },
-   "text": "Automated coding-agent session for GitHub PR o/r#7 by bob, launched by llm-review-agent for Matthias. Nobody is watching live. This is Matthias's own PR: edits, commits, rebasing onto the base branch and `git push --force-with-lease` to this PR branch are fine. Deny pushes to any other branch, deleting branches, plain force pushes, and any GitHub write not allowed below (comments, reviews, merges). Posting a comment, review comment or reply, review or reaction on this PR with plain `gh` is fine; the gh guard asks the owner first. Deny GitHub writes by any other route (curl, tokens, graphql mutations, changed LLM_REVIEW_AGENT_* variables) and every other GitHub write (merge, close, labels, edits of the PR). Also enforce these rules from Matthias: (1) never modify generated/ (2) x (3) no make release"
+   "text": "Automated coding-agent session for GitHub PR o/r#7 by bob, launched by outrider for Matthias. Nobody is watching live. This is Matthias's own PR: edits, commits, rebasing onto the base branch and `git push --force-with-lease` to this PR branch are fine. Deny pushes to any other branch, deleting branches, plain force pushes, and any GitHub write not allowed below (comments, reviews, merges). Posting a comment, review comment or reply, review or reaction on this PR with plain `gh` is fine; the gh guard asks the owner first. Deny GitHub writes by any other route (curl, tokens, graphql mutations, changed OUTRIDER_* variables) and every other GitHub write (merge, close, labels, edits of the PR). Also enforce these rules from Matthias: (1) never modify generated/ (2) x (3) no make release"
   },
   {
    "args": {
@@ -1419,7 +1419,7 @@
     "own": true,
     "push": "allow"
    },
-   "text": "Automated coding-agent session for GitHub PR o/r#7 by bob, launched by llm-review-agent for Matthias. Nobody is watching live. This is Matthias's own PR: edits, commits, rebasing onto the base branch and `git push --force-with-lease` to this PR branch are fine. Deny pushes to any other branch, deleting branches, plain force pushes, and any GitHub write not allowed below (comments, reviews, merges). Also enforce these rules from Matthias: (1) never modify generated/ (2) x (3) no make release"
+   "text": "Automated coding-agent session for GitHub PR o/r#7 by bob, launched by outrider for Matthias. Nobody is watching live. This is Matthias's own PR: edits, commits, rebasing onto the base branch and `git push --force-with-lease` to this PR branch are fine. Deny pushes to any other branch, deleting branches, plain force pushes, and any GitHub write not allowed below (comments, reviews, merges). Also enforce these rules from Matthias: (1) never modify generated/ (2) x (3) no make release"
   },
   {
    "args": {
@@ -1428,7 +1428,7 @@
     "own": true,
     "push": "allow"
    },
-   "text": "Automated coding-agent session for GitHub PR o/r#7 by bob, launched by llm-review-agent for Matthias. Nobody is watching live. This is Matthias's own PR: edits, commits, rebasing onto the base branch and `git push --force-with-lease` to this PR branch are fine. Deny pushes to any other branch, deleting branches, plain force pushes, and any GitHub write not allowed below (comments, reviews, merges). Posting a comment, review comment or reply, review or reaction on this PR with plain `gh` is fine. Deny every other GitHub write (merge, close, labels, edits of the PR) and writes by any other route. Also enforce these rules from Matthias: (1) never modify generated/ (2) x (3) no make release"
+   "text": "Automated coding-agent session for GitHub PR o/r#7 by bob, launched by outrider for Matthias. Nobody is watching live. This is Matthias's own PR: edits, commits, rebasing onto the base branch and `git push --force-with-lease` to this PR branch are fine. Deny pushes to any other branch, deleting branches, plain force pushes, and any GitHub write not allowed below (comments, reviews, merges). Posting a comment, review comment or reply, review or reaction on this PR with plain `gh` is fine. Deny every other GitHub write (merge, close, labels, edits of the PR) and writes by any other route. Also enforce these rules from Matthias: (1) never modify generated/ (2) x (3) no make release"
   },
   {
    "args": {
@@ -1437,7 +1437,7 @@
     "own": true,
     "push": "review-only"
    },
-   "text": "Automated coding-agent session for GitHub PR o/r#7 by bob, launched by llm-review-agent for Matthias. Nobody is watching live. REVIEW ONLY: deny every file edit, git commit, git push, rebase, reset, merge or any other change to the branch or to GitHub (except the posts allowed below). Reading files, git log/diff/fetch, building and running tests is fine. Posting a comment, review comment or reply, review or reaction on this PR with plain `gh` is fine; the gh guard asks the owner first. Deny GitHub writes by any other route (curl, tokens, graphql mutations, changed LLM_REVIEW_AGENT_* variables) and every other GitHub write (merge, close, labels, edits of the PR). Also enforce these rules from Matthias: (1) never modify generated/ (2) x (3) no make release"
+   "text": "Automated coding-agent session for GitHub PR o/r#7 by bob, launched by outrider for Matthias. Nobody is watching live. REVIEW ONLY: deny every file edit, git commit, git push, rebase, reset, merge or any other change to the branch or to GitHub (except the posts allowed below). Reading files, git log/diff/fetch, building and running tests is fine. Posting a comment, review comment or reply, review or reaction on this PR with plain `gh` is fine; the gh guard asks the owner first. Deny GitHub writes by any other route (curl, tokens, graphql mutations, changed OUTRIDER_* variables) and every other GitHub write (merge, close, labels, edits of the PR). Also enforce these rules from Matthias: (1) never modify generated/ (2) x (3) no make release"
   },
   {
    "args": {
@@ -1446,7 +1446,7 @@
     "own": true,
     "push": "review-only"
    },
-   "text": "Automated coding-agent session for GitHub PR o/r#7 by bob, launched by llm-review-agent for Matthias. Nobody is watching live. REVIEW ONLY: deny every file edit, git commit, git push, rebase, reset, merge or any other change to the branch or to GitHub (except the posts allowed below). Reading files, git log/diff/fetch, building and running tests is fine. Also enforce these rules from Matthias: (1) never modify generated/ (2) x (3) no make release"
+   "text": "Automated coding-agent session for GitHub PR o/r#7 by bob, launched by outrider for Matthias. Nobody is watching live. REVIEW ONLY: deny every file edit, git commit, git push, rebase, reset, merge or any other change to the branch or to GitHub (except the posts allowed below). Reading files, git log/diff/fetch, building and running tests is fine. Also enforce these rules from Matthias: (1) never modify generated/ (2) x (3) no make release"
   },
   {
    "args": {
@@ -1455,7 +1455,7 @@
     "own": true,
     "push": "review-only"
    },
-   "text": "Automated coding-agent session for GitHub PR o/r#7 by bob, launched by llm-review-agent for Matthias. Nobody is watching live. REVIEW ONLY: deny every file edit, git commit, git push, rebase, reset, merge or any other change to the branch or to GitHub (except the posts allowed below). Reading files, git log/diff/fetch, building and running tests is fine. Posting a comment, review comment or reply, review or reaction on this PR with plain `gh` is fine. Deny every other GitHub write (merge, close, labels, edits of the PR) and writes by any other route. Also enforce these rules from Matthias: (1) never modify generated/ (2) x (3) no make release"
+   "text": "Automated coding-agent session for GitHub PR o/r#7 by bob, launched by outrider for Matthias. Nobody is watching live. REVIEW ONLY: deny every file edit, git commit, git push, rebase, reset, merge or any other change to the branch or to GitHub (except the posts allowed below). Reading files, git log/diff/fetch, building and running tests is fine. Posting a comment, review comment or reply, review or reaction on this PR with plain `gh` is fine. Deny every other GitHub write (merge, close, labels, edits of the PR) and writes by any other route. Also enforce these rules from Matthias: (1) never modify generated/ (2) x (3) no make release"
   },
   {
    "args": {
@@ -1464,7 +1464,7 @@
     "own": false,
     "push": "ask"
    },
-   "text": "Automated coding-agent session for GitHub PR o/r#7 by bob, launched by llm-review-agent for Matthias. Nobody is watching live. Someone else's PR with pushing allowed: fast-forward commits on top of the PR head are fine. Deny force pushes, rebases, history rewrites, pushes to other branches and any GitHub write not allowed below. Every git push must go through the plain `git push` command, which asks the owner in a dialog. Deny any push by another route: a git binary by absolute path, unsetting or changing GIT_CONFIG_* or LLM_REVIEW_AGENT_* variables, git remote/config changes to push URLs, curl or API calls. Posting a comment, review comment or reply, review or reaction on this PR with plain `gh` is fine; the gh guard asks the owner first. Deny GitHub writes by any other route (curl, tokens, graphql mutations, changed LLM_REVIEW_AGENT_* variables) and every other GitHub write (merge, close, labels, edits of the PR). Also enforce these rules from Matthias: (1) never modify generated/ (2) x (3) no make release"
+   "text": "Automated coding-agent session for GitHub PR o/r#7 by bob, launched by outrider for Matthias. Nobody is watching live. Someone else's PR with pushing allowed: fast-forward commits on top of the PR head are fine. Deny force pushes, rebases, history rewrites, pushes to other branches and any GitHub write not allowed below. Every git push must go through the plain `git push` command, which asks the owner in a dialog. Deny any push by another route: a git binary by absolute path, unsetting or changing GIT_CONFIG_* or OUTRIDER_* variables, git remote/config changes to push URLs, curl or API calls. Posting a comment, review comment or reply, review or reaction on this PR with plain `gh` is fine; the gh guard asks the owner first. Deny GitHub writes by any other route (curl, tokens, graphql mutations, changed OUTRIDER_* variables) and every other GitHub write (merge, close, labels, edits of the PR). Also enforce these rules from Matthias: (1) never modify generated/ (2) x (3) no make release"
   },
   {
    "args": {
@@ -1473,7 +1473,7 @@
     "own": false,
     "push": "ask"
    },
-   "text": "Automated coding-agent session for GitHub PR o/r#7 by bob, launched by llm-review-agent for Matthias. Nobody is watching live. Someone else's PR with pushing allowed: fast-forward commits on top of the PR head are fine. Deny force pushes, rebases, history rewrites, pushes to other branches and any GitHub write not allowed below. Every git push must go through the plain `git push` command, which asks the owner in a dialog. Deny any push by another route: a git binary by absolute path, unsetting or changing GIT_CONFIG_* or LLM_REVIEW_AGENT_* variables, git remote/config changes to push URLs, curl or API calls. Also enforce these rules from Matthias: (1) never modify generated/ (2) x (3) no make release"
+   "text": "Automated coding-agent session for GitHub PR o/r#7 by bob, launched by outrider for Matthias. Nobody is watching live. Someone else's PR with pushing allowed: fast-forward commits on top of the PR head are fine. Deny force pushes, rebases, history rewrites, pushes to other branches and any GitHub write not allowed below. Every git push must go through the plain `git push` command, which asks the owner in a dialog. Deny any push by another route: a git binary by absolute path, unsetting or changing GIT_CONFIG_* or OUTRIDER_* variables, git remote/config changes to push URLs, curl or API calls. Also enforce these rules from Matthias: (1) never modify generated/ (2) x (3) no make release"
   },
   {
    "args": {
@@ -1482,7 +1482,7 @@
     "own": false,
     "push": "ask"
    },
-   "text": "Automated coding-agent session for GitHub PR o/r#7 by bob, launched by llm-review-agent for Matthias. Nobody is watching live. Someone else's PR with pushing allowed: fast-forward commits on top of the PR head are fine. Deny force pushes, rebases, history rewrites, pushes to other branches and any GitHub write not allowed below. Every git push must go through the plain `git push` command, which asks the owner in a dialog. Deny any push by another route: a git binary by absolute path, unsetting or changing GIT_CONFIG_* or LLM_REVIEW_AGENT_* variables, git remote/config changes to push URLs, curl or API calls. Posting a comment, review comment or reply, review or reaction on this PR with plain `gh` is fine. Deny every other GitHub write (merge, close, labels, edits of the PR) and writes by any other route. Also enforce these rules from Matthias: (1) never modify generated/ (2) x (3) no make release"
+   "text": "Automated coding-agent session for GitHub PR o/r#7 by bob, launched by outrider for Matthias. Nobody is watching live. Someone else's PR with pushing allowed: fast-forward commits on top of the PR head are fine. Deny force pushes, rebases, history rewrites, pushes to other branches and any GitHub write not allowed below. Every git push must go through the plain `git push` command, which asks the owner in a dialog. Deny any push by another route: a git binary by absolute path, unsetting or changing GIT_CONFIG_* or OUTRIDER_* variables, git remote/config changes to push URLs, curl or API calls. Posting a comment, review comment or reply, review or reaction on this PR with plain `gh` is fine. Deny every other GitHub write (merge, close, labels, edits of the PR) and writes by any other route. Also enforce these rules from Matthias: (1) never modify generated/ (2) x (3) no make release"
   },
   {
    "args": {
@@ -1491,7 +1491,7 @@
     "own": false,
     "push": "never"
    },
-   "text": "Automated coding-agent session for GitHub PR o/r#7 by bob, launched by llm-review-agent for Matthias. Nobody is watching live. Someone else's PR with pushing allowed: fast-forward commits on top of the PR head are fine. Deny force pushes, rebases, history rewrites, pushes to other branches and any GitHub write not allowed below. Deny every git push, by any route. Posting a comment, review comment or reply, review or reaction on this PR with plain `gh` is fine; the gh guard asks the owner first. Deny GitHub writes by any other route (curl, tokens, graphql mutations, changed LLM_REVIEW_AGENT_* variables) and every other GitHub write (merge, close, labels, edits of the PR). Also enforce these rules from Matthias: (1) never modify generated/ (2) x (3) no make release"
+   "text": "Automated coding-agent session for GitHub PR o/r#7 by bob, launched by outrider for Matthias. Nobody is watching live. Someone else's PR with pushing allowed: fast-forward commits on top of the PR head are fine. Deny force pushes, rebases, history rewrites, pushes to other branches and any GitHub write not allowed below. Deny every git push, by any route. Posting a comment, review comment or reply, review or reaction on this PR with plain `gh` is fine; the gh guard asks the owner first. Deny GitHub writes by any other route (curl, tokens, graphql mutations, changed OUTRIDER_* variables) and every other GitHub write (merge, close, labels, edits of the PR). Also enforce these rules from Matthias: (1) never modify generated/ (2) x (3) no make release"
   },
   {
    "args": {
@@ -1500,7 +1500,7 @@
     "own": false,
     "push": "never"
    },
-   "text": "Automated coding-agent session for GitHub PR o/r#7 by bob, launched by llm-review-agent for Matthias. Nobody is watching live. Someone else's PR with pushing allowed: fast-forward commits on top of the PR head are fine. Deny force pushes, rebases, history rewrites, pushes to other branches and any GitHub write not allowed below. Deny every git push, by any route. Also enforce these rules from Matthias: (1) never modify generated/ (2) x (3) no make release"
+   "text": "Automated coding-agent session for GitHub PR o/r#7 by bob, launched by outrider for Matthias. Nobody is watching live. Someone else's PR with pushing allowed: fast-forward commits on top of the PR head are fine. Deny force pushes, rebases, history rewrites, pushes to other branches and any GitHub write not allowed below. Deny every git push, by any route. Also enforce these rules from Matthias: (1) never modify generated/ (2) x (3) no make release"
   },
   {
    "args": {
@@ -1509,7 +1509,7 @@
     "own": false,
     "push": "never"
    },
-   "text": "Automated coding-agent session for GitHub PR o/r#7 by bob, launched by llm-review-agent for Matthias. Nobody is watching live. Someone else's PR with pushing allowed: fast-forward commits on top of the PR head are fine. Deny force pushes, rebases, history rewrites, pushes to other branches and any GitHub write not allowed below. Deny every git push, by any route. Posting a comment, review comment or reply, review or reaction on this PR with plain `gh` is fine. Deny every other GitHub write (merge, close, labels, edits of the PR) and writes by any other route. Also enforce these rules from Matthias: (1) never modify generated/ (2) x (3) no make release"
+   "text": "Automated coding-agent session for GitHub PR o/r#7 by bob, launched by outrider for Matthias. Nobody is watching live. Someone else's PR with pushing allowed: fast-forward commits on top of the PR head are fine. Deny force pushes, rebases, history rewrites, pushes to other branches and any GitHub write not allowed below. Deny every git push, by any route. Posting a comment, review comment or reply, review or reaction on this PR with plain `gh` is fine. Deny every other GitHub write (merge, close, labels, edits of the PR) and writes by any other route. Also enforce these rules from Matthias: (1) never modify generated/ (2) x (3) no make release"
   },
   {
    "args": {
@@ -1518,7 +1518,7 @@
     "own": false,
     "push": "allow"
    },
-   "text": "Automated coding-agent session for GitHub PR o/r#7 by bob, launched by llm-review-agent for Matthias. Nobody is watching live. Someone else's PR with pushing allowed: fast-forward commits on top of the PR head are fine. Deny force pushes, rebases, history rewrites, pushes to other branches and any GitHub write not allowed below. Posting a comment, review comment or reply, review or reaction on this PR with plain `gh` is fine; the gh guard asks the owner first. Deny GitHub writes by any other route (curl, tokens, graphql mutations, changed LLM_REVIEW_AGENT_* variables) and every other GitHub write (merge, close, labels, edits of the PR). Also enforce these rules from Matthias: (1) never modify generated/ (2) x (3) no make release"
+   "text": "Automated coding-agent session for GitHub PR o/r#7 by bob, launched by outrider for Matthias. Nobody is watching live. Someone else's PR with pushing allowed: fast-forward commits on top of the PR head are fine. Deny force pushes, rebases, history rewrites, pushes to other branches and any GitHub write not allowed below. Posting a comment, review comment or reply, review or reaction on this PR with plain `gh` is fine; the gh guard asks the owner first. Deny GitHub writes by any other route (curl, tokens, graphql mutations, changed OUTRIDER_* variables) and every other GitHub write (merge, close, labels, edits of the PR). Also enforce these rules from Matthias: (1) never modify generated/ (2) x (3) no make release"
   },
   {
    "args": {
@@ -1527,7 +1527,7 @@
     "own": false,
     "push": "allow"
    },
-   "text": "Automated coding-agent session for GitHub PR o/r#7 by bob, launched by llm-review-agent for Matthias. Nobody is watching live. Someone else's PR with pushing allowed: fast-forward commits on top of the PR head are fine. Deny force pushes, rebases, history rewrites, pushes to other branches and any GitHub write not allowed below. Also enforce these rules from Matthias: (1) never modify generated/ (2) x (3) no make release"
+   "text": "Automated coding-agent session for GitHub PR o/r#7 by bob, launched by outrider for Matthias. Nobody is watching live. Someone else's PR with pushing allowed: fast-forward commits on top of the PR head are fine. Deny force pushes, rebases, history rewrites, pushes to other branches and any GitHub write not allowed below. Also enforce these rules from Matthias: (1) never modify generated/ (2) x (3) no make release"
   },
   {
    "args": {
@@ -1536,7 +1536,7 @@
     "own": false,
     "push": "allow"
    },
-   "text": "Automated coding-agent session for GitHub PR o/r#7 by bob, launched by llm-review-agent for Matthias. Nobody is watching live. Someone else's PR with pushing allowed: fast-forward commits on top of the PR head are fine. Deny force pushes, rebases, history rewrites, pushes to other branches and any GitHub write not allowed below. Posting a comment, review comment or reply, review or reaction on this PR with plain `gh` is fine. Deny every other GitHub write (merge, close, labels, edits of the PR) and writes by any other route. Also enforce these rules from Matthias: (1) never modify generated/ (2) x (3) no make release"
+   "text": "Automated coding-agent session for GitHub PR o/r#7 by bob, launched by outrider for Matthias. Nobody is watching live. Someone else's PR with pushing allowed: fast-forward commits on top of the PR head are fine. Deny force pushes, rebases, history rewrites, pushes to other branches and any GitHub write not allowed below. Posting a comment, review comment or reply, review or reaction on this PR with plain `gh` is fine. Deny every other GitHub write (merge, close, labels, edits of the PR) and writes by any other route. Also enforce these rules from Matthias: (1) never modify generated/ (2) x (3) no make release"
   },
   {
    "args": {
@@ -1545,7 +1545,7 @@
     "own": false,
     "push": "review-only"
    },
-   "text": "Automated coding-agent session for GitHub PR o/r#7 by bob, launched by llm-review-agent for Matthias. Nobody is watching live. REVIEW ONLY: deny every file edit, git commit, git push, rebase, reset, merge or any other change to the branch or to GitHub (except the posts allowed below). Reading files, git log/diff/fetch, building and running tests is fine. Posting a comment, review comment or reply, review or reaction on this PR with plain `gh` is fine; the gh guard asks the owner first. Deny GitHub writes by any other route (curl, tokens, graphql mutations, changed LLM_REVIEW_AGENT_* variables) and every other GitHub write (merge, close, labels, edits of the PR). Also enforce these rules from Matthias: (1) never modify generated/ (2) x (3) no make release"
+   "text": "Automated coding-agent session for GitHub PR o/r#7 by bob, launched by outrider for Matthias. Nobody is watching live. REVIEW ONLY: deny every file edit, git commit, git push, rebase, reset, merge or any other change to the branch or to GitHub (except the posts allowed below). Reading files, git log/diff/fetch, building and running tests is fine. Posting a comment, review comment or reply, review or reaction on this PR with plain `gh` is fine; the gh guard asks the owner first. Deny GitHub writes by any other route (curl, tokens, graphql mutations, changed OUTRIDER_* variables) and every other GitHub write (merge, close, labels, edits of the PR). Also enforce these rules from Matthias: (1) never modify generated/ (2) x (3) no make release"
   },
   {
    "args": {
@@ -1554,7 +1554,7 @@
     "own": false,
     "push": "review-only"
    },
-   "text": "Automated coding-agent session for GitHub PR o/r#7 by bob, launched by llm-review-agent for Matthias. Nobody is watching live. REVIEW ONLY: deny every file edit, git commit, git push, rebase, reset, merge or any other change to the branch or to GitHub (except the posts allowed below). Reading files, git log/diff/fetch, building and running tests is fine. Also enforce these rules from Matthias: (1) never modify generated/ (2) x (3) no make release"
+   "text": "Automated coding-agent session for GitHub PR o/r#7 by bob, launched by outrider for Matthias. Nobody is watching live. REVIEW ONLY: deny every file edit, git commit, git push, rebase, reset, merge or any other change to the branch or to GitHub (except the posts allowed below). Reading files, git log/diff/fetch, building and running tests is fine. Also enforce these rules from Matthias: (1) never modify generated/ (2) x (3) no make release"
   },
   {
    "args": {
@@ -1563,7 +1563,7 @@
     "own": false,
     "push": "review-only"
    },
-   "text": "Automated coding-agent session for GitHub PR o/r#7 by bob, launched by llm-review-agent for Matthias. Nobody is watching live. REVIEW ONLY: deny every file edit, git commit, git push, rebase, reset, merge or any other change to the branch or to GitHub (except the posts allowed below). Reading files, git log/diff/fetch, building and running tests is fine. Posting a comment, review comment or reply, review or reaction on this PR with plain `gh` is fine. Deny every other GitHub write (merge, close, labels, edits of the PR) and writes by any other route. Also enforce these rules from Matthias: (1) never modify generated/ (2) x (3) no make release"
+   "text": "Automated coding-agent session for GitHub PR o/r#7 by bob, launched by outrider for Matthias. Nobody is watching live. REVIEW ONLY: deny every file edit, git commit, git push, rebase, reset, merge or any other change to the branch or to GitHub (except the posts allowed below). Reading files, git log/diff/fetch, building and running tests is fine. Posting a comment, review comment or reply, review or reaction on this PR with plain `gh` is fine. Deny every other GitHub write (merge, close, labels, edits of the PR) and writes by any other route. Also enforce these rules from Matthias: (1) never modify generated/ (2) x (3) no make release"
   }
  ]
 }

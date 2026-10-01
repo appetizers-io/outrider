@@ -327,8 +327,8 @@ func TestGitPushModes(t *testing.T) {
 }
 
 func TestApprovedPushEnvDropsTheTrap(t *testing.T) {
-	env := approvedPushEnv([]string{"PATH=/x", "GIT_CONFIG_COUNT=1", "GIT_CONFIG_KEY_0=k", "GIT_CONFIG_VALUE_0=v", "LLM_REVIEW_AGENT_PUSH=ask"})
-	require.Equal(t, []string{"PATH=/x", "LLM_REVIEW_AGENT_PUSH=allow"}, env)
+	env := approvedPushEnv([]string{"PATH=/x", "GIT_CONFIG_COUNT=1", "GIT_CONFIG_KEY_0=k", "GIT_CONFIG_VALUE_0=v", "OUTRIDER_PUSH=ask"})
+	require.Equal(t, []string{"PATH=/x", "OUTRIDER_PUSH=allow"}, env)
 }
 
 // --- the whole guard, run as a process ---------------------------------------
@@ -382,7 +382,7 @@ func TestGHAskPostsOnlyAfterApproval(t *testing.T) {
 	res := runGuard(t, "gh", session("ask", "Post"), "pr", "comment", "7", "-b", "hi there")
 	r.Equal(0, res.code, res.stderr)
 	r.Contains(res.stdout, "REAL")
-	r.Contains(res.dialog, "llm-review-agent: post to GitHub?")
+	r.Contains(res.dialog, "outrider: post to GitHub?")
 	r.Contains(res.dialog, "hi there")
 
 	for _, answer := range []string{"Deny", ""} { // denied, or no dialog available
@@ -426,7 +426,7 @@ func TestCommandDispatchesOnTheBinaryName(t *testing.T) {
 	for _, name := range []string{"/x/bin/gh", "/x/bin/git", `gh.exe`, "/x/bin/GIT.EXE"} {
 		require.NotNil(t, Command(name), name)
 	}
-	for _, name := range []string{"/usr/local/bin/llm-review-agent", "llm-review-agent.exe", "ghx"} {
+	for _, name := range []string{"/usr/local/bin/outrider", "outrider.exe", "ghx"} {
 		require.Nil(t, Command(name), name)
 	}
 }

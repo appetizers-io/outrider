@@ -10,11 +10,14 @@ import (
 	"io"
 	"log/slog"
 	"os"
+	"path/filepath"
 
 	"github.com/spf13/cobra"
 
-	"github.com/appetizers-io/llm-review-agent/internal/session"
-	"github.com/appetizers-io/llm-review-agent/internal/watch"
+	"github.com/appetizers-io/outrider/internal/config"
+	"github.com/appetizers-io/outrider/internal/migrate"
+	"github.com/appetizers-io/outrider/internal/session"
+	"github.com/appetizers-io/outrider/internal/watch"
 )
 
 // Version is set at release time.
@@ -62,21 +65,30 @@ func newLogger(w io.Writer, level, format string) (*slog.Logger, error) {
 
 func newRoot(d watch.Deps, stdout, stderr io.Writer) *cobra.Command {
 	f := &flags{}
+	var log *slog.Logger
+	// only commands that read the config, state or cache move the old
+	// llm-review-agent dirs, before they look for them
+	migrateDirs := func() { migrate.Dirs(d.Home, filepath.Dir(filepath.Dir(config.DefaultPath())), log) }
 	root := &cobra.Command{
-		Use:   "llm-review-agent",
+		Use:   "outrider",
 		Short: "Watch GitHub PR activity and hand actionable PRs to a local coding agent",
 		Long: "Polls your GitHub notifications and opens a local interactive coding agent " +
 			"(Codex or Claude Code) for pull requests that need your attention.\n\n" +
-			"Settings come from the config file (see `llm-review-agent config --help`); these flags override it.",
+			"Settings come from the config file (see `outrider config --help`); these flags override it.",
 		Version:       Version,
 		Args:          cobra.NoArgs,
 		SilenceUsage:  true,
 		SilenceErrors: true,
-		RunE: func(cmd *cobra.Command, _ []string) error {
-			log, err := newLogger(stderr, f.logLevel, f.logFormat)
-			if err != nil {
+		PersistentPreRunE: func(*cobra.Command, []string) error {
+			var err error
+			if log, err = newLogger(stderr, f.logLevel, f.logFormat); err != nil {
 				return err
 			}
+			slog.SetDefault(log)
+			return nil
+		},
+		RunE: func(cmd *cobra.Command, _ []string) error {
+			migrateDirs()
 			s, err := f.settings(cmd)
 			if err != nil {
 				return err
@@ -88,7 +100,7 @@ func newRoot(d watch.Deps, stdout, stderr io.Writer) *cobra.Command {
 	root.SetOut(stdout)
 	root.SetErr(stderr)
 	f.register(root)
-	root.AddCommand(configCmd(stdout, stderr), sessionCmd(stdout))
+	root.AddCommand(configCmd(stdout, stderr, migrateDirs), sessionCmd(stdout))
 	return root
 }
 

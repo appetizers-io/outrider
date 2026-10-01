@@ -1,4 +1,6 @@
-# llm-review-agent
+# outrider
+
+*Rides ahead of your review queue.*
 
 Polls your GitHub notifications and opens a local interactive coding agent
 (Codex or Claude Code) for pull requests that need your attention. A single
@@ -50,21 +52,21 @@ the obvious calls, not a determined agent.
 Codex sessions get the guards, the prompt and the gate's environment; its
 hooks need a one-time trust (`/hooks`), so the gate hook isn't wired there.
 
-The guards are the `llm-review-agent` binary itself: the `bin/` directory
-under `~/.cache/llm-review-agent` holds `gh` and `git` links to it, put first
+The guards are the `outrider` binary itself: the `bin/` directory
+under `~/.cache/outrider` holds `gh` and `git` links to it, put first
 on each session's `PATH`.
 
 **What the guards are, and what they are not.** The `gh` and `git` guards,
 the `pushInsteadOf` trap, the deny rules and the approval dialogs are
 guardrails against an agent's mistakes. They are not a sandbox. The agent runs
 as you, with your credentials and your environment: it can change the
-`LLM_REVIEW_AGENT_*` and `GIT_CONFIG_*` variables of its own commands, call
+`OUTRIDER_*` and `GIT_CONFIG_*` variables of its own commands, call
 the real binaries by path, set a `pushurl` (which `pushInsteadOf` ignores), or
 use the GitHub API directly. A PR from someone you don't trust can carry a
 prompt injection in its diff, comments or checked-in agent settings. For
 those, keep the tool gate on (supervised mode) or run the agent in a sandbox
 (the Claude Code sandbox, a container or a VM) without write access to
-`~/.cache/llm-review-agent` and with your push credentials out of reach.
+`~/.cache/outrider` and with your push credentials out of reach.
 
 ### Classifiers
 
@@ -81,17 +83,17 @@ Jev without a backend key) is off; the startup log says why.
     `"reason"`. Anything else launches.
   - `hook_command` is a Claude Code / Codex PreToolUse hook (exit 2 or a
     `permissionDecision` denies). It gets the session rules in
-    `$LLM_REVIEW_AGENT_GATE_TEXT`, the policy in `$LLM_REVIEW_AGENT_POLICY_FILE`
-    and `tool_gate.threshold` in `$LLM_REVIEW_AGENT_GATE_THRESHOLD`.
+    `$OUTRIDER_GATE_TEXT`, the policy in `$OUTRIDER_POLICY_FILE`
+    and `tool_gate.threshold` in `$OUTRIDER_GATE_THRESHOLD`.
 
 ## Install
 
 Download the archive for your platform from the
-[releases](https://github.com/appetizers-io/llm-review-agent/releases) and put
-`llm-review-agent` on your `PATH`, or build it with Go 1.27:
+[releases](https://github.com/appetizers-io/outrider/releases) and put
+`outrider` on your `PATH`, or build it with Go 1.27:
 
 ```sh
-go install github.com/appetizers-io/llm-review-agent@latest
+go install github.com/appetizers-io/outrider@latest
 ```
 
 From a checkout, `task install` builds it into `~/.local/bin`
@@ -101,14 +103,21 @@ It needs [`gh`](https://cli.github.com) (logged in), `git`, and the agent CLI
 (`codex` or `claude`); tmux for the tmux launcher. Nothing else: no Python, no
 shell scripts.
 
+**Coming from llm-review-agent** (the old name): on the first start, outrider
+moves `~/.config/llm-review-agent`, `~/.cache/llm-review-agent` and
+`~/.local/state/llm-review-agent` to the `outrider` names (and re-links the PR
+worktrees) when the new ones don't exist yet. `$LLM_REVIEW_AGENT_CONFIG` is
+still read, with a warning; use `$OUTRIDER_CONFIG`. The session environment is
+now `OUTRIDER_*`. Remove the old `llm-review-agent` binary from your `PATH`.
+
 ## Run
 
 From inside a checkout, it watches that repo and creates worktrees from it:
 
 ```sh
 cd ~/dev/some-repo
-llm-review-agent --agent claude --max-agents 3
-llm-review-agent --remote upstream   # fork checkout: watch the upstream repo
+outrider --agent claude --max-agents 3
+outrider --remote upstream   # fork checkout: watch the upstream repo
 ```
 
 Useful flags: `--once`, `--dry-run`, `--config PATH`, `--repo owner/name`
@@ -116,7 +125,7 @@ Useful flags: `--once`, `--dry-run`, `--config PATH`, `--repo owner/name`
 `--github-writes ask|never|allow`, `--launcher auto|terminal|tmux`,
 `--terminal NAME`, `--log-level debug|info|warn|error`,
 `--log-format text|json`. Flags override the config file. See
-`llm-review-agent --help`.
+`outrider --help`.
 
 Logs go to stderr through `log/slog`: text by default, JSON lines with
 `--log-format json`.
@@ -149,8 +158,8 @@ only taken from fixed system locations, never from `PATH`. Without a dialog the 
 "deny".
 
 State and caches live in the same places on every OS:
-`~/.config/llm-review-agent/config.yaml`,
-`~/.local/state/llm-review-agent/state.json` and `~/.cache/llm-review-agent`
+`~/.config/outrider/config.yaml`,
+`~/.local/state/outrider/state.json` and `~/.cache/outrider`
 (worktrees, sessions, locks).
 
 Known limitations:
@@ -167,10 +176,10 @@ Known limitations:
 ## Configure
 
 All rules live in an optional YAML file, `--config PATH`,
-`$LLM_REVIEW_AGENT_CONFIG`, or `~/.config/llm-review-agent/config.yaml`. Every
+`$OUTRIDER_CONFIG`, or `~/.config/outrider/config.yaml`. Every
 key is optional;
 [`config.example.yaml`](internal/config/config.example.yaml) shows every key
-at its default (`llm-review-agent config generate` prints it):
+at its default (`outrider config generate` prints it):
 
 - `mode: supervised | autonomous`, `push: ask | never | allow`,
   `github_writes: ask | never | allow` and `others_prs.allow_push`
@@ -201,10 +210,10 @@ Loading validates a file (and the flags on top of it) against that schema with
 so an error names the bad key, e.g. `at '/max_agents': minimum: got 0, want 1`:
 
 ```sh
-llm-review-agent config check [PATH]   # validate
-llm-review-agent config show [PATH]    # effective config with defaults
-llm-review-agent config schema         # JSON Schema
-llm-review-agent config generate       # every key, documented (-o PATH | --write)
+outrider config check [PATH]   # validate
+outrider config show [PATH]    # effective config with defaults
+outrider config schema         # JSON Schema
+outrider config generate       # every key, documented (-o PATH | --write)
 ```
 
 Jev needs `TYPESAFE_API_KEY` (or another jev-use backend key) in the
@@ -219,7 +228,7 @@ Needs Go 1.27, [Task](https://taskfile.dev) and
 task lint              # golangci-lint
 task vet               # go vet for linux, darwin and windows
 task test              # go test -race ./...
-task build             # bin/llm-review-agent
+task build             # bin/outrider
 task all               # lint + vet + test + build
 task install           # build into ~/.local/bin (INSTALL_DIR=... to change)
 task schema            # regenerate config.schema.json after changing internal/config

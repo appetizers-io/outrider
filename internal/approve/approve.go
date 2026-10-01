@@ -86,13 +86,13 @@ func (p Platform) dialogFor(title, body, ok string) (dialog, error) {
 		}
 		// the texts travel in the environment: no quoting into the script
 		script := "Add-Type -AssemblyName PresentationFramework; " +
-			"$r = [System.Windows.MessageBox]::Show($env:LLM_REVIEW_AGENT_DIALOG_BODY, $env:LLM_REVIEW_AGENT_DIALOG_TITLE, 'YesNo', 'Warning', 'No'); " +
+			"$r = [System.Windows.MessageBox]::Show($env:OUTRIDER_DIALOG_BODY, $env:OUTRIDER_DIALOG_TITLE, 'YesNo', 'Warning', 'No'); " +
 			"if ($r -eq 'Yes') { 'Yes' }"
 		return dialog{
 			args: []string{ps, "-NoProfile", "-NonInteractive", "-Command", script},
 			env: []string{
-				"LLM_REVIEW_AGENT_DIALOG_TITLE=" + title,
-				"LLM_REVIEW_AGENT_DIALOG_BODY=" + body + "\n\nYes: " + ok + "    No: Deny",
+				"OUTRIDER_DIALOG_TITLE=" + title,
+				"OUTRIDER_DIALOG_BODY=" + body + "\n\nYes: " + ok + "    No: Deny",
 			},
 			ok: func(out string) bool { return strings.TrimSpace(out) == "Yes" },
 		}, nil

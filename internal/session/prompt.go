@@ -5,8 +5,8 @@ import (
 	"strings"
 	"text/template"
 
-	"github.com/appetizers-io/llm-review-agent/internal/github"
-	"github.com/appetizers-io/llm-review-agent/prompts"
+	"github.com/appetizers-io/outrider/internal/github"
+	"github.com/appetizers-io/outrider/prompts"
 )
 
 var promptTmpl = template.Must(template.ParseFS(prompts.FS, "prompt.tmpl"))

@@ -10,7 +10,7 @@ import (
 
 	"github.com/stretchr/testify/require"
 
-	"github.com/appetizers-io/llm-review-agent/internal/proc"
+	"github.com/appetizers-io/outrider/internal/proc"
 )
 
 // fake answers gh calls with fn's output.

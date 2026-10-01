@@ -20,7 +20,7 @@ func Schema() *jsonschema.Schema {
 	r := &jsonschema.Reflector{FieldNameTag: "yaml", RequiredFromJSONSchemaTags: true, ExpandedStruct: true}
 	s := r.Reflect(&Config{})
 	s.ID = SchemaID
-	s.Title = "llm-review-agent configuration"
+	s.Title = "outrider configuration"
 	s.Description = "Every key is optional; command-line flags override this file."
 	// Classifier.JSONSchema refers to the two kinds
 	for name, kind := range map[string]any{"JevClassifier": &JevClassifier{}, "CommandClassifier": &CommandClassifier{}} {

@@ -32,7 +32,7 @@ type JevClassifier struct {
 // launch_command gets a JSON request on stdin and prints
 // {"launch": bool} or {"probability": 0..1}, optionally with "reason".
 // hook_command is a Claude Code / Codex PreToolUse hook; the session policy
-// is in $LLM_REVIEW_AGENT_POLICY_FILE and $LLM_REVIEW_AGENT_GATE_TEXT.
+// is in $OUTRIDER_POLICY_FILE and $OUTRIDER_GATE_TEXT.
 type CommandClassifier struct {
 	Kind           string  `yaml:"kind" jsonschema:"required" jsonschema_extras:"const=command"`
 	Enabled        bool    `yaml:"enabled" jsonschema:"default=true"`
@@ -168,7 +168,7 @@ type Terminal struct {
 // Placeholder is replaced by the session command in a custom terminal command.
 const Placeholder = "{cmd}"
 
-// TerminalNames are the terminal apps llm-review-agent knows how to open.
+// TerminalNames are the terminal apps outrider knows how to open.
 var TerminalNames = []string{"auto", "terminal-app", "iterm", "ghostty", "wezterm", "kitty", "windows-terminal", "x-terminal-emulator", "cmd"}
 
 // UnmarshalYAML accepts a name or a command list.

@@ -8,7 +8,7 @@ import (
 
 	"github.com/stretchr/testify/require"
 
-	"github.com/appetizers-io/llm-review-agent/internal/github"
+	"github.com/appetizers-io/outrider/internal/github"
 )
 
 func at(at string, mod ...func(*github.Activity)) github.Activity {

@@ -16,9 +16,9 @@ import (
 
 	"github.com/stretchr/testify/require"
 
-	"github.com/appetizers-io/llm-review-agent/internal/config"
-	"github.com/appetizers-io/llm-review-agent/internal/github"
-	"github.com/appetizers-io/llm-review-agent/internal/proc"
+	"github.com/appetizers-io/outrider/internal/config"
+	"github.com/appetizers-io/outrider/internal/github"
+	"github.com/appetizers-io/outrider/internal/proc"
 )
 
 // As a local classifier the test binary saves its request and prints $CLS_ANSWER.
@@ -274,9 +274,9 @@ func TestLocalClassifierProtocol(t *testing.T) {
 func TestHookEnvGenericAndJev(t *testing.T) {
 	local := &Resolved{Name: "l", Kind: "command", HookCmd: []string{"h"}}
 	require.Equal(t, map[string]string{
-		"LLM_REVIEW_AGENT_POLICY_FILE":    "/p.json",
-		"LLM_REVIEW_AGENT_GATE_TEXT":      "rules",
-		"LLM_REVIEW_AGENT_GATE_THRESHOLD": "0.7",
+		"OUTRIDER_POLICY_FILE":    "/p.json",
+		"OUTRIDER_GATE_TEXT":      "rules",
+		"OUTRIDER_GATE_THRESHOLD": "0.7",
 	}, HookEnv(local, "rules", new(0.7), "/p.json"))
 	env := HookEnv(jevR, "rules", nil, "/p.json")
 	require.Equal(t, "rules", env["JEV_GATE_STATE"])

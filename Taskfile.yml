@@ -4,7 +4,7 @@ version: "3"
 # only call these tasks.
 
 vars:
-  BIN: bin/llm-review-agent{{exeExt}}
+  BIN: bin/outrider{{exeExt}}
 
 tasks:
   lint:
@@ -36,8 +36,8 @@ tasks:
       INSTALL_DIR: '{{.INSTALL_DIR | default (print .HOME "/.local/bin")}}'
     cmds:
       - mkdir -p "{{.INSTALL_DIR}}"
-      - go build -o "{{.INSTALL_DIR}}/llm-review-agent{{exeExt}}" .
-      - echo "installed {{.INSTALL_DIR}}/llm-review-agent{{exeExt}}"
+      - go build -o "{{.INSTALL_DIR}}/outrider{{exeExt}}" .
+      - echo "installed {{.INSTALL_DIR}}/outrider{{exeExt}}"
 
   schema:
     desc: Regenerate config.schema.json after changing internal/config

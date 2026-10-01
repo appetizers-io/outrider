@@ -2,7 +2,7 @@
 // session's PATH. The binary is multi-call: run as `gh` or `git`, main hands
 // the arguments to RunGH or RunGit, which decide and then run the real binary.
 //
-// gh: reads pass through. $LLM_REVIEW_AGENT_GH_WRITES decides what
+// gh: reads pass through. $OUTRIDER_GH_WRITES decides what
 // comment-like writes on the session's PR do (comments, review comments and
 // replies, reviews, reactions):
 //
@@ -25,18 +25,18 @@ import (
 	"strings"
 	"unicode/utf8"
 
-	"github.com/appetizers-io/llm-review-agent/internal/shell"
+	"github.com/appetizers-io/outrider/internal/shell"
 )
 
 // Environment contract between the session runner and the guards.
 const (
-	EnvRealGH   = "LLM_REVIEW_AGENT_REAL_GH"
-	EnvRealGit  = "LLM_REVIEW_AGENT_REAL_GIT"
-	EnvGHWrites = "LLM_REVIEW_AGENT_GH_WRITES"
-	EnvPush     = "LLM_REVIEW_AGENT_PUSH"
-	EnvRepo     = "LLM_REVIEW_AGENT_REPO"
-	EnvPR       = "LLM_REVIEW_AGENT_PR"
-	EnvSession  = "LLM_REVIEW_AGENT_SESSION"
+	EnvRealGH   = "OUTRIDER_REAL_GH"
+	EnvRealGit  = "OUTRIDER_REAL_GIT"
+	EnvGHWrites = "OUTRIDER_GH_WRITES"
+	EnvPush     = "OUTRIDER_PUSH"
+	EnvRepo     = "OUTRIDER_REPO"
+	EnvPR       = "OUTRIDER_PR"
+	EnvSession  = "OUTRIDER_SESSION"
 )
 
 var ghRead = map[string][]string{
@@ -124,7 +124,7 @@ func (s GHSession) deny(args []string, why string) {
 }
 
 func (s GHSession) denyMsg(args []string, why string) string {
-	msg := "llm-review-agent guard: blocked `gh " + strings.Join(args, " ") + "` (" + why + "). "
+	msg := "outrider guard: blocked `gh " + strings.Join(args, " ") + "` (" + why + "). "
 	if s.writable() {
 		msg += "Only comments, review comments and replies, reviews and reactions on " +
 			s.target() + " can be posted, through plain `gh`; explain anything else locally instead."

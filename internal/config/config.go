@@ -2,7 +2,7 @@
 //
 // The structs below declare the keys; their `jsonschema` tags give the
 // constraints and descriptions, from which github.com/invopop/jsonschema
-// generates the JSON Schema (`llm-review-agent config schema`). Loading
+// generates the JSON Schema (`outrider config schema`). Loading
 // validates a file against that schema (github.com/santhosh-tekuri/jsonschema)
 // and then decodes it onto Default() with yaml.v3 KnownFields.
 package config
@@ -10,6 +10,7 @@ package config
 import (
 	"errors"
 	"fmt"
+	"log/slog"
 	"os"
 	"path/filepath"
 	"slices"
@@ -18,15 +19,17 @@ import (
 
 const (
 	// EnvVar names the config file when --config is not given.
-	EnvVar = "LLM_REVIEW_AGENT_CONFIG"
+	EnvVar = "OUTRIDER_CONFIG"
+	// LegacyEnvVar is EnvVar from before the rename to outrider; still read, with a warning.
+	LegacyEnvVar = "LLM_REVIEW_AGENT_CONFIG"
 	// SchemaID is the $id of the generated JSON Schema.
-	SchemaID = "https://github.com/appetizers-io/llm-review-agent/config.schema.json"
+	SchemaID = "https://github.com/appetizers-io/outrider/config.schema.json"
 )
 
 // JevBackendEnv are the variables that give jev-use a backend.
 var JevBackendEnv = []string{"TYPESAFE_API_KEY", "OPENROUTER_API_KEY", "AI_GATEWAY_API_KEY", "JEV_BACKEND"}
 
-// Config is the llm-review-agent configuration. Every key is optional;
+// Config is the outrider configuration. Every key is optional;
 // command-line flags override this file.
 type Config struct {
 	OwnerName       *string     `yaml:"owner_name" jsonschema:"minLength=1,nullable" jsonschema_description:"How prompts refer to you. null: first name from your GitHub profile, else your login."`
@@ -199,23 +202,28 @@ type Error struct{ msg string }
 
 func (e *Error) Error() string { return e.msg }
 
-// DefaultPath is where the config is found without --config or $LLM_REVIEW_AGENT_CONFIG.
+// DefaultPath is where the config is found without --config or $OUTRIDER_CONFIG.
 func DefaultPath() string {
 	base := os.Getenv("XDG_CONFIG_HOME")
 	if base == "" {
 		home, _ := os.UserHomeDir()
 		base = filepath.Join(home, ".config")
 	}
-	return filepath.Join(base, "llm-review-agent", "config.yaml")
+	return filepath.Join(base, "outrider", "config.yaml")
 }
 
-// Find returns --config, then $LLM_REVIEW_AGENT_CONFIG, then the default path
+// Find returns --config, then $OUTRIDER_CONFIG (or the old
+// $LLM_REVIEW_AGENT_CONFIG), then the default path
 // when it exists; "" means no config file.
 func Find(explicit string) string {
 	if explicit != "" {
 		return explicit
 	}
 	if p := os.Getenv(EnvVar); p != "" {
+		return p
+	}
+	if p := os.Getenv(LegacyEnvVar); p != "" {
+		slog.Warn("$" + LegacyEnvVar + " is deprecated, use $" + EnvVar)
 		return p
 	}
 	p := DefaultPath()

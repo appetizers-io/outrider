@@ -5,8 +5,8 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"github.com/appetizers-io/llm-review-agent/internal/config"
-	"github.com/appetizers-io/llm-review-agent/internal/watch"
+	"github.com/appetizers-io/outrider/internal/config"
+	"github.com/appetizers-io/outrider/internal/watch"
 )
 
 // flags of the root command. A flag overrides the config file only when it
@@ -42,8 +42,9 @@ func (f *flags) register(cmd *cobra.Command) {
 	fs.StringVar(&f.jevCmd, "jev-cmd", "", "jev-use command for the pre-launch check")
 	fs.BoolVar(&f.noJev, "no-jev", false, "launch on every trigger without asking Jev first")
 	fs.BoolVar(&f.resetState, "reset-state", false, "forget what was handled before")
-	fs.StringVar(&f.logLevel, "log-level", "info", "debug, info, warn or error")
-	fs.StringVar(&f.logFormat, "log-format", "text", "text or json")
+	pfs := cmd.PersistentFlags() // for the config subcommands too
+	pfs.StringVar(&f.logLevel, "log-level", "info", "debug, info, warn or error")
+	pfs.StringVar(&f.logFormat, "log-format", "text", "text or json")
 }
 
 // settings are the config file with the given flags on top, validated

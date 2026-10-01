@@ -3,8 +3,8 @@ package session
 import (
 	"strings"
 
-	"github.com/appetizers-io/llm-review-agent/internal/config"
-	"github.com/appetizers-io/llm-review-agent/internal/shell"
+	"github.com/appetizers-io/outrider/internal/config"
+	"github.com/appetizers-io/outrider/internal/shell"
 )
 
 // Terminal is the resolved terminal app sessions open in.
