@@ -1,14 +1,13 @@
-package main
+package cli
 
 import (
-	"fmt"
-	"slices"
 	"strings"
 
 	"github.com/spf13/cobra"
 
 	"github.com/appetizers-io/llm-review-agent/internal/config"
 	"github.com/appetizers-io/llm-review-agent/internal/poll"
+	"github.com/appetizers-io/llm-review-agent/internal/watch"
 )
 
 // flags of the root command. A flag overrides the config file only when it
@@ -30,7 +29,7 @@ func (f *flags) register(cmd *cobra.Command) {
 	fs.StringVar(&f.agent, "agent", "", "codex or claude")
 	fs.StringVar(&f.remote, "remote", "", "remote of the local checkout to watch (default: origin; e.g. upstream for a fork)")
 	fs.StringVar(&f.launcher, "launcher", "", "auto, terminal or tmux (auto: the terminal on a desktop, else tmux)")
-	fs.StringVar(&f.terminal, "terminal", "", "terminal app: auto, "+joinNames()+", or a command with {cmd}")
+	fs.StringVar(&f.terminal, "terminal", "", "terminal app: "+strings.Join(config.TerminalNames, ", ")+", or a command with {cmd}")
 	fs.StringVar(&f.githubWrites, "github-writes", "", "comments, reviews and reactions the agent posts on its PR with gh: "+
 		"ask, never or allow (ask: a dialog asks you first; default: ask in supervised mode)")
 	fs.IntVar(&f.interval, "interval", 0, "seconds between polls")
@@ -48,101 +47,49 @@ func (f *flags) register(cmd *cobra.Command) {
 	fs.StringVar(&f.logFormat, "log-format", "text", "text or json")
 }
 
-func joinNames() string {
-	names := slices.DeleteFunc(slices.Clone(config.TerminalNames), func(n string) bool { return n == "auto" })
-	return strings.Join(names, ", ")
-}
-
-// settings are the effective settings: the config file, overridden by flags.
-type settings struct {
-	Cfg             config.Config
-	ConfigSource    string // "": built-in defaults
-	Include         []string
-	Exclude         []string
-	Remote          string
-	ProcessExisting bool
-	Once            bool
-	DryRun          bool
-	ResetState      bool
-}
-
-func oneOf(flag, v string, allowed ...string) error {
-	if !slices.Contains(allowed, v) {
-		return fmt.Errorf("--%s: invalid choice %q (choose from %v)", flag, v, allowed)
-	}
-	return nil
-}
-
-func settingsFrom(cmd *cobra.Command, f *flags) (settings, error) {
+// settings are the config file with the given flags on top, validated
+// against the config schema like the file itself.
+func (f *flags) settings(cmd *cobra.Command) (watch.Settings, error) {
 	source := config.Find(f.config)
 	cfg, err := config.Load(source)
 	if err != nil {
-		return settings{}, err
+		return watch.Settings{}, err
 	}
 	changed := cmd.Flags().Changed
-	for _, c := range []struct {
-		flag    string
-		value   string
-		allowed []string
-		target  func(string)
-	}{
-		{"agent", f.agent, []string{"codex", "claude"}, func(v string) { cfg.Agent = v }},
-		{"launcher", f.launcher, []string{"auto", "terminal", "tmux"}, func(v string) { cfg.Launcher = v }},
-		{"github-writes", f.githubWrites, []string{"ask", "never", "allow"}, func(v string) { cfg.GitHubWrites = &v }},
-	} {
-		if !changed(c.flag) {
-			continue
-		}
-		if err := oneOf(c.flag, c.value, c.allowed...); err != nil {
-			return settings{}, err
-		}
-		c.target(c.value)
-	}
-	if changed("terminal") {
-		cfg.Terminal = config.ParseTerminal(f.terminal)
-		if t := cfg.Terminal; t.Command == nil && !slices.Contains(config.TerminalNames, t.Name) {
-			return settings{}, fmt.Errorf("--terminal: unknown terminal %q (choose from auto, %s, or a command with {cmd})", t.Name, joinNames())
+	set := func(name string, apply func()) {
+		if changed(name) {
+			apply()
 		}
 	}
-	if changed("interval") {
-		cfg.IntervalSeconds = f.interval
-	}
-	if changed("lookback-hours") {
-		cfg.LookbackHours = f.lookbackHours
-	}
-	if changed("max-agents") {
-		cfg.MaxAgents = f.maxAgents
-	}
-	if changed("candidate-limit") {
-		cfg.CandidateLimit = f.candidateLimit
-	}
-	if changed("stale-lock-hours") {
-		cfg.StaleLockHours = f.staleLockHours
-	}
+	set("agent", func() { cfg.Agent = f.agent })
+	set("launcher", func() { cfg.Launcher = f.launcher })
+	set("github-writes", func() { cfg.GitHubWrites = &f.githubWrites })
+	set("terminal", func() { cfg.Terminal = config.ParseTerminal(f.terminal) })
+	set("interval", func() { cfg.IntervalSeconds = f.interval })
+	set("lookback-hours", func() { cfg.LookbackHours = f.lookbackHours })
+	set("max-agents", func() { cfg.MaxAgents = f.maxAgents })
+	set("candidate-limit", func() { cfg.CandidateLimit = f.candidateLimit })
+	set("stale-lock-hours", func() { cfg.StaleLockHours = f.staleLockHours })
+	set("repo", func() { cfg.Repos.Include = f.repo })
+	set("exclude-repo", func() { cfg.Repos.Exclude = f.excludeRepo })
 	if jev, ok := cfg.Classifiers["jev"]; ok && jev.Kind == config.KindJev {
-		if changed("jev-cmd") {
-			jev.Jev.Command = &f.jevCmd
-		}
+		set("jev-cmd", func() { jev.Jev.Command = &f.jevCmd })
 		if f.noJev {
 			jev.Jev.Enabled = config.EnabledFalse
 		}
 		cfg.Classifiers["jev"] = jev
 	}
-	s := settings{
+	if cfg, err = config.Validate(cfg, "flags and config"); err != nil {
+		return watch.Settings{}, err
+	}
+	s := watch.Settings{
 		Cfg: cfg, ConfigSource: source, Remote: f.remote,
 		ProcessExisting: f.processExisting, Once: f.once, DryRun: f.dryRun, ResetState: f.resetState,
 	}
-	include, exclude := cfg.Repos.Include, cfg.Repos.Exclude
-	if changed("repo") {
-		include = f.repo
-	}
-	if changed("exclude-repo") {
-		exclude = f.excludeRepo
-	}
-	for _, p := range include {
+	for _, p := range cfg.Repos.Include {
 		s.Include = append(s.Include, poll.RepoPattern(p))
 	}
-	for _, p := range exclude {
+	for _, p := range cfg.Repos.Exclude {
 		s.Exclude = append(s.Exclude, poll.RepoPattern(p))
 	}
 	return s, nil

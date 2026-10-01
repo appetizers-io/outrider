@@ -4,11 +4,10 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
-	"reflect"
+	"slices"
 	"strings"
 	"testing"
 
-	"github.com/santhosh-tekuri/jsonschema/v6"
 	"github.com/stretchr/testify/require"
 	"go.yaml.in/yaml/v3"
 )
@@ -48,35 +47,37 @@ func TestEmptyFileIsDefaults(t *testing.T) {
 }
 
 func TestInvalid(t *testing.T) {
+	// schema errors name the JSON pointer of the bad value
 	for _, tc := range []struct{ yaml, message string }{
-		{"agent: gpt", "agent: Input should be 'codex' or 'claude'"},
-		{"max_agents: 0", "max_agents: Input should be greater than or equal to 1"},
-		{"typo: 1", "typo: Extra inputs are not permitted"},
-		{`classifiers: {jev: {enabled: "yes"}}`, "classifiers.jev.enabled: Input should be 'auto', True or"},
-		{"classifiers: {jev: {enabled: maybe}}", "classifiers.jev.enabled: Input should be 'auto', True or"},
-		{"launch_check: {skip_below: 2}", "launch_check.skip_below: Input should be less than or"},
+		{"agent: gpt", "/agent"},
+		{"max_agents: 0", "/max_agents"},
+		{"typo: 1", "typo"},
+		{`classifiers: {jev: {enabled: "yes"}}`, "/classifiers/jev"},
+		{"classifiers: {jev: {enabled: maybe}}", "/classifiers/jev"},
+		{"launch_check: {skip_below: 2}", "/launch_check/skip_below"},
 		{"tool_gate: {classifier: nope}", "tool_gate.classifier: unknown classifier 'nope' (defined: jev)"},
 		{"classifiers: {l: {kind: command, hook_command: x}}\nlaunch_check: {classifier: l}", "launch_check.classifier: 'l' has no launch_command"},
 		{"classifiers: {l: {kind: command, launch_command: x}}\ntool_gate: {classifier: l}", "tool_gate.classifier: 'l' has no hook_command"},
-		{"classifiers: {l: {kind: magic}}", "classifiers.l: kind must be"},
-		{"classifiers: {jev: {hook_command: x}}", "classifiers.jev.hook_command: Extra inputs are not permitted"},
-		{"classifiers: {l: {kind: command, enabled: auto}}", "classifiers.l.enabled: Input should be a valid boolean"},
-		{"triggers: {opt_in: {reaction: eyez}}", "triggers.opt_in.reaction: Input should be"},
-		{"triggers: {opt_in: {where: [comment, comment]}}", "triggers.opt_in.where: entries must be unique"},
-		{"triggers: {opt_in: {where: [nowhere]}}", "triggers.opt_in.where.0: Input should be"},
-		{"triggers: {opt_in: {where: []}}", "triggers.opt_in.where: List should"},
-		{"triggers: {review_replies: {fresh_within_hours: 0}}", "triggers.review_replies.fresh_within_hours: Input should be greater than or equal to 1"},
-		{"ignore_authors: bot", "ignore_authors: Input should be a valid list"},
-		{`ignore_authors: [""]`, "ignore_authors.0: String should have at least 1 character"},
-		{`max_agents: "3"`, "max_agents: Input should be a valid integer"},
-		{"max_agents: 3.5", "max_agents: Input should be a valid integer"},
-		{"agent: 3", "agent: Input should be a valid string"},
-		{"stale_lock_hours: 0", "stale_lock_hours: Input should be greater than 0"},
-		{"owner_name: ''", "owner_name: String should have at least 1 character"},
-		{"repos: null", "repos: Input should be a valid dictionary"},
-		{"- not\n- a\n- mapping", "Input should be a valid dictionary"},
-		{"terminal: konsole2", "terminal: Input should be 'auto'"},
-		{"terminal: [alacritty, -e]", "terminal: a command list needs a {cmd} placeholder"},
+		{"classifiers: {l: {kind: magic}}", "/classifiers/l"},
+		{"classifiers: {l: {launch_command: x}}", "/classifiers/l"}, // kind: command is required
+		{"classifiers: {jev: {hook_command: x}}", "/classifiers/jev"},
+		{"classifiers: {l: {kind: command, enabled: auto}}", "/classifiers/l"},
+		{"triggers: {opt_in: {reaction: eyez}}", "/triggers/opt_in/reaction"},
+		{"triggers: {opt_in: {where: [comment, comment]}}", "/triggers/opt_in/where"},
+		{"triggers: {opt_in: {where: [nowhere]}}", "/triggers/opt_in/where/0"},
+		{"triggers: {opt_in: {where: []}}", "/triggers/opt_in/where"},
+		{"triggers: {review_replies: {fresh_within_hours: 0}}", "/triggers/review_replies/fresh_within_hours"},
+		{"ignore_authors: bot", "/ignore_authors"},
+		{`ignore_authors: [""]`, "/ignore_authors/0"},
+		{`max_agents: "3"`, "/max_agents"},
+		{"max_agents: 3.5", "/max_agents"},
+		{"agent: 3", "/agent"},
+		{"stale_lock_hours: 0", "/stale_lock_hours"},
+		{"owner_name: ''", "/owner_name"},
+		{"repos: null", "/repos"},
+		{"- not\n- a\n- mapping", "got array, want object"},
+		{"terminal: konsole2", "/terminal"},
+		{"terminal: [alacritty, -e]", "/terminal"},
 	} {
 		t.Run(tc.yaml, func(t *testing.T) {
 			_, err := Parse([]byte(tc.yaml), "c.yaml")
@@ -145,7 +146,7 @@ func TestCommittedSchemaIsUpToDate(t *testing.T) {
 	committed, err := os.ReadFile("../../config.schema.json")
 	require.NoError(t, err)
 	require.Equal(t, SchemaText(), string(committed),
-		"config.schema.json is stale; regenerate with `go run ./cmd/llm-review-agent config schema > config.schema.json`")
+		"config.schema.json is stale; regenerate with `task schema`")
 }
 
 func TestSchemaDocumentsDefaults(t *testing.T) {
@@ -155,71 +156,72 @@ func TestSchemaDocumentsDefaults(t *testing.T) {
 	r.Equal(SchemaID, s["$id"])
 	r.Equal(false, s["additionalProperties"])
 	r.Equal("llm-review-agent configuration", s["title"])
-	onChange := s["$defs"].(map[string]any)["OnChange"].(map[string]any)["properties"].(map[string]any)
+	defs := s["$defs"].(map[string]any)
+	onChange := defs["OnChange"].(map[string]any)["properties"].(map[string]any)
 	r.Equal(true, onChange["ignore_own_activity"].(map[string]any)["default"])
-	optIn := s["$defs"].(map[string]any)["OptIn"].(map[string]any)["properties"].(map[string]any)
+	optIn := defs["OptIn"].(map[string]any)["properties"].(map[string]any)
 	r.Equal("eyes", optIn["reaction"].(map[string]any)["default"])
+	r.Contains(defs, "JevClassifier")
+	r.Contains(defs, "CommandClassifier")
 }
 
-func compiled(t *testing.T) *jsonschema.Schema {
-	t.Helper()
-	doc, err := jsonschema.UnmarshalJSON(strings.NewReader(SchemaText()))
+func TestExampleConfigIsExactlyTheDefaults(t *testing.T) {
+	c, err := Parse([]byte(Example), "config.example.yaml")
 	require.NoError(t, err)
-	c := jsonschema.NewCompiler()
-	require.NoError(t, c.AddResource("config.schema.json", doc))
-	s, err := c.Compile("config.schema.json")
-	require.NoError(t, err)
-	return s
+	require.Equal(t, Default(), c)
 }
 
-// asJSON turns YAML into the data an editor validates.
-func asJSON(t *testing.T, text string) any {
-	t.Helper()
-	var data any
-	require.NoError(t, yaml.Unmarshal([]byte(text), &data))
-	raw, err := json.Marshal(data)
-	require.NoError(t, err)
-	v, err := jsonschema.UnmarshalJSON(strings.NewReader(string(raw)))
-	require.NoError(t, err)
-	return v
-}
-
-func TestExampleConfigIsValidForTheLoaderAndTheSchema(t *testing.T) {
-	text, err := os.ReadFile("../../config.example.yaml")
-	require.NoError(t, err)
-	_, err = Parse(text, "config.example.yaml")
-	require.NoError(t, err)
-	require.NoError(t, compiled(t).Validate(asJSON(t, string(text))))
-}
-
-func TestSchemaRejectsWhatTheLoaderRejects(t *testing.T) {
-	// editors validating against the schema must agree with the tool
-	s := compiled(t)
-	for _, bad := range []string{
-		"agent: gpt",
-		"typo: 1",
-		"triggers: {opt_in: {where: [comment, comment]}}",
-		`classifiers: {jev: {enabled: "yes"}}`,
-		"classifiers: {l: {kind: magic}}",
-		"classifiers: {l: {launch_command: x}}",
-		"interval_seconds: 5",
-		"terminal: [alacritty, -e]",
-		"terminal: nope",
-	} {
-		_, err := Parse([]byte(bad), "c.yaml")
-		require.Error(t, err, bad)
-		require.Error(t, s.Validate(asJSON(t, bad)), bad)
+// keys lists every key path of YAML data.
+func keys(prefix string, v any) []string {
+	m, ok := v.(map[string]any)
+	if !ok {
+		return nil
 	}
-	for _, good := range []string{
-		"classifiers: {l: {kind: command, launch_command: x}}",
-		"terminal: [alacritty, -e, '{cmd}']",
-		"terminal: iterm",
-		"push: null",
-	} {
-		_, err := Parse([]byte(good), "c.yaml")
-		require.NoError(t, err, good)
-		require.NoError(t, s.Validate(asJSON(t, good)), good)
+	var out []string
+	for k, sub := range m {
+		out = append(out, prefix+k)
+		out = append(out, keys(prefix+k+".", sub)...)
 	}
+	return out
+}
+
+func TestExampleConfigShowsEveryKey(t *testing.T) {
+	var example, defaults any
+	require.NoError(t, yaml.Unmarshal([]byte(Example), &example))
+	shown, err := yaml.Marshal(Default())
+	require.NoError(t, err)
+	require.NoError(t, yaml.Unmarshal(shown, &defaults))
+	want, got := keys("", defaults), keys("", example)
+	slices.Sort(want)
+	slices.Sort(got)
+	require.Equal(t, want, got)
+	for _, k := range []string{"kind", "enabled", "launch_command", "hook_command", "timeout_seconds"} {
+		require.Contains(t, Example, "#   "+k+":") // the commented local classifier
+	}
+}
+
+func TestPythonExampleConfigLoads(t *testing.T) {
+	// config.example.yaml as shipped with the Python version
+	text, err := os.ReadFile("../../testdata/config-python-example.yaml")
+	require.NoError(t, err)
+	c, err := Parse(text, "config-python-example.yaml")
+	require.NoError(t, err)
+	require.Equal(t, "Matthias", *c.OwnerName)
+	require.Equal(t, []string{"open-component-model/*"}, c.Repos.Include)
+	require.Equal(t, []string{"never modify generated/ or vendor/"}, c.ToolGate.Rules)
+}
+
+func TestValidateChecksBuiltConfigs(t *testing.T) {
+	c := Default()
+	c.MaxAgents = 0
+	_, err := Validate(c, "flags")
+	require.ErrorContains(t, err, "flags is invalid")
+	require.ErrorContains(t, err, "/max_agents")
+	c = Default()
+	c.Agent = "claude"
+	got, err := Validate(c, "flags")
+	require.NoError(t, err)
+	require.Equal(t, c, got)
 }
 
 func TestLocalClassifierConfig(t *testing.T) {
@@ -259,44 +261,6 @@ func TestDerivedModes(t *testing.T) {
 		require.Equal(t, tc.push, c.PushMode(), tc.text)
 		require.Equal(t, tc.writes, c.GitHubWritesMode(), tc.text)
 	}
-}
-
-func fieldPaths(t reflect.Type, prefix string) []string {
-	var out []string
-	for f := range t.Fields() {
-		name := yamlName(f)
-		if isSection(f.Type) {
-			out = append(out, fieldPaths(f.Type, prefix+name+".")...)
-		} else {
-			out = append(out, prefix+name)
-		}
-	}
-	return out
-}
-
-func TestGeneratedConfigIsExactlyTheDefaults(t *testing.T) {
-	text := Generate()
-	c, err := Parse([]byte(text), "generated")
-	require.NoError(t, err)
-	require.Equal(t, Default(), c)
-	require.NoError(t, compiled(t).Validate(asJSON(t, text))) // and editors agree
-}
-
-func TestGeneratedConfigDocumentsEveryOption(t *testing.T) {
-	text := Generate()
-	keys := map[string]bool{}
-	for line := range strings.SplitSeq(text, "\n") {
-		keys[strings.TrimLeft(strings.TrimSpace(strings.Split(line, ":")[0]), "# ")] = true
-	}
-	for _, path := range fieldPaths(reflect.TypeFor[Config](), "") {
-		parts := strings.Split(path, ".")
-		require.True(t, keys[parts[len(parts)-1]], path)
-	}
-	for f := range reflect.TypeFor[CommandClassifier]().Fields() { // the commented example
-		require.Contains(t, text, "#   "+yamlName(f)+":")
-	}
-	require.Contains(t, text, "# (one of: supervised, autonomous)")
-	require.Contains(t, text, "# (>= 10)")
 }
 
 func TestExistingConfigsLoadUnchanged(t *testing.T) {

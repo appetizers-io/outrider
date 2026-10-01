@@ -91,7 +91,7 @@ Download the archive for your platform from the
 `llm-review-agent` on your `PATH`, or build it with Go 1.27:
 
 ```sh
-go install github.com/appetizers-io/llm-review-agent/cmd/llm-review-agent@latest
+go install github.com/appetizers-io/llm-review-agent@latest
 ```
 
 From a checkout, `task install` builds it into `~/.local/bin`
@@ -168,7 +168,9 @@ Known limitations:
 
 All rules live in an optional YAML file, `--config PATH`,
 `$LLM_REVIEW_AGENT_CONFIG`, or `~/.config/llm-review-agent/config.yaml`. Every
-key is optional; [`config.example.yaml`](config.example.yaml) shows them all:
+key is optional;
+[`config.example.yaml`](internal/config/config.example.yaml) shows every key
+at its default (`llm-review-agent config generate` prints it):
 
 - `mode: supervised | autonomous`, `push: ask | never | allow`,
   `github_writes: ask | never | allow` and `others_prs.allow_push`
@@ -186,9 +188,13 @@ key is optional; [`config.example.yaml`](config.example.yaml) shows them all:
 - `owner_name` for prompts (default: first name from your GitHub profile) and
   `prompts.extra` appended to every prompt
 
-The structs in [`internal/config`](internal/config/config.go) define every
-type, default and constraint; [`config.schema.json`](config.schema.json) is
-generated from them for editor completion and validation:
+The structs in [`internal/config`](internal/config/config.go) declare every
+key; their `jsonschema` tags give the constraints, and
+[invopop/jsonschema](https://github.com/invopop/jsonschema) generates
+[`config.schema.json`](config.schema.json) from them for editor completion.
+Loading validates a file (and the flags on top of it) against that schema with
+[santhosh-tekuri/jsonschema](https://github.com/santhosh-tekuri/jsonschema),
+so an error names the bad key, e.g. `at '/max_agents': minimum: got 0, want 1`:
 
 ```sh
 llm-review-agent config check [PATH]   # validate
@@ -217,8 +223,9 @@ task schema:check      # fail if config.schema.json is out of date
 task release:snapshot  # local GoReleaser build into dist/, needs goreleaser
 ```
 
-Layout: `cmd/llm-review-agent` (cobra commands, multi-call guard dispatch),
-`internal/config`, `internal/github` (a thin `gh` wrapper),
+Layout: `main.go` (multi-call dispatch: `gh`/`git` guard, else the CLI),
+`internal/cli` (cobra commands and flags), `internal/watch` (startup checks
+and the poll loop), `internal/config`, `internal/github` (a thin `gh` wrapper),
 `internal/poll` (triggers and launch decisions), `internal/session`
 (worktrees, prompt, policy, launchers, the session runner),
 `internal/guard` (the `gh` and `git` guards), `internal/approve` (native

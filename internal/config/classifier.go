@@ -2,10 +2,12 @@ package config
 
 import (
 	"fmt"
+	"maps"
 	"slices"
-	"sort"
 	"strings"
 
+	"github.com/invopop/jsonschema"
+	"github.com/kballard/go-shellquote"
 	"go.yaml.in/yaml/v3"
 )
 
@@ -18,11 +20,11 @@ const (
 // JevClassifier is Jev via jev-use: `<command> judge` for launch checks,
 // `<command> hook gate` as the tool gate.
 type JevClassifier struct {
-	Kind                string     `yaml:"kind" enum:"jev"`
-	Enabled             JevEnabled `yaml:"enabled" desc:"auto: on when the command is found and a Jev backend is configured (TYPESAFE_API_KEY, OPENROUTER_API_KEY, AI_GATEWAY_API_KEY, JEV_BACKEND)."`
-	Command             *string    `yaml:"command" minlen:"1" desc:"null: jev-use on PATH, else npx -y jev-use@0.8.0."`
-	ConfidenceThreshold *float64   `yaml:"confidence_threshold" min:"0" max:"1" desc:"Launch check: below this confidence Jev escalates, which launches. null: jev-use's defaults (0.5 reported, 0.4 estimated)."`
-	TimeoutSeconds      int        `yaml:"timeout_seconds" min:"1" desc:"A slower launch check launches anyway."`
+	Kind                string     `yaml:"kind" jsonschema:"default=jev" jsonschema_extras:"const=jev"`
+	Enabled             JevEnabled `yaml:"enabled" jsonschema_description:"auto: on when the command is found and a Jev backend is configured (TYPESAFE_API_KEY, OPENROUTER_API_KEY, AI_GATEWAY_API_KEY, JEV_BACKEND)."`
+	Command             *string    `yaml:"command" jsonschema:"minLength=1,nullable" jsonschema_description:"null: jev-use on PATH, else npx -y jev-use@0.8.0."`
+	ConfidenceThreshold *float64   `yaml:"confidence_threshold" jsonschema:"minimum=0,maximum=1,nullable" jsonschema_description:"Launch check: below this confidence Jev escalates, which launches. null: jev-use's defaults (0.5 reported, 0.4 estimated)."`
+	TimeoutSeconds      int        `yaml:"timeout_seconds" jsonschema:"minimum=1,default=60" jsonschema_description:"A slower launch check launches anyway."`
 }
 
 // CommandClassifier is any local classifier.
@@ -32,11 +34,11 @@ type JevClassifier struct {
 // hook_command is a Claude Code / Codex PreToolUse hook; the session policy
 // is in $LLM_REVIEW_AGENT_POLICY_FILE and $LLM_REVIEW_AGENT_GATE_TEXT.
 type CommandClassifier struct {
-	Kind           string  `yaml:"kind" enum:"command"`
-	Enabled        bool    `yaml:"enabled"`
-	LaunchCommand  *string `yaml:"launch_command" minlen:"1" desc:"Command for launch checks; null: can't do them."`
-	HookCommand    *string `yaml:"hook_command" minlen:"1" desc:"PreToolUse hook command; null: can't gate tools."`
-	TimeoutSeconds int     `yaml:"timeout_seconds" min:"1" desc:"A slower launch check launches anyway."`
+	Kind           string  `yaml:"kind" jsonschema:"required" jsonschema_extras:"const=command"`
+	Enabled        bool    `yaml:"enabled" jsonschema:"default=true"`
+	LaunchCommand  *string `yaml:"launch_command" jsonschema:"minLength=1,nullable" jsonschema_description:"Command for launch checks: JSON request on stdin, {\"launch\": bool} or {\"probability\": 0..1} on stdout. null: can't do them."`
+	HookCommand    *string `yaml:"hook_command" jsonschema:"minLength=1,nullable" jsonschema_description:"Claude Code / Codex PreToolUse hook command. null: can't gate tools."`
+	TimeoutSeconds int     `yaml:"timeout_seconds" jsonschema:"minimum=1,default=30" jsonschema_description:"A slower launch check launches anyway."`
 }
 
 // JevEnabled is "auto", "true" or "false".
@@ -61,6 +63,11 @@ func (e *JevEnabled) UnmarshalYAML(n *yaml.Node) error {
 	}
 	*e = JevEnabled(fmt.Sprint(b))
 	return nil
+}
+
+// JSONSchema is "auto", true or false.
+func (JevEnabled) JSONSchema() *jsonschema.Schema {
+	return &jsonschema.Schema{Enum: []any{"auto", true, false}, Default: "auto"}
 }
 
 // MarshalYAML writes auto or a boolean.
@@ -121,6 +128,14 @@ func (c *Classifier) UnmarshalYAML(n *yaml.Node) error {
 	return nil
 }
 
+// JSONSchema is one of the kinds (their definitions are added by Schema).
+func (Classifier) JSONSchema() *jsonschema.Schema {
+	return &jsonschema.Schema{OneOf: []*jsonschema.Schema{
+		{Ref: "#/$defs/JevClassifier"},
+		{Ref: "#/$defs/CommandClassifier"},
+	}}
+}
+
 // MarshalYAML writes the kind's struct.
 func (c Classifier) MarshalYAML() (any, error) {
 	if c.Kind == KindCommand {
@@ -141,14 +156,7 @@ func (c Classifier) Disabled() bool {
 type Classifiers map[string]Classifier
 
 // Names are the classifier names, sorted.
-func (cs Classifiers) Names() []string {
-	names := make([]string, 0, len(cs))
-	for k := range cs {
-		names = append(names, k)
-	}
-	sort.Strings(names)
-	return names
-}
+func (cs Classifiers) Names() []string { return slices.Sorted(maps.Keys(cs)) }
 
 // Terminal names the terminal app sessions open in: "auto", a known name, or
 // a command list with a {cmd} placeholder.
@@ -179,6 +187,26 @@ func (t *Terminal) UnmarshalYAML(n *yaml.Node) error {
 	return nil
 }
 
+// JSONSchema is a known name or a command list containing {cmd}.
+func (Terminal) JSONSchema() *jsonschema.Schema {
+	names := make([]any, len(TerminalNames))
+	for i, n := range TerminalNames {
+		names[i] = n
+	}
+	minItems := uint64(1)
+	return &jsonschema.Schema{
+		Default: "auto",
+		AnyOf: []*jsonschema.Schema{
+			{Type: "string", Enum: names},
+			{
+				Type: "array", MinItems: &minItems,
+				Items:    &jsonschema.Schema{Type: "string", MinLength: &minItems},
+				Contains: &jsonschema.Schema{Type: "string", Pattern: `\{cmd\}`},
+			},
+		},
+	}
+}
+
 // MarshalYAML writes the name or the command list.
 func (t Terminal) MarshalYAML() (any, error) {
 	if t.Command != nil {
@@ -195,23 +223,11 @@ func (t Terminal) String() string {
 	return t.Name
 }
 
-// ParseTerminal reads --terminal: a name, or a command with {cmd} split on spaces.
+// ParseTerminal reads --terminal: a name, or a shell-quoted command with {cmd}.
 func ParseTerminal(s string) Terminal {
 	if strings.Contains(s, Placeholder) {
-		return Terminal{Command: strings.Fields(s)}
+		words, _ := shellquote.Split(s) // unbalanced quotes: no words, which the schema refuses
+		return Terminal{Command: words}
 	}
 	return Terminal{Name: s}
-}
-
-func (t Terminal) check() string {
-	if t.Command != nil {
-		if len(t.Command) == 0 || !slices.ContainsFunc(t.Command, func(s string) bool { return strings.Contains(s, Placeholder) }) {
-			return "a command list needs a " + Placeholder + " placeholder"
-		}
-		return ""
-	}
-	if !slices.Contains(TerminalNames, t.Name) {
-		return "Input should be " + oneOf(TerminalNames) + " or a command list with " + Placeholder
-	}
-	return ""
 }

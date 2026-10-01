@@ -4,9 +4,10 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/kballard/go-shellquote"
+
 	"github.com/appetizers-io/llm-review-agent/internal/classifier"
 	"github.com/appetizers-io/llm-review-agent/internal/config"
-	"github.com/appetizers-io/llm-review-agent/internal/shell"
 )
 
 // dialogDenyRules keep the agent from clicking its own approval dialog.
@@ -123,7 +124,7 @@ func ClaudeSettings(cfg *config.Config, push, goos string, gate *classifier.Reso
 				"matcher": cfg.ToolGate.Matcher,
 				"hooks": []any{map[string]any{
 					"type":          "command",
-					"command":       shell.Join(gate.HookCmd),
+					"command":       shellquote.Join(gate.HookCmd...),
 					"timeout":       30,
 					"statusMessage": "Tool gate (" + gate.Name + "): checking this action",
 				}},

@@ -420,3 +420,12 @@ func TestGitGuardAsksAndDropsTheTrap(t *testing.T) {
 	r.Equal(1, res.code)
 	r.Contains(res.stderr, "review only, never push")
 }
+
+func TestCommandDispatchesOnTheBinaryName(t *testing.T) {
+	for _, name := range []string{"/x/bin/gh", "/x/bin/git", `gh.exe`, "/x/bin/GIT.EXE"} {
+		require.NotNil(t, Command(name), name)
+	}
+	for _, name := range []string{"/usr/local/bin/llm-review-agent", "llm-review-agent.exe", "ghx"} {
+		require.Nil(t, Command(name), name)
+	}
+}

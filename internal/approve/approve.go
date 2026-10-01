@@ -10,14 +10,13 @@ package approve
 import (
 	"context"
 	"errors"
+	"html"
 	"os"
 	"os/exec"
 	"path"
 	"strings"
 	"time"
 )
-
-var htmlEscaper = strings.NewReplacer("&", "&amp;", "<", "&lt;", ">", "&gt;")
 
 // Timeout is how long a dialog waits for the owner.
 const Timeout = 300 * time.Second
@@ -61,10 +60,6 @@ func (p Platform) find(name string) string {
 	return ""
 }
 
-func appleScriptString(s string) string {
-	return `"` + strings.ReplaceAll(strings.ReplaceAll(s, `\`, `\\`), `"`, `\"`) + `"`
-}
-
 // dialogFor builds the dialog command, or ErrNoDialog.
 func (p Platform) dialogFor(title, body, ok string) (dialog, error) {
 	switch p.GOOS {
@@ -72,14 +67,15 @@ func (p Platform) dialogFor(title, body, ok string) (dialog, error) {
 		if !p.Exists(osascriptPath) {
 			return dialog{}, ErrNoDialog
 		}
+		// every text is an argument, never part of the script
 		script := "on run argv\n" +
-			"display dialog (item 1 of argv) with title " + appleScriptString(title) +
-			" buttons {\"Deny\", " + appleScriptString(ok) + "} default button \"Deny\" cancel button \"Deny\"" +
+			"display dialog (item 1 of argv) with title (item 2 of argv)" +
+			" buttons {\"Deny\", (item 3 of argv)} default button \"Deny\" cancel button \"Deny\"" +
 			" with icon caution giving up after 300\n" +
 			"if gave up of result then return \"timeout\"\n" +
 			"return button returned of result\nend run"
 		return dialog{
-			args: []string{osascriptPath, "-e", script, body},
+			args: []string{osascriptPath, "-e", script, body, title, ok},
 			ok:   func(out string) bool { return strings.TrimSpace(out) == ok },
 		}, nil
 	case "windows":
@@ -114,7 +110,7 @@ func (p Platform) dialogFor(title, body, ok string) (dialog, error) {
 		if k := p.find("kdialog"); k != "" {
 			return dialog{
 				// kdialog renders text that looks like HTML; show it as written
-				args: []string{k, "--title", title, "--warningyesno", htmlEscaper.Replace(body), "--yes-label", ok, "--no-label", "Deny"},
+				args: []string{k, "--title", title, "--warningyesno", html.EscapeString(body), "--yes-label", ok, "--no-label", "Deny"},
 				ok:   func(string) bool { return true },
 			}, nil
 		}

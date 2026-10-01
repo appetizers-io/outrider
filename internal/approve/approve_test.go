@@ -26,10 +26,10 @@ func TestMacOSUsesOsascript(t *testing.T) {
 	d, err := platform("darwin", nil, "/usr/bin/osascript").dialogFor(`t "x"`, "body", "Push")
 	r.NoError(err)
 	r.Equal("/usr/bin/osascript", d.args[0])
-	r.Contains(d.args[2], `with title "t \"x\""`)
-	r.Contains(d.args[2], `buttons {"Deny", "Push"} default button "Deny" cancel button "Deny"`)
+	r.Contains(d.args[2], `with title (item 2 of argv)`)
+	r.Contains(d.args[2], `buttons {"Deny", (item 3 of argv)} default button "Deny" cancel button "Deny"`)
+	r.Equal([]string{"body", `t "x"`, "Push"}, d.args[3:]) // texts are arguments only
 	r.Contains(d.args[2], "giving up after 300")
-	r.Equal("body", d.args[3]) // the text is an argument, never part of the script
 	r.True(d.ok("Push\n"))
 	r.False(d.ok("timeout\n"))
 	_, err = platform("darwin", nil).dialogFor("t", "b", "Push")

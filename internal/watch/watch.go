@@ -1,4 +1,6 @@
-package main
+// Package watch is the watcher: startup checks (local checkout, launcher,
+// required tools, GitHub user), then the poll loop.
+package watch
 
 import (
 	"context"
@@ -6,26 +8,33 @@ import (
 	"fmt"
 	"log/slog"
 	"os"
+	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"time"
 
+	"github.com/cenkalti/backoff/v5"
+
 	"github.com/appetizers-io/llm-review-agent/internal/classifier"
+	"github.com/appetizers-io/llm-review-agent/internal/config"
 	"github.com/appetizers-io/llm-review-agent/internal/github"
 	"github.com/appetizers-io/llm-review-agent/internal/poll"
 	"github.com/appetizers-io/llm-review-agent/internal/proc"
 	"github.com/appetizers-io/llm-review-agent/internal/session"
 )
 
-// Paths stay the same on every OS, so state and locks carry over between versions.
-func cacheRoot(home string) string { return filepath.Join(home, ".cache", "llm-review-agent") }
+// CacheRoot holds worktrees, sessions, locks and the guards.
+func CacheRoot(home string) string { return filepath.Join(home, ".cache", "llm-review-agent") }
 
-func statePath(home string) string {
+// StatePath is where the poll state is kept. Both paths are the same on every
+// OS, so state and locks carry over between versions.
+func StatePath(home string) string {
 	return filepath.Join(home, ".local", "state", "llm-review-agent", "state.json")
 }
 
 // localCheckout is the GitHub repo of the checkout we run in, if any.
-func localCheckout(ctx context.Context, s *settings, d deps) (string, session.Local, error) {
+func localCheckout(ctx context.Context, s *Settings, d Deps) (string, session.Local, error) {
 	top, err := d.Run(ctx, proc.Cmd{Args: []string{"git", "rev-parse", "--show-toplevel"}})
 	if err != nil {
 		if s.Remote != "" {
@@ -50,7 +59,7 @@ func localCheckout(ctx context.Context, s *settings, d deps) (string, session.Lo
 }
 
 // pickLauncher resolves launcher: auto.
-func pickLauncher(ctx context.Context, launcher string, term session.Terminal, d deps) string {
+func pickLauncher(ctx context.Context, launcher string, term session.Terminal, d Deps) string {
 	if launcher != "auto" {
 		return launcher
 	}
@@ -71,7 +80,7 @@ func pickLauncher(ctx context.Context, launcher string, term session.Terminal, d
 }
 
 // githubUser is the gh user, retried until GitHub answers (unless once).
-func githubUser(ctx context.Context, gh *github.Client, once bool, d deps, log *slog.Logger) (github.User, error) {
+func githubUser(ctx context.Context, gh *github.Client, once bool, d Deps, log *slog.Logger) (github.User, error) {
 	for {
 		user, err := gh.Me(ctx)
 		if err == nil && user.Login != "" {
@@ -90,13 +99,6 @@ func githubUser(ctx context.Context, gh *github.Client, once bool, d deps, log *
 	}
 }
 
-func orDefaults(source string) string {
-	if source == "" {
-		return "no config file, built-in defaults"
-	}
-	return source
-}
-
 func onOff(r *classifier.Resolved) string {
 	if r == nil {
 		return "off"
@@ -104,8 +106,58 @@ func onOff(r *classifier.Resolved) string {
 	return "on"
 }
 
-// watch is the root command: poll forever (or once) and launch sessions.
-func watch(ctx context.Context, s settings, d deps, log *slog.Logger) error {
+// Settings are the effective settings: the config file, overridden by flags.
+type Settings struct {
+	Cfg             config.Config
+	ConfigSource    string // "": built-in defaults
+	Include         []string
+	Exclude         []string
+	Remote          string
+	ProcessExisting bool
+	Once            bool
+	DryRun          bool
+	ResetState      bool
+}
+
+// Deps are what the watcher needs from the machine; tests swap them.
+type Deps struct {
+	Run      proc.Runner
+	LookPath func(string) (string, error)
+	Getenv   func(string) string
+	GOOS     string
+	Home     string
+	Self     string // this binary: the guards and the session runner
+	Sleep    func(ctx context.Context, d time.Duration) error
+}
+
+// Host is the machine this process runs on.
+func Host() Deps {
+	home, _ := os.UserHomeDir()
+	self, err := os.Executable()
+	if err == nil {
+		if resolved, err := filepath.EvalSymlinks(self); err == nil {
+			self = resolved
+		}
+	}
+	return Deps{
+		Run: proc.Exec, LookPath: exec.LookPath, Getenv: os.Getenv, GOOS: runtime.GOOS,
+		Home: home, Self: self, Sleep: sleep,
+	}
+}
+
+func sleep(ctx context.Context, d time.Duration) error {
+	t := time.NewTimer(d)
+	defer t.Stop()
+	select {
+	case <-ctx.Done():
+		return fmt.Errorf("sleep: %w", ctx.Err())
+	case <-t.C:
+		return nil
+	}
+}
+
+// Run polls forever (or once with Settings.Once) and launches sessions.
+func Run(ctx context.Context, s Settings, d Deps, log *slog.Logger) error {
 	cfg := &s.Cfg
 	local := map[string]session.Local{}
 	repo, loc, err := localCheckout(ctx, &s, d)
@@ -145,16 +197,13 @@ func watch(ctx context.Context, s settings, d deps, log *slog.Logger) error {
 			return fmt.Errorf("missing required command: %s", tool)
 		}
 	}
-	if cfg.MaxAgents < 1 {
-		return errors.New("--max-agents must be >= 1")
-	}
-	state := statePath(d.Home)
+	state := StatePath(d.Home)
 	if s.ResetState {
 		if err := os.Remove(state); err != nil && !errors.Is(err, os.ErrNotExist) {
 			return fmt.Errorf("reset state: %w", err)
 		}
 	}
-	root := cacheRoot(d.Home)
+	root := CacheRoot(d.Home)
 	if err := os.MkdirAll(root, 0o700); err != nil {
 		return fmt.Errorf("cache dir: %w", err)
 	}
@@ -175,7 +224,7 @@ func watch(ctx context.Context, s settings, d deps, log *slog.Logger) error {
 		owner = *cfg.OwnerName
 	}
 
-	log.Info("config: " + orDefaults(s.ConfigSource))
+	log.Info("config: " + config.Describe(s.ConfigSource))
 	log.Info(fmt.Sprintf("GitHub user: %s (prompts call you %s)", user.Login, owner))
 	log.Info(fmt.Sprintf("agent: %s (interactive)", cfg.Agent))
 	log.Info("launcher: " + launcher)
@@ -202,6 +251,12 @@ func watch(ctx context.Context, s settings, d deps, log *slog.Logger) error {
 		ProcessExisting: s.ProcessExisting, DryRun: s.DryRun, StatePath: state,
 		Launch: launch.Launch, Log: log, Now: time.Now,
 	}
+	// back off on repeated failures (network down etc.): 2x, 4x, 8x, 16x the
+	// interval, at most 15 minutes
+	interval := time.Duration(max(10, cfg.IntervalSeconds)) * time.Second
+	retry := &backoff.ExponentialBackOff{
+		InitialInterval: 2 * interval, Multiplier: 2, MaxInterval: min(16*interval, 15*time.Minute),
+	}
 	failures := 0
 	for {
 		err := p.Poll(ctx, st)
@@ -218,12 +273,15 @@ func watch(ctx context.Context, s settings, d deps, log *slog.Logger) error {
 			}
 		default:
 			failures = 0
+			retry.Reset()
 		}
 		if s.Once {
 			return nil
 		}
-		// back off on repeated failures (network down etc.), max 15 min
-		wait := time.Duration(max(10, cfg.IntervalSeconds)) * time.Second << min(failures, 4)
+		wait := interval
+		if failures > 0 {
+			wait = retry.NextBackOff()
+		}
 		if err := d.Sleep(ctx, min(wait, 15*time.Minute)); err != nil {
 			return nil //nolint:nilerr // interrupted: a normal stop
 		}

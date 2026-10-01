@@ -1,4 +1,4 @@
-package main
+package cli
 
 import (
 	"bufio"
@@ -17,10 +17,8 @@ import (
 
 	"github.com/appetizers-io/llm-review-agent/internal/config"
 	"github.com/appetizers-io/llm-review-agent/internal/proc"
-	"github.com/appetizers-io/llm-review-agent/internal/session"
+	"github.com/appetizers-io/llm-review-agent/internal/watch"
 )
-
-func sessionTerminal(name string) session.Terminal { return session.Terminal{Name: name} }
 
 // isolate keeps the developer's real config and Jev key away.
 func isolate(t *testing.T) string {
@@ -39,21 +37,10 @@ type out struct {
 	stdout, stderr string
 }
 
-func cli(t *testing.T, d deps, args ...string) out {
+func cli(t *testing.T, d watch.Deps, args ...string) out {
 	t.Helper()
 	var stdout, stderr strings.Builder
-	root := newRoot(d, &stdout, &stderr)
-	root.SetArgs(args)
-	code := 0
-	if err := root.ExecuteContext(t.Context()); err != nil {
-		var ec exitCode
-		if errors.As(err, &ec) {
-			code = int(ec)
-		} else {
-			code = 1
-			stderr.WriteString(err.Error())
-		}
-	}
+	code := run(t.Context(), args, d, &stdout, &stderr)
 	return out{code, stdout.String(), stderr.String()}
 }
 
@@ -61,7 +48,7 @@ func cli(t *testing.T, d deps, args ...string) out {
 
 func TestConfigSchema(t *testing.T) {
 	isolate(t)
-	o := cli(t, host(), "config", "schema")
+	o := cli(t, watch.Host(), "config", "schema")
 	require.Equal(t, 0, o.code)
 	var s map[string]any
 	require.NoError(t, json.Unmarshal([]byte(o.stdout), &s))
@@ -74,16 +61,16 @@ func TestConfigCheck(t *testing.T) {
 	good, bad := filepath.Join(dir, "good.yaml"), filepath.Join(dir, "bad.yaml")
 	r.NoError(os.WriteFile(good, []byte("agent: claude\n"), 0o600))
 	r.NoError(os.WriteFile(bad, []byte("agent: gpt\n"), 0o600))
-	o := cli(t, host(), "config", "check", good)
+	o := cli(t, watch.Host(), "config", "check", good)
 	r.Equal(0, o.code)
 	r.Contains(o.stdout, "ok: "+good)
-	o = cli(t, host(), "config", "check", bad)
+	o = cli(t, watch.Host(), "config", "check", bad)
 	r.Equal(1, o.code)
-	r.Contains(o.stderr, "agent: Input should be")
-	o = cli(t, host(), "config", "check")
+	r.Contains(o.stderr, "at '/agent': value must be one of")
+	o = cli(t, watch.Host(), "config", "check")
 	r.Equal(0, o.code)
 	r.Contains(o.stdout, "built-in defaults")
-	o = cli(t, host(), "config", "check", filepath.Join(dir, "missing.yaml"))
+	o = cli(t, watch.Host(), "config", "check", filepath.Join(dir, "missing.yaml"))
 	r.Equal(1, o.code)
 	r.Contains(o.stderr, "cannot read config")
 }
@@ -92,7 +79,7 @@ func TestConfigShowFillsDefaults(t *testing.T) {
 	dir := isolate(t)
 	p := filepath.Join(dir, "c.yaml")
 	require.NoError(t, os.WriteFile(p, []byte("max_agents: 3\n"), 0o600))
-	o := cli(t, host(), "config", "show", p)
+	o := cli(t, watch.Host(), "config", "show", p)
 	require.Equal(t, 0, o.code)
 	var shown map[string]any
 	require.NoError(t, yaml.Unmarshal([]byte(o.stdout), &shown))
@@ -105,35 +92,35 @@ func TestConfigShowFillsDefaults(t *testing.T) {
 func TestConfigGenerate(t *testing.T) {
 	r := require.New(t)
 	dir := isolate(t)
-	o := cli(t, host(), "config", "generate")
+	o := cli(t, watch.Host(), "config", "generate")
 	r.Equal(0, o.code)
 	var data map[string]any
 	r.NoError(yaml.Unmarshal([]byte(o.stdout), &data))
 	r.Equal("supervised", data["mode"])
 
 	target := filepath.Join(dir, "c.yaml")
-	r.Equal(0, cli(t, host(), "config", "generate", "-o", target).code)
+	r.Equal(0, cli(t, watch.Host(), "config", "generate", "-o", target).code)
 	r.FileExists(filepath.Join(dir, "config.schema.json"))
-	o = cli(t, host(), "config", "generate", "-o", target)
+	o = cli(t, watch.Host(), "config", "generate", "-o", target)
 	r.Equal(1, o.code) // never overwrite silently
 	r.Contains(o.stderr, "use --force")
-	r.Equal(0, cli(t, host(), "config", "generate", "-o", target, "--force").code)
+	r.Equal(0, cli(t, watch.Host(), "config", "generate", "-o", target, "--force").code)
 
-	r.Equal(0, cli(t, host(), "config", "generate", "--write").code)
+	r.Equal(0, cli(t, watch.Host(), "config", "generate", "--write").code)
 	r.Equal(config.DefaultPath(), config.Find(""))
-	r.Equal(0, cli(t, host(), "config", "check").code)
-	r.NotEqual(0, cli(t, host(), "config", "generate", "--write", "-o", target).code)
+	r.Equal(0, cli(t, watch.Host(), "config", "check").code)
+	r.NotEqual(0, cli(t, watch.Host(), "config", "generate", "--write", "-o", target).code)
 }
 
 // --- flags over the config file ---------------------------------------------
 
-func effective(t *testing.T, args ...string) (settings, error) {
+func effective(t *testing.T, args ...string) (watch.Settings, error) {
 	t.Helper()
 	f := &flags{}
 	cmd := &cobra.Command{}
 	f.register(cmd)
 	require.NoError(t, cmd.ParseFlags(args))
-	return settingsFrom(cmd, f)
+	return f.settings(cmd)
 }
 
 func TestFlagsOverrideTheConfigFile(t *testing.T) {
@@ -179,21 +166,23 @@ func TestNoJevAndJevCmdFlags(t *testing.T) {
 
 func TestInvalidFlagsAndConfig(t *testing.T) {
 	dir := isolate(t)
-	_, err := effective(t, "--agent", "gpt")
-	require.ErrorContains(t, err, "--agent: invalid choice")
-	_, err = effective(t, "--terminal", "nope")
-	require.ErrorContains(t, err, "--terminal: unknown terminal")
+	// flags are checked against the config schema, like the file
+	for flag, at := range map[string]string{"--agent=gpt": "/agent", "--terminal=nope": "/terminal", "--max-agents=0": "/max_agents", "--github-writes=maybe": "/github_writes"} {
+		_, err := effective(t, flag)
+		require.ErrorContains(t, err, "flags and config is invalid", flag)
+		require.ErrorContains(t, err, at, flag)
+	}
 	p := filepath.Join(dir, "c.yaml")
 	require.NoError(t, os.WriteFile(p, []byte("max_agents: 0\n"), 0o600))
-	_, err = effective(t, "--config", p)
-	require.ErrorContains(t, err, "max_agents: Input should be greater than or equal to 1")
+	_, err := effective(t, "--config", p)
+	require.ErrorContains(t, err, "/max_agents")
 	require.ErrorContains(t, err, p)
 }
 
 // --- the watcher -------------------------------------------------------------
 
 // machine: every tool installed, not inside a git checkout, logged in as me.
-func machine(t *testing.T, notifications func() (string, error)) deps {
+func machine(t *testing.T, notifications func() (string, error)) watch.Deps {
 	t.Helper()
 	home := isolate(t)
 	run := func(_ context.Context, c proc.Cmd) (proc.Result, error) {
@@ -220,7 +209,7 @@ func machine(t *testing.T, notifications func() (string, error)) deps {
 		t.Fatalf("unexpected command %s", a)
 		return proc.Result{}, nil
 	}
-	return deps{
+	return watch.Deps{
 		Run: run, LookPath: noTerminal,
 		Getenv: func(string) string { return "" }, GOOS: "linux", Home: home, Self: "/bin/llm-review-agent",
 		Sleep: func(context.Context, time.Duration) error { return errors.New("stop") },
@@ -243,7 +232,7 @@ func TestMainSurvivesAFailingPoll(t *testing.T) {
 	require.Equal(t, 0, o.code, o.stderr)
 	require.Contains(t, o.stderr, "poll failed (1x in a row), will retry")
 	require.Contains(t, o.stderr, "connection reset")
-	require.FileExists(t, statePath(d.Home)) // state saved despite the failure
+	require.FileExists(t, watch.StatePath(d.Home)) // state saved despite the failure
 }
 
 func TestMainRetriesWithBackoff(t *testing.T) {
@@ -304,7 +293,7 @@ func TestJSONLogs(t *testing.T) {
 	}
 	require.Greater(t, lines, 5)
 	require.Contains(t, o.stderr, "dry-run summary")
-	require.NoFileExists(t, statePath(d.Home))
+	require.NoFileExists(t, watch.StatePath(d.Home))
 }
 
 func TestBadLogFlags(t *testing.T) {
@@ -324,7 +313,7 @@ func TestMissingToolsAndBadSetups(t *testing.T) {
 	require.Contains(t, cli(t, d, "--once", "--launcher", "tmux").stderr, "missing required command: tmux")
 	require.Contains(t, cli(t, d, "--once", "--remote", "upstream").stderr, "--remote needs to run inside a git checkout")
 	require.Contains(t, cli(t, d, "--once", "--launcher", "terminal").stderr, "no terminal found")
-	require.Contains(t, cli(t, d, "--once", "--max-agents", "0", "--launcher", "terminal", "--terminal", "kitty").stderr, "--max-agents must be >= 1")
+	require.Contains(t, cli(t, d, "--once", "--max-agents", "0", "--launcher", "terminal", "--terminal", "kitty").stderr, "/max_agents")
 	d.GOOS = "windows"
 	require.Contains(t, cli(t, d, "--once", "--launcher", "tmux").stderr, "tmux is not supported on Windows")
 }
@@ -345,32 +334,4 @@ func TestLocalCheckoutIsWatched(t *testing.T) {
 	require.Equal(t, 0, o.code, o.stderr)
 	require.Contains(t, o.stderr, "repos: o/r")
 	require.Contains(t, o.stderr, "local checkout for o/r: /src/r (remote upstream)")
-}
-
-func TestPickLauncher(t *testing.T) {
-	d := machine(t, ok)
-	d.Run = func(context.Context, proc.Cmd) (proc.Result, error) { return proc.Result{Stdout: "Aqua\n"}, nil }
-	d.GOOS = "darwin"
-	require.Equal(t, "terminal", pickLauncher(t.Context(), "auto", sessionTerminal("terminal-app"), d))
-	d.Run = func(context.Context, proc.Cmd) (proc.Result, error) { return proc.Result{Stdout: "Background\n"}, nil }
-	require.Equal(t, "tmux", pickLauncher(t.Context(), "auto", sessionTerminal("terminal-app"), d))
-	d.GOOS = "windows"
-	require.Equal(t, "terminal", pickLauncher(t.Context(), "auto", sessionTerminal("cmd"), d))
-	d.GOOS = "linux"
-	require.Equal(t, "tmux", pickLauncher(t.Context(), "auto", sessionTerminal("kitty"), d)) // no display
-	d.Getenv = func(k string) string { return map[string]string{"WAYLAND_DISPLAY": "w"}[k] }
-	require.Equal(t, "terminal", pickLauncher(t.Context(), "auto", sessionTerminal("kitty"), d))
-	require.Equal(t, "tmux", pickLauncher(t.Context(), "auto", sessionTerminal(""), d)) // nothing found
-	require.Equal(t, "tmux", pickLauncher(t.Context(), "tmux", sessionTerminal("kitty"), d))
-}
-
-func TestGuardDispatchOnArgv0(t *testing.T) {
-	t.Setenv("LLM_REVIEW_AGENT_REAL_GH", "")
-	t.Setenv("LLM_REVIEW_AGENT_REAL_GIT", "")
-	var stdout, stderr strings.Builder
-	require.Equal(t, 1, run([]string{"/x/bin/gh", "pr", "merge", "1"}, &stdout, &stderr))
-	require.Contains(t, stderr.String(), "llm-review-agent guard: blocked `gh pr merge 1`")
-	stderr.Reset()
-	require.Equal(t, 1, run([]string{"/x/bin/GIT.EXE", "push"}, &stdout, &stderr))
-	require.Contains(t, stderr.String(), "LLM_REVIEW_AGENT_REAL_GIT is not set")
 }

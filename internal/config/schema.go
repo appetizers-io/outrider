@@ -3,250 +3,130 @@ package config
 import (
 	"bytes"
 	"encoding/json"
+	"errors"
 	"fmt"
-	"reflect"
-	"strconv"
+	"io"
+	"maps"
 	"strings"
+	"sync"
 
+	"github.com/invopop/jsonschema"
+	validator "github.com/santhosh-tekuri/jsonschema/v6"
 	"go.yaml.in/yaml/v3"
 )
 
-// docs describe the config sections; the first paragraph also heads the
-// section in `config generate`.
-var docs = map[reflect.Type]string{
-	reflect.TypeFor[Config]():        "llm-review-agent configuration. Every key is optional; command-line flags\noverride this file.",
-	reflect.TypeFor[OwnPRs]():        "Notifications on PRs you authored.",
-	reflect.TypeFor[OnChange]():      "Relaunch when reviews or comments on an opted-in PR change.",
-	reflect.TypeFor[OptIn]():         "Your reaction on someone else's PR opts it in; sessions cover the whole PR.",
-	reflect.TypeFor[ReviewReplies](): "Someone replies in a review thread you took part in.",
-	reflect.TypeFor[Mentions]():      "Someone @mentions your login on a PR that is neither yours nor opted in\n(those already relaunch for any new activity).",
-	reflect.TypeFor[JevClassifier](): "Jev via jev-use: `<command> judge` for launch checks, `<command> hook\ngate` as the tool gate.",
-	reflect.TypeFor[CommandClassifier](): "Any local classifier.\n\nlaunch_command gets a JSON request on stdin and prints\n" +
-		"{\"launch\": bool} or {\"probability\": 0..1}, optionally with \"reason\".\n" +
-		"hook_command is a Claude Code / Codex PreToolUse hook; the session policy\n" +
-		"is in $LLM_REVIEW_AGENT_POLICY_FILE and $LLM_REVIEW_AGENT_GATE_TEXT.",
-	reflect.TypeFor[LaunchCheck](): "Ask a classifier whether new activity is worth an agent session.",
-	reflect.TypeFor[ToolGate]():    "Check every tool call in supervised agent sessions (PreToolUse hook).",
-	reflect.TypeFor[OthersPRs]():   "Sessions on PRs someone else authored.",
-}
-
-// ordered is a JSON object that keeps its key order.
-type ordered []struct {
-	k string
-	v any
-}
-
-func (o *ordered) set(k string, v any) {
-	*o = append(*o, struct {
-		k string
-		v any
-	}{k, v})
-}
-
-func (o ordered) MarshalJSON() ([]byte, error) {
-	var b bytes.Buffer
-	b.WriteByte('{')
-	for i, kv := range o {
-		if i > 0 {
-			b.WriteByte(',')
-		}
-		k, err := marshal(kv.k)
-		if err != nil {
-			return nil, err
-		}
-		v, err := marshal(kv.v)
-		if err != nil {
-			return nil, err
-		}
-		b.Write(k)
-		b.WriteByte(':')
-		b.Write(v)
+// Schema is the JSON Schema of the config file, generated from the structs.
+func Schema() *jsonschema.Schema {
+	r := &jsonschema.Reflector{FieldNameTag: "yaml", RequiredFromJSONSchemaTags: true, ExpandedStruct: true}
+	s := r.Reflect(&Config{})
+	s.ID = SchemaID
+	s.Title = "llm-review-agent configuration"
+	s.Description = "Every key is optional; command-line flags override this file."
+	// Classifier.JSONSchema refers to the two kinds
+	for name, kind := range map[string]any{"JevClassifier": &JevClassifier{}, "CommandClassifier": &CommandClassifier{}} {
+		d := r.Reflect(kind)
+		maps.Copy(s.Definitions, d.Definitions)
+		d.Version, d.ID, d.Definitions = "", "", nil
+		s.Definitions[name] = d
 	}
-	b.WriteByte('}')
-	return b.Bytes(), nil
-}
-
-func marshal(v any) ([]byte, error) {
-	var b bytes.Buffer
-	enc := json.NewEncoder(&b)
-	enc.SetEscapeHTML(false)
-	if err := enc.Encode(v); err != nil {
-		return nil, fmt.Errorf("encode %T: %w", v, err)
-	}
-	return bytes.TrimRight(b.Bytes(), "\n"), nil
-}
-
-// plain turns a config value into plain JSON data (its YAML form).
-func plain(v any) any {
-	out, err := yaml.Marshal(v)
-	if err != nil {
-		panic(err) // config values always marshal
-	}
-	var data any
-	if err := yaml.Unmarshal(out, &data); err != nil {
-		panic(err)
-	}
-	return data
-}
-
-func yamlName(f reflect.StructField) string { return strings.Split(f.Tag.Get("yaml"), ",")[0] }
-
-// title is pydantic's field title: "owner_name" -> "Owner Name".
-func title(name string) string {
-	words := strings.Split(name, "_")
-	for i, w := range words {
-		words[i] = strings.ToUpper(w[:1]) + w[1:]
-	}
-	return strings.Join(words, " ")
-}
-
-type schemaBuilder struct{ defs map[string]any }
-
-// Schema is the JSON Schema of the config file.
-func Schema() map[string]any {
-	b := schemaBuilder{defs: map[string]any{}}
-	root := b.object(reflect.TypeFor[Config](), reflect.ValueOf(Default()))
-	root["$schema"] = "https://json-schema.org/draft/2020-12/schema"
-	root["$id"] = SchemaID
-	root["title"] = "llm-review-agent configuration"
-	root["$defs"] = b.defs
-	return root
+	return s
 }
 
 // SchemaText is Schema as indented JSON.
 func SchemaText() string {
-	raw, err := marshal(Schema())
+	b, err := json.MarshalIndent(Schema(), "", "  ")
+	if err != nil {
+		panic(err) // the schema always encodes
+	}
+	return string(b) + "\n"
+}
+
+// compiled is the schema the loader validates with.
+var compiled = sync.OnceValue(func() *validator.Schema {
+	doc, err := validator.UnmarshalJSON(strings.NewReader(SchemaText()))
 	if err != nil {
 		panic(err)
 	}
-	var b bytes.Buffer
-	if err := json.Indent(&b, raw, "", "  "); err != nil {
+	c := validator.NewCompiler()
+	if err := c.AddResource(SchemaID, doc); err != nil {
 		panic(err)
 	}
-	return b.String() + "\n"
+	return c.MustCompile(SchemaID)
+})
+
+// yaml11Bools are booleans in YAML 1.1, which the Python version (PyYAML) read
+// as such; yaml.v3 reads them as strings.
+var yaml11Bools = map[string]string{
+	"yes": "true", "Yes": "true", "YES": "true", "on": "true", "On": "true", "ON": "true",
+	"no": "false", "No": "false", "NO": "false", "off": "false", "Off": "false", "OFF": "false",
 }
 
-func (b schemaBuilder) object(t reflect.Type, def reflect.Value) map[string]any {
-	props := ordered{}
-	for i := range t.NumField() {
-		f := t.Field(i)
-		props.set(yamlName(f), b.property(f, def.Field(i)))
+func markYAML11Bools(n *yaml.Node) {
+	if v, ok := yaml11Bools[n.Value]; ok && n.Kind == yaml.ScalarNode && n.Style == 0 && n.Tag == "!!str" {
+		n.Tag, n.Value = "!!bool", v
 	}
-	s := map[string]any{"additionalProperties": false, "properties": props, "title": t.Name(), "type": "object"}
-	if doc := docs[t]; doc != "" {
-		s["description"] = doc
+	for _, c := range n.Content {
+		markYAML11Bools(c)
 	}
-	if t == reflect.TypeFor[CommandClassifier]() {
-		s["required"] = []string{"kind"}
-	}
-	return s
 }
 
-func (b schemaBuilder) ref(t reflect.Type, def reflect.Value) map[string]any {
-	if _, ok := b.defs[t.Name()]; !ok {
-		b.defs[t.Name()] = nil // recursion guard
-		b.defs[t.Name()] = b.object(t, def)
+// Parse validates YAML config data against the schema and decodes it onto
+// the defaults; source names it in errors.
+func Parse(data []byte, source string) (Config, error) {
+	invalid := func(msg string) error { return &Error{source + " is invalid:\n" + msg} }
+	var doc yaml.Node
+	if err := yaml.Unmarshal(data, &doc); err != nil {
+		return Config{}, &Error{fmt.Sprintf("config %s is not valid YAML:\n%v", source, err)}
 	}
-	return map[string]any{"$ref": "#/$defs/" + t.Name()}
-}
+	if len(doc.Content) == 0 || doc.Content[0].Tag == "!!null" {
+		return Default(), nil // empty file: the defaults
+	}
+	markYAML11Bools(&doc)
 
-func (b schemaBuilder) property(f reflect.StructField, def reflect.Value) map[string]any {
-	s := b.valueSchema(f.Type, f.Tag, def)
-	if f.Type.Kind() == reflect.Pointer {
-		s = map[string]any{"anyOf": []any{s, map[string]any{"type": "null"}}}
+	var data0 any
+	if err := doc.Decode(&data0); err != nil {
+		return Config{}, invalid(err.Error())
 	}
-	if _, isRef := s["$ref"]; !isRef {
-		s["title"] = title(yamlName(f))
-	}
-	if d := f.Tag.Get("desc"); d != "" {
-		s["description"] = d
-	}
-	if f.Tag.Get("enum") == KindCommand {
-		return s // kind: command is required, it has no default
-	}
-	s["default"] = plain(def.Interface())
-	return s
-}
-
-func (b schemaBuilder) valueSchema(t reflect.Type, tag reflect.StructTag, def reflect.Value) map[string]any {
-	if t.Kind() == reflect.Pointer {
-		t = t.Elem()
-	}
-	switch t {
-	case reflect.TypeFor[JevEnabled]():
-		return map[string]any{"enum": []any{"auto", true, false}}
-	case reflect.TypeFor[Terminal]():
-		return map[string]any{"anyOf": []any{
-			map[string]any{"enum": TerminalNames, "type": "string"},
-			map[string]any{
-				"type": "array", "minItems": 1,
-				"items":    map[string]any{"minLength": 1, "type": "string"},
-				"contains": map[string]any{"pattern": `\{cmd\}`, "type": "string"},
-			},
-		}}
-	case reflect.TypeFor[Classifiers]():
-		jev := b.ref(reflect.TypeFor[JevClassifier](), reflect.ValueOf(DefaultJev().Jev))
-		cmd := b.ref(reflect.TypeFor[CommandClassifier](), reflect.ValueOf(defaultCommand()))
-		return map[string]any{
-			"type":          "object",
-			"propertyNames": map[string]any{"minLength": 1},
-			"additionalProperties": map[string]any{
-				"oneOf": []any{jev, cmd},
-			},
-		}
-	}
-	s := map[string]any{}
-	switch t.Kind() {
-	case reflect.Struct:
-		return b.ref(t, def)
-	case reflect.String:
-		s["type"] = "string"
-		if enum := strings.Split(tag.Get("enum"), ","); tag.Get("enum") != "" {
-			if len(enum) == 1 {
-				s["const"] = enum[0]
-			} else {
-				s["enum"] = enum
-			}
-		}
-		if n := tag.Get("minlen"); n != "" {
-			s["minLength"] = atoi(n)
-		}
-	case reflect.Bool:
-		s["type"] = "boolean"
-	case reflect.Int, reflect.Float64:
-		s["type"] = "number"
-		if t.Kind() == reflect.Int {
-			s["type"] = "integer"
-		}
-		for _, k := range [][2]string{{"min", "minimum"}, {"xmin", "exclusiveMinimum"}, {"max", "maximum"}} {
-			if n := tag.Get(k[0]); n != "" {
-				s[k[1]] = atoi(n)
-			}
-		}
-	case reflect.Slice:
-		item := map[string]any{"type": "string"}
-		if enum := tag.Get("enum"); enum != "" {
-			item["enum"] = strings.Split(enum, ",")
-		}
-		if n := tag.Get("itemminlen"); n != "" {
-			item["minLength"] = atoi(n)
-		}
-		s["type"] = "array"
-		s["items"] = item
-		if n := tag.Get("minlen"); n != "" {
-			s["minItems"] = atoi(n)
-		}
-		if tag.Get("unique") == "true" {
-			s["uniqueItems"] = true
-		}
-	}
-	return s
-}
-
-func atoi(s string) int {
-	n, err := strconv.Atoi(s)
+	raw, err := json.Marshal(data0)
 	if err != nil {
-		panic(fmt.Sprintf("bad numeric tag %q", s))
+		return Config{}, invalid(err.Error())
 	}
-	return n
+	value, err := validator.UnmarshalJSON(bytes.NewReader(raw))
+	if err != nil {
+		return Config{}, invalid(err.Error())
+	}
+	if err := compiled().Validate(value); err != nil {
+		var ve *validator.ValidationError
+		if errors.As(err, &ve) {
+			// drop the first line, which only names the schema
+			_, detail, _ := strings.Cut(ve.Error(), "\n")
+			return Config{}, invalid(detail)
+		}
+		return Config{}, invalid(err.Error())
+	}
+
+	normalized, err := yaml.Marshal(&doc)
+	if err != nil {
+		return Config{}, invalid(err.Error())
+	}
+	cfg := Default()
+	dec := yaml.NewDecoder(bytes.NewReader(normalized))
+	dec.KnownFields(true)
+	if err := dec.Decode(&cfg); err != nil && !errors.Is(err, io.EOF) {
+		return Config{}, invalid(err.Error())
+	}
+	if errs := cfg.crossCheck(); len(errs) > 0 {
+		return Config{}, invalid("- " + strings.Join(errs, "\n- "))
+	}
+	return cfg, nil
+}
+
+// Validate checks an already built config (e.g. with flags applied) against
+// the schema, the same way a file is checked.
+func Validate(c Config, source string) (Config, error) {
+	data, err := yaml.Marshal(c)
+	if err != nil {
+		return Config{}, fmt.Errorf("encode config: %w", err)
+	}
+	return Parse(data, source)
 }

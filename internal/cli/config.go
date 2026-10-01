@@ -1,4 +1,4 @@
-package main
+package cli
 
 import (
 	"bytes"
@@ -33,7 +33,7 @@ func configCmd(stdout, stderr io.Writer) *cobra.Command {
 		Short: "A config with every default and option, documented",
 		Args:  cobra.NoArgs,
 		RunE: func(*cobra.Command, []string) error {
-			text := config.Generate()
+			text := config.Example
 			target := output
 			if write {
 				target = config.DefaultPath()
@@ -89,7 +89,7 @@ func configCmd(stdout, stderr io.Writer) *cobra.Command {
 			if err != nil {
 				return err
 			}
-			_, err = fmt.Fprintln(stdout, "ok: "+orDefaults(path))
+			_, err = fmt.Fprintln(stdout, "ok: "+config.Describe(path))
 			return err
 		},
 	})

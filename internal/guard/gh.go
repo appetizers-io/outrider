@@ -25,7 +25,7 @@ import (
 	"strings"
 	"unicode/utf8"
 
-	"github.com/appetizers-io/llm-review-agent/internal/shell"
+	"github.com/kballard/go-shellquote"
 )
 
 // Environment contract between the session runner and the guards.
@@ -403,7 +403,7 @@ func PostDialog(session string, args []string, text string) string {
 	if n := utf8.RuneCountInString(text); n > 1500 {
 		text = string([]rune(text)[:1500]) + fmt.Sprintf("\n[... %d more characters]", n-1500)
 	}
-	cmd := shell.Join(append([]string{"gh"}, args...))
+	cmd := shellquote.Join(append([]string{"gh"}, args...)...)
 	if utf8.RuneCountInString(cmd) > 300 {
 		cmd = string([]rune(cmd)[:300]) + " ..."
 	}

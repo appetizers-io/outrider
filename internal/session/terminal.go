@@ -3,8 +3,9 @@ package session
 import (
 	"strings"
 
+	"github.com/kballard/go-shellquote"
+
 	"github.com/appetizers-io/llm-review-agent/internal/config"
-	"github.com/appetizers-io/llm-review-agent/internal/shell"
 )
 
 // Terminal is the resolved terminal app sessions open in.
@@ -120,7 +121,7 @@ func expand(template, cmd []string) []string {
 		case w == config.Placeholder:
 			out = append(out, cmd...)
 		case strings.Contains(w, config.Placeholder):
-			out = append(out, strings.ReplaceAll(w, config.Placeholder, shell.Join(cmd)))
+			out = append(out, strings.ReplaceAll(w, config.Placeholder, shellquote.Join(cmd...)))
 		default:
 			out = append(out, w)
 		}

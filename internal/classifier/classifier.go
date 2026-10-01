@@ -26,9 +26,10 @@ import (
 	"strings"
 	"time"
 
+	"github.com/kballard/go-shellquote"
+
 	"github.com/appetizers-io/llm-review-agent/internal/config"
 	"github.com/appetizers-io/llm-review-agent/internal/proc"
-	"github.com/appetizers-io/llm-review-agent/internal/shell"
 )
 
 // Question is what the launch check asks about the new activity.
@@ -50,7 +51,7 @@ type Resolved struct {
 type LookPath func(file string) (string, error)
 
 func split(cmd string) ([]string, error) {
-	parts, err := shell.Split(cmd)
+	parts, err := shellquote.Split(cmd)
 	if err != nil {
 		return nil, fmt.Errorf("split %q: %w", cmd, err)
 	}
@@ -98,7 +99,7 @@ func Resolve(name string, c config.Classifier, lookPath LookPath) (*Resolved, st
 			HookCmd:             append(append([]string{}, base...), "hook", "gate"),
 			Timeout:             time.Duration(j.TimeoutSeconds) * time.Second,
 			ConfidenceThreshold: j.ConfidenceThreshold,
-		}, shell.Join(base)
+		}, shellquote.Join(base...)
 	}
 	r := &Resolved{Name: name, Kind: config.KindCommand, Timeout: time.Duration(c.Command.TimeoutSeconds) * time.Second}
 	for _, cmd := range []struct {

@@ -28,7 +28,7 @@ tasks:
   build:
     desc: Build the binary into bin/
     cmds:
-      - go build -o {{.BIN}} ./cmd/llm-review-agent
+      - go build -o {{.BIN}} .
 
   install:
     desc: Build and install the binary into INSTALL_DIR (default ~/.local/bin)
@@ -36,13 +36,13 @@ tasks:
       INSTALL_DIR: '{{.INSTALL_DIR | default (print .HOME "/.local/bin")}}'
     cmds:
       - mkdir -p "{{.INSTALL_DIR}}"
-      - go build -o "{{.INSTALL_DIR}}/llm-review-agent{{exeExt}}" ./cmd/llm-review-agent
+      - go build -o "{{.INSTALL_DIR}}/llm-review-agent{{exeExt}}" .
       - echo "installed {{.INSTALL_DIR}}/llm-review-agent{{exeExt}}"
 
   schema:
     desc: Regenerate config.schema.json after changing internal/config
     cmds:
-      - go run ./cmd/llm-review-agent config schema > config.schema.json
+      - go run . config schema > config.schema.json
 
   schema:check:
     desc: Fail if config.schema.json is out of date

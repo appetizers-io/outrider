@@ -1,12 +1,16 @@
 package guard
 
 import (
+	"context"
 	"fmt"
 	"io"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"slices"
 	"strings"
+
+	"github.com/appetizers-io/llm-review-agent/internal/approve"
 )
 
 // Ask shows the owner an approval dialog and tells whether they clicked ok.
@@ -59,4 +63,20 @@ func RunGit(args []string, getenv func(string) string, ask Ask, stderr io.Writer
 		return 1
 	}
 	return execReal(real, args, env, stderr)
+}
+
+// Command is the guard a binary called argv0 is (`gh` or `git`, also with
+// `.exe`), or nil for any other name.
+func Command(argv0 string) func(args []string) int {
+	ask := func(title, body, ok string) bool {
+		approved, _ := approve.Ask(context.Background(), title, body, ok)
+		return approved
+	}
+	switch strings.TrimSuffix(strings.ToLower(filepath.Base(argv0)), ".exe") {
+	case "gh":
+		return func(args []string) int { return RunGH(args, os.Getenv, ask, os.Stderr) }
+	case "git":
+		return func(args []string) int { return RunGit(args, os.Getenv, ask, os.Stderr) }
+	}
+	return nil
 }

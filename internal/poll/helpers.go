@@ -4,14 +4,16 @@ import (
 	"cmp"
 	"crypto/sha256"
 	"encoding/hex"
+	"encoding/json"
 	"fmt"
 	"regexp"
 	"slices"
-	"strconv"
 	"strings"
-	"unicode"
 	"unicode/utf16"
 	"unicode/utf8"
+
+	"github.com/dlclark/regexp2"
+	"github.com/gobwas/glob"
 
 	"github.com/appetizers-io/llm-review-agent/internal/github"
 )
@@ -28,62 +30,31 @@ func RepoPattern(x string) string {
 	return strings.TrimSuffix(strings.TrimRight(x, "/"), ".git")
 }
 
-// fnmatch translates a shell glob (*, ?, [seq], [!seq]) to a regexp, like
-// Python's fnmatch: * also matches "/".
-func fnmatch(pattern string) *regexp.Regexp {
-	var b strings.Builder
-	b.WriteString("^")
-	for i := 0; i < len(pattern); i++ {
-		switch c := pattern[i]; c {
-		case '*':
-			b.WriteString(".*")
-		case '?':
-			b.WriteString(".")
-		case '[':
-			end := strings.IndexByte(pattern[i+1:], ']')
-			if end < 0 {
-				b.WriteString(`\[`)
-				continue
-			}
-			class := pattern[i+1 : i+1+end]
-			if strings.HasPrefix(class, "!") {
-				class = "^" + class[1:]
-			}
-			b.WriteString("[" + strings.ReplaceAll(class, `\`, `\\`) + "]")
-			i += end + 1
-		default:
-			b.WriteString(regexp.QuoteMeta(string(c)))
-		}
-	}
-	b.WriteString("$")
-	rx, err := regexp.Compile("(?s)" + b.String())
-	if err != nil {
-		return regexp.MustCompile("^" + regexp.QuoteMeta(pattern) + "$")
-	}
-	return rx
-}
-
 // RepoOK tells whether a repo passes the include and exclude globs.
 func RepoOK(repo string, include, exclude []string) bool {
-	match := func(p string) bool { return fnmatch(p).MatchString(repo) }
+	// shell globs like Python's fnmatch: * also matches "/", [seq] and [!seq] work
+	match := func(p string) bool {
+		g, err := glob.Compile(p)
+		return err == nil && g.Match(repo)
+	}
 	if len(include) > 0 && !slices.ContainsFunc(include, match) {
 		return false
 	}
 	return !slices.ContainsFunc(exclude, match)
 }
 
-// LoginGlob matches logins case-insensitively with * and ? only: logins like
-// "netlify[bot]" contain brackets, which fnmatch would read as a class.
-func LoginGlob(pattern string) *regexp.Regexp {
-	rx := regexp.QuoteMeta(pattern)
-	rx = strings.ReplaceAll(rx, `\*`, ".*")
-	rx = strings.ReplaceAll(rx, `\?`, ".")
-	return regexp.MustCompile("(?i)^(?:" + rx + ")$")
+// loginLiterals are glob characters that are literal in logins like "netlify[bot]".
+var loginLiterals = strings.NewReplacer("[", `\[`, "]", `\]`, "{", `\{`, "}", `\}`, `\`, `\\`)
+
+// LoginGlob matches logins case-insensitively with * and ? only.
+func LoginGlob(pattern string, login string) bool {
+	g, err := glob.Compile(loginLiterals.Replace(strings.ToLower(pattern)))
+	return err == nil && g.Match(strings.ToLower(login))
 }
 
 // IgnoredAuthor tells whether ignore_authors matches the login.
 func IgnoredAuthor(user string, ignore []string) bool {
-	return slices.ContainsFunc(ignore, func(p string) bool { return LoginGlob(p).MatchString(user) })
+	return slices.ContainsFunc(ignore, func(p string) bool { return LoginGlob(p, user) })
 }
 
 // OnlyNoise tells whether nothing in items needs me: all by ignored authors
@@ -115,46 +86,28 @@ func NewerThan(items []github.Activity, t string) []github.Activity {
 	return out
 }
 
-// pyJSON encodes a string like Python's json.dumps (ensure_ascii).
-func pyJSON(s string) string {
+// asciiJSON is JSON with every non-ASCII character escaped, like Python's
+// json.dumps (ensure_ascii, the default).
+func asciiJSON(v any) (string, error) {
 	var b strings.Builder
-	b.WriteByte('"')
-	for _, r := range s {
+	enc := json.NewEncoder(&b)
+	enc.SetEscapeHTML(false)
+	if err := enc.Encode(v); err != nil {
+		return "", fmt.Errorf("encode: %w", err)
+	}
+	var out strings.Builder
+	for _, r := range strings.TrimSuffix(b.String(), "\n") {
 		switch {
-		case r == '"':
-			b.WriteString(`\"`)
-		case r == '\\':
-			b.WriteString(`\\`)
-		case r == '\n':
-			b.WriteString(`\n`)
-		case r == '\r':
-			b.WriteString(`\r`)
-		case r == '\t':
-			b.WriteString(`\t`)
-		case r == '\b':
-			b.WriteString(`\b`)
-		case r == '\f':
-			b.WriteString(`\f`)
-		case r < 0x20 || r > 0x7f:
-			if r > 0xffff {
-				r1, r2 := utf16.EncodeRune(r)
-				fmt.Fprintf(&b, `\u%04x\u%04x`, r1, r2)
-			} else {
-				fmt.Fprintf(&b, `\u%04x`, r)
-			}
+		case r < utf8.RuneSelf:
+			out.WriteRune(r)
+		case r > 0xffff:
+			r1, r2 := utf16.EncodeRune(r)
+			fmt.Fprintf(&out, `\u%04x\u%04x`, r1, r2)
 		default:
-			b.WriteRune(r)
+			fmt.Fprintf(&out, `\u%04x`, r)
 		}
 	}
-	b.WriteByte('"')
-	return b.String()
-}
-
-func jsonOrNull(s *string) string {
-	if s == nil {
-		return "null"
-	}
-	return pyJSON(*s)
+	return out.String(), nil
 }
 
 // Fingerprint identifies the state of a PR's reviews and comments. The
@@ -162,36 +115,23 @@ func jsonOrNull(s *string) string {
 // fingerprints are compared across versions, and a change would relaunch
 // every watched PR.
 func Fingerprint(items []github.Activity) string {
-	parts := make([]string, len(items))
+	data := make([][]any, len(items))
 	for i, x := range items {
-		id := "null"
-		if x.ID != nil {
-			id = strconv.FormatInt(*x.ID, 10)
-		}
-		parts[i] = "[" + strings.Join([]string{id, jsonOrNull(x.State), jsonOrNull(x.UpdatedAt),
-			jsonOrNull(x.SubmittedAt), jsonOrNull(x.User)}, ",") + "]"
+		data[i] = []any{x.ID, x.State, x.UpdatedAt, x.SubmittedAt, x.User}
 	}
-	sum := sha256.Sum256([]byte("[" + strings.Join(parts, ",") + "]"))
+	raw, err := asciiJSON(data)
+	if err != nil {
+		panic(err) // ints, strings and nulls always encode
+	}
+	sum := sha256.Sum256([]byte(raw))
 	return hex.EncodeToString(sum[:])
 }
 
-func isWord(r rune) bool { return r == '_' || unicode.IsLetter(r) || unicode.IsDigit(r) }
-
 // Mentions tells whether text @mentions login: not inside a word, an email
-// address or a path, and not a longer login.
+// address or a path, and not a longer login. The Python version's regexp,
+// with lookbehind (regexp2: Go's regexp has none).
 func Mentions(text, login string) bool {
-	at := "@" + login
-	for i := 0; i+len(at) <= len(text); i++ {
-		if text[i] != '@' || !strings.EqualFold(text[i:i+len(at)], at) {
-			continue
-		}
-		if prev, _ := utf8.DecodeLastRuneInString(text[:i]); i > 0 && (isWord(prev) || prev == '@' || prev == '/') {
-			continue
-		}
-		if next, _ := utf8.DecodeRuneInString(text[i+len(at):]); i+len(at) < len(text) && (isWord(next) || next == '-') {
-			continue
-		}
-		return true
-	}
-	return false
+	rx := regexp2.MustCompile(`(?<![\w@/])@`+regexp2.Escape(login)+`(?![\w-])`, regexp2.IgnoreCase)
+	ok, err := rx.MatchString(text)
+	return err == nil && ok
 }

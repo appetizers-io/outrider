@@ -105,7 +105,9 @@ func TestFingerprintMatchesThePythonVersion(t *testing.T) {
 		require.Equal(t, g.FP, Fingerprint(items))
 	}
 	// non-ASCII and HTML characters are escaped like Python's json.dumps
-	require.Equal(t, "\"\\u00fc\\ud83d\\ude80 <&>\\n\x7f\"", pyJSON("ü🚀 <&>\n\x7f"))
+	got, err := asciiJSON("ü🚀 <&>\n\x7f\u2028")
+	require.NoError(t, err)
+	require.Equal(t, "\"\\u00fc\\ud83d\\ude80 <&>\\n\x7f\\u2028\"", got)
 }
 
 func TestLoginGlob(t *testing.T) {
@@ -119,7 +121,7 @@ func TestLoginGlob(t *testing.T) {
 		{"coderabbit?i*", "coderabbitai[bot]", true},
 		{"alice", "alice2", false},
 	} {
-		require.Equal(t, tc.hit, LoginGlob(tc.pattern).MatchString(tc.login), tc)
+		require.Equal(t, tc.hit, LoginGlob(tc.pattern, tc.login), tc)
 	}
 }
 
