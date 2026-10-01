@@ -1,6 +1,4 @@
 {
-  "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://github.com/appetizers-io/llm-review-agent/config.schema.json",
   "$defs": {
     "CommandClassifier": {
       "additionalProperties": false,
@@ -269,7 +267,7 @@
       "title": "OptIn",
       "type": "object"
     },
-    "OthersPrs": {
+    "OthersPRs": {
       "additionalProperties": false,
       "description": "Sessions on PRs someone else authored.",
       "properties": {
@@ -287,10 +285,10 @@
           "title": "Allow Push"
         }
       },
-      "title": "OthersPrs",
+      "title": "OthersPRs",
       "type": "object"
     },
-    "OwnPrs": {
+    "OwnPRs": {
       "additionalProperties": false,
       "description": "Notifications on PRs you authored.",
       "properties": {
@@ -306,7 +304,7 @@
           "type": "boolean"
         }
       },
-      "title": "OwnPrs",
+      "title": "OwnPRs",
       "type": "object"
     },
     "Prompts": {
@@ -456,45 +454,45 @@
       "additionalProperties": false,
       "properties": {
         "own_prs": {
-          "$ref": "#/$defs/OwnPrs",
+          "$ref": "#/$defs/OwnPRs",
           "default": {
-            "enabled": true,
-            "check": true
+            "check": true,
+            "enabled": true
           }
         },
         "opt_in": {
           "$ref": "#/$defs/OptIn",
           "default": {
             "enabled": true,
+            "on_change": {
+              "check": true,
+              "ignore_own_activity": true
+            },
             "reaction": "eyes",
             "where": [
               "description",
               "comment",
               "review",
               "review_comment"
-            ],
-            "on_change": {
-              "check": true,
-              "ignore_own_activity": true
-            }
+            ]
           }
         },
         "review_replies": {
           "$ref": "#/$defs/ReviewReplies",
           "default": {
-            "enabled": true,
             "check": true,
-            "scope": "thread",
-            "fresh_within_hours": null
+            "enabled": true,
+            "fresh_within_hours": null,
+            "scope": "thread"
           }
         },
         "mentions": {
           "$ref": "#/$defs/Mentions",
           "default": {
-            "enabled": true,
             "check": true,
-            "scope": "comment",
-            "fresh_within_hours": null
+            "enabled": true,
+            "fresh_within_hours": null,
+            "scope": "comment"
           }
         }
       },
@@ -502,6 +500,8 @@
       "type": "object"
     }
   },
+  "$id": "https://github.com/appetizers-io/llm-review-agent/config.schema.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
   "additionalProperties": false,
   "description": "llm-review-agent configuration. Every key is optional; command-line flags\noverride this file.",
   "properties": {
@@ -544,7 +544,7 @@
         }
       ],
       "default": null,
-      "description": "Pushes in sessions that may push (your own PRs, others' PRs with others_prs.allow_push). ask: every `git push` opens a dialog and runs only after you click Push (macOS; elsewhere it is refused). never: commits stay local. allow: no question. null: ask in supervised mode, allow in autonomous mode.",
+      "description": "Pushes in sessions that may push (your own PRs, others' PRs with others_prs.allow_push). ask: every `git push` opens a dialog and runs only after you click Push (macOS: osascript, Linux: zenity or kdialog, Windows: PowerShell; without one it is refused). never: commits stay local. allow: no question. null: ask in supervised mode, allow in autonomous mode.",
       "title": "Push"
     },
     "github_writes": {
@@ -562,7 +562,7 @@
         }
       ],
       "default": null,
-      "description": "Comments, review comments and replies, reviews and reactions the agent posts with `gh` on the session's PR, in every session. ask: each one opens a dialog showing the text and runs only after you click Post (macOS; elsewhere it is refused). never: GitHub stays read-only. allow: no question. Merging, closing, editing the PR and writes to other PRs are always refused. null: ask in supervised mode, allow in autonomous mode.",
+      "description": "Comments, review comments and replies, reviews and reactions the agent posts with `gh` on the session's PR, in every session. ask: each one opens a dialog showing the text and runs only after you click Post (without a dialog it is refused). never: GitHub stays read-only. allow: no question. Merging, closing, editing the PR and writes to other PRs are always refused. null: ask in supervised mode, allow in autonomous mode.",
       "title": "Github Writes"
     },
     "agent": {
@@ -577,7 +577,7 @@
     },
     "launcher": {
       "default": "auto",
-      "description": "auto: Terminal on a macOS desktop session, else tmux.",
+      "description": "auto: macOS: the terminal in a desktop (Aqua) session, else tmux. Linux: the terminal when a display is present and a terminal resolves, else tmux. Windows: always the terminal.",
       "enum": [
         "auto",
         "terminal",
@@ -585,6 +585,39 @@
       ],
       "title": "Launcher",
       "type": "string"
+    },
+    "terminal": {
+      "anyOf": [
+        {
+          "enum": [
+            "auto",
+            "terminal-app",
+            "iterm",
+            "ghostty",
+            "wezterm",
+            "kitty",
+            "windows-terminal",
+            "x-terminal-emulator",
+            "cmd"
+          ],
+          "type": "string"
+        },
+        {
+          "contains": {
+            "pattern": "\\{cmd\\}",
+            "type": "string"
+          },
+          "items": {
+            "minLength": 1,
+            "type": "string"
+          },
+          "minItems": 1,
+          "type": "array"
+        }
+      ],
+      "default": "auto",
+      "description": "Terminal app for launcher: terminal. auto: detected once at startup ($TERM_PROGRAM, then terminal-specific variables, then $TERMINAL, then the platform default). A name forces that app. A command list with a {cmd} placeholder runs anything else, e.g. [alacritty, -e, '{cmd}'].",
+      "title": "Terminal"
     },
     "interval_seconds": {
       "default": 60,
@@ -624,8 +657,8 @@
     "repos": {
       "$ref": "#/$defs/Repos",
       "default": {
-        "include": [],
-        "exclude": []
+        "exclude": [],
+        "include": []
       }
     },
     "ignore_authors": {
@@ -641,9 +674,11 @@
     "triggers": {
       "$ref": "#/$defs/Triggers",
       "default": {
-        "own_prs": {
+        "mentions": {
           "check": true,
-          "enabled": true
+          "enabled": true,
+          "fresh_within_hours": null,
+          "scope": "comment"
         },
         "opt_in": {
           "enabled": true,
@@ -659,22 +694,20 @@
             "review_comment"
           ]
         },
+        "own_prs": {
+          "check": true,
+          "enabled": true
+        },
         "review_replies": {
           "check": true,
           "enabled": true,
           "fresh_within_hours": null,
           "scope": "thread"
-        },
-        "mentions": {
-          "check": true,
-          "enabled": true,
-          "fresh_within_hours": null,
-          "scope": "comment"
         }
       }
     },
     "others_prs": {
-      "$ref": "#/$defs/OthersPrs",
+      "$ref": "#/$defs/OthersPRs",
       "default": {
         "allow_push": null
       }
@@ -717,10 +750,10 @@
       "$ref": "#/$defs/ToolGate",
       "default": {
         "classifier": "jev",
+        "include_prompt_extra": false,
         "matcher": "Bash|Write|Edit|NotebookEdit",
-        "threshold": null,
         "rules": [],
-        "include_prompt_extra": false
+        "threshold": null
       }
     },
     "prompts": {

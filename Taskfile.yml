@@ -1,0 +1,33 @@
+version: "3"
+
+vars:
+  BIN: bin/llm-review-agent{{exeExt}}
+
+tasks:
+  lint:
+    desc: golangci-lint and go vet
+    cmds:
+      - golangci-lint run
+      - go vet ./...
+
+  test:
+    desc: Unit tests with the race detector
+    cmds:
+      - go test -race ./...
+
+  build:
+    desc: Build the binary into bin/
+    cmds:
+      - go build -o {{.BIN}} ./cmd/llm-review-agent
+
+  schema:
+    desc: Regenerate config.schema.json after changing internal/config
+    cmds:
+      - go run ./cmd/llm-review-agent config schema > config.schema.json
+
+  all:
+    desc: lint + test + build
+    cmds:
+      - task: lint
+      - task: test
+      - task: build
