@@ -242,7 +242,9 @@ CI and the release workflow only call these tasks. Releases are automated with
 release PR open with the next version and its `CHANGELOG.md` entry, built from
 the Conventional Commit titles on `main` (`feat:` bumps the minor version,
 `fix:` the patch version; `feat!:` marks a breaking change). Merging that PR
-tags the release and GoReleaser attaches the archives to it. PR titles must
+tags the release and GoReleaser attaches the archives to it. CI doesn't start
+on the release PR by itself (it is opened with `GITHUB_TOKEN`); close and reopen
+it once before merging. PR titles must
 therefore be Conventional Commits.
 
 ## License
