@@ -26,6 +26,7 @@ jobs:
   release:
     if: github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
+    environment: release # main only; maintainers approve the run
     permissions:
       contents: write # create the tag and the release
     steps:
