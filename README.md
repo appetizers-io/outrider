@@ -94,6 +94,9 @@ Download the archive for your platform from the
 go install github.com/appetizers-io/llm-review-agent/cmd/llm-review-agent@latest
 ```
 
+From a checkout, `task install` builds it into `~/.local/bin`
+(`task install INSTALL_DIR=/other/dir` to change that).
+
 It needs [`gh`](https://cli.github.com) (logged in), `git`, and the agent CLI
 (`codex` or `claude`); tmux for the tmux launcher. Nothing else: no Python, no
 shell scripts.

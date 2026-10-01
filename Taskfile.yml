@@ -20,6 +20,15 @@ tasks:
     cmds:
       - go build -o {{.BIN}} ./cmd/llm-review-agent
 
+  install:
+    desc: Build and install the binary into INSTALL_DIR (default ~/.local/bin)
+    vars:
+      INSTALL_DIR: '{{.INSTALL_DIR | default (print .HOME "/.local/bin")}}'
+    cmds:
+      - mkdir -p "{{.INSTALL_DIR}}"
+      - go build -o "{{.INSTALL_DIR}}/llm-review-agent{{exeExt}}" ./cmd/llm-review-agent
+      - echo "installed {{.INSTALL_DIR}}/llm-review-agent{{exeExt}}"
+
   schema:
     desc: Regenerate config.schema.json after changing internal/config
     cmds:
