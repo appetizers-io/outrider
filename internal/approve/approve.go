@@ -17,6 +17,8 @@ import (
 	"time"
 )
 
+var htmlEscaper = strings.NewReplacer("&", "&amp;", "<", "&lt;", ">", "&gt;")
+
 // Timeout is how long a dialog waits for the owner.
 const Timeout = 300 * time.Second
 
@@ -81,11 +83,8 @@ func (p Platform) dialogFor(title, body, ok string) (dialog, error) {
 			ok:   func(out string) bool { return strings.TrimSpace(out) == ok },
 		}, nil
 	case "windows":
-		root := p.Getenv("SystemRoot")
-		if root == "" {
-			root = `C:\Windows`
-		}
-		ps := root + `\System32\WindowsPowerShell\v1.0\powershell.exe`
+		// a fixed path: SystemRoot comes from the agent's environment
+		const ps = `C:\Windows\System32\WindowsPowerShell\v1.0\powershell.exe`
 		if !p.Exists(ps) {
 			return dialog{}, ErrNoDialog
 		}
@@ -114,7 +113,8 @@ func (p Platform) dialogFor(title, body, ok string) (dialog, error) {
 		}
 		if k := p.find("kdialog"); k != "" {
 			return dialog{
-				args: []string{k, "--title", title, "--warningyesno", body, "--yes-label", ok, "--no-label", "Deny"},
+				// kdialog renders text that looks like HTML; show it as written
+				args: []string{k, "--title", title, "--warningyesno", htmlEscaper.Replace(body), "--yes-label", ok, "--no-label", "Deny"},
 				ok:   func(string) bool { return true },
 			}, nil
 		}

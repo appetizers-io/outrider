@@ -47,6 +47,10 @@ func TestLinuxPrefersZenityThenKdialog(t *testing.T) {
 	r.NoError(err)
 	r.Equal("/usr/local/bin/kdialog", d.args[0])
 	r.Contains(d.args, "--yes-label")
+	// security review: kdialog renders text that looks like HTML
+	d, err = platform("linux", map[string]string{"DISPLAY": ":0"}, "/usr/bin/kdialog").dialogFor("t", "<b>gh pr view</b> & <!-- gh pr merge -->", "Post")
+	r.NoError(err)
+	r.Contains(d.args, "&lt;b&gt;gh pr view&lt;/b&gt; &amp; &lt;!-- gh pr merge --&gt;")
 }
 
 func TestLinuxWithoutDisplayOrToolDenies(t *testing.T) {
@@ -61,7 +65,10 @@ func TestLinuxWithoutDisplayOrToolDenies(t *testing.T) {
 func TestWindowsUsesPowerShellMessageBox(t *testing.T) {
 	r := require.New(t)
 	ps := `C:\Windows\System32\WindowsPowerShell\v1.0\powershell.exe`
-	d, err := platform("windows", map[string]string{"SystemRoot": `C:\Windows`}, ps).dialogFor("t", "b'; evil", "Push")
+	// security review: SystemRoot comes from the agent's environment
+	_, err := platform("windows", map[string]string{"SystemRoot": `C:\Users\me\evil`}, `C:\Users\me\evil\System32\WindowsPowerShell\v1.0\powershell.exe`).dialogFor("t", "b", "Push")
+	r.ErrorIs(err, ErrNoDialog)
+	d, err := platform("windows", map[string]string{"SystemRoot": `C:\Users\me\evil`}, ps).dialogFor("t", "b'; evil", "Push")
 	r.NoError(err)
 	r.Equal(ps, d.args[0])
 	r.NotContains(d.args[len(d.args)-1], "evil") // texts only through the environment

@@ -15,7 +15,13 @@ import (
 // around this guard (the real git binary) hits a dead URL; an approved push
 // drops those entries before running the real git.
 
-var gitWithValue = []string{"-C", "-c", "--git-dir", "--work-tree", "--namespace", "--exec-path", "--config-env"}
+var gitWithValue = []string{"-C", "-c", "--git-dir", "--work-tree", "--namespace", "--exec-path", "--config-env", "--attr-source"}
+
+// pushCommands send commits to a remote; send-pack and http-push also go
+// around the pushInsteadOf trap.
+var pushCommands = []string{"push", "send-pack", "http-push"}
+
+func isPush(sub string) bool { return slices.Contains(pushCommands, sub) }
 
 // Subcommand is the git subcommand after the global options and its index,
 // or ("", len(args)).
@@ -35,7 +41,7 @@ func Subcommand(args []string) (string, int) {
 // AliasPushes tells whether an alias definition runs push.
 func AliasPushes(alias string) bool {
 	alias = strings.TrimSpace(alias)
-	return alias != "" && slices.Contains(strings.Fields(strings.TrimLeft(alias, "!")), "push")
+	return alias != "" && slices.ContainsFunc(strings.Fields(strings.TrimLeft(alias, "!")), isPush)
 }
 
 // GitDecision is what to do with a git invocation.
@@ -62,7 +68,7 @@ func DecideGit(args []string, mode string, alias func(global []string, name stri
 		return GitDecision{}
 	}
 	sub, i := Subcommand(args)
-	if sub != "push" && (sub == "" || !AliasPushes(alias(args[:i], sub))) {
+	if !isPush(sub) && (sub == "" || !AliasPushes(alias(args[:i], sub))) {
 		return GitDecision{}
 	}
 	switch mode {

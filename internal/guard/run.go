@@ -17,7 +17,7 @@ func RunGH(args []string, getenv func(string) string, ask Ask, stderr io.Writer)
 	s := GHSessionFromEnv(getenv)
 	d := DecideGH(args, s)
 	if d.Deny == "" && d.Write && s.Mode == "ask" &&
-		!ask("llm-review-agent: post to GitHub?", PostDialog(getenv(EnvSession), args, d.Text), "Post") {
+		!ask("llm-review-agent: post to GitHub?", PostDialog(getenv(EnvSession), d.Args, d.Text), "Post") {
 		d.Deny = s.denyMsg(args, "the owner did not approve this post. Do not retry or work around it; "+
 			"keep the text in this session")
 	}
@@ -30,7 +30,7 @@ func RunGH(args []string, getenv func(string) string, ask Ask, stderr io.Writer)
 		_, _ = fmt.Fprintln(stderr, "llm-review-agent guard: "+EnvRealGH+" is not set")
 		return 1
 	}
-	return execReal(real, args, os.Environ(), stderr)
+	return execReal(real, d.Args, os.Environ(), stderr)
 }
 
 // RunGit is the git guard: decide, maybe ask, then run the real git.

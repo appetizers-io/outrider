@@ -6,6 +6,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 
@@ -126,6 +127,73 @@ var neverPosts = [][]string{
 	{"-R", "o/r", "pr", "comment", "7", "-b", "hi"},
 }
 
+// Security review: gh's flag parser accepts short flags packed after one
+// dash; the guard must read them the same way.
+func TestPackedShortFlagsAreParsedLikeGH(t *testing.T) {
+	r := require.New(t)
+	dir := t.TempDir()
+	t.Chdir(dir)
+	r.NoError(os.WriteFile("q.graphql", []byte("mutation { x }"), 0o600))
+	for _, mode := range []string{"never", "ask", "allow"} {
+		for _, args := range [][]string{
+			{"api", "-iX", "PUT", "repos/o/r/pulls/7/merge"},
+			{"api", "-iXDELETE", "repos/o/r/git/refs/heads/main"},
+			{"api", "-iX=PATCH", "repos/o/r/pulls/7"},
+			{"api", "graphql", "-iFquery=@q.graphql"},
+			{"api", "-ifbody=hi", "repos/o/r/issues/7/labels"},
+		} {
+			r.Contains(DecideGH(args, gh(mode)).Deny, "blocked", "%s %v", mode, args)
+		}
+		// packed -R names another repo
+		r.Contains(DecideGH([]string{"pr", "review", "7", "-aRother/repo"}, gh("allow")).Deny, "only PR o/r#7")
+		r.Contains(DecideGH([]string{"pr", "comment", "7", "-ew"}, gh("allow")).Deny, "blocked")
+	}
+	d := DecideGH([]string{"pr", "review", "7", "-aRo/r"}, gh("allow"))
+	r.Empty(d.Deny)
+	r.Equal([]string{"pr", "review", "7", "-aRo/r"}, d.Args) // repo given: nothing injected
+	d = DecideGH([]string{"api", "-ifbody=hi", "repos/o/r/issues/7/comments"}, gh("allow"))
+	r.Empty(d.Deny)
+	r.Equal("body: hi", d.Text)
+}
+
+// Security review: without -R, gh picks the repo from GH_REPO, the working
+// directory or the gh-resolved remote. Writes always name the session repo.
+func TestWritesWithoutRepoGetTheSessionRepo(t *testing.T) {
+	r := require.New(t)
+	for _, args := range [][]string{
+		{"pr", "comment", "7", "-b", "hi"},
+		{"pr", "review", "7", "--approve"},
+		{"issue", "comment", "7", "-b", "hi"},
+	} {
+		d := DecideGH(args, gh("allow"))
+		r.Empty(d.Deny)
+		r.Equal(slices.Concat([]string{args[0], args[1], "--repo", "o/r"}, args[2:]), d.Args, args)
+	}
+	for _, args := range [][]string{
+		{"pr", "comment", "7", "-R", "o/r", "-b", "hi"},
+		{"pr", "comment", "https://github.com/o/r/pull/7", "-b", "hi"},
+		{"api", "repos/o/r/issues/7/comments", "-f", "body=hi"},
+		{"pr", "view", "7"},
+	} {
+		r.Equal(args, DecideGH(args, gh("allow")).Args, args)
+	}
+}
+
+// Security review: `gh auth status --show-token` puts the token into the
+// agent's context.
+func TestAuthStatusOnlyWithoutArguments(t *testing.T) {
+	for _, mode := range []string{"never", "ask", "allow"} {
+		require.Empty(t, DecideGH([]string{"auth", "status"}, gh(mode)).Deny)
+		for _, args := range [][]string{
+			{"auth", "status", "--show-token"},
+			{"auth", "status", "-t"},
+			{"auth", "status", "--hostname", "github.com", "-t"},
+		} {
+			require.Contains(t, DecideGH(args, gh(mode)).Deny, "blocked", args)
+		}
+	}
+}
+
 func TestPostsAreBlockedWhenWritesAreOff(t *testing.T) {
 	for _, args := range posts {
 		d := DecideGH(args, gh("never"))
@@ -173,7 +241,9 @@ func TestPostTextIsShown(t *testing.T) {
 	r.NoError(os.WriteFile("read.json", []byte(`{"query": "query { viewer { login } }"}`), 0o600))
 	for _, mode := range []string{"never", "ask", "allow"} {
 		r.Contains(DecideGH([]string{"api", "graphql", "--input", "q.json"}, gh(mode)).Deny, "graphql mutation")
-		r.Equal(GHDecision{}, DecideGH([]string{"api", "graphql", "--input", "read.json"}, gh(mode)))
+		read := DecideGH([]string{"api", "graphql", "--input", "read.json"}, gh(mode))
+		r.Empty(read.Deny)
+		r.False(read.Write)
 	}
 
 	d = DecideGH([]string{"pr", "review", "7", "-r", "-b", "fix it"}, gh("ask"))
@@ -222,6 +292,14 @@ func TestGitPushBlockedInReviewOnlySession(t *testing.T) {
 		{"p"},      // alias to push
 		{"shipit"}, // shell alias running push
 		{"-c", "alias.x=push", "x"},
+		// security review: an option with a value hid the subcommand, and
+		// send-pack / http-push push without the pushInsteadOf trap
+		{"--attr-source", "HEAD", "push", "origin", "HEAD:main"},
+		{"--attr-source=HEAD", "push"},
+		{"send-pack", "ssh://127.0.0.1:1/me/repo.git", "HEAD:refs/heads/main"},
+		{"http-push", "https://127.0.0.1:1/me/repo.git", "HEAD"},
+		{"-c", "alias.sp=send-pack", "sp", "x"},
+		{"-c", "alias.hp=!git http-push", "hp"},
 	} {
 		for _, mode := range []string{"review-only", ""} { // unset: review only
 			d := DecideGit(args, mode, fakeAlias)
@@ -294,8 +372,8 @@ func TestGHGuardRunsTheRealGH(t *testing.T) {
 
 	res = runGuard(t, "gh", session("allow", ""), "pr", "comment", "7", "-b", "hi")
 	r.Equal(0, res.code, res.stderr)
-	r.Contains(res.stdout, "REAL\npr\ncomment")
-	r.Empty(res.dialog) // allow: no question
+	r.Contains(res.stdout, "REAL\npr\ncomment\n--repo\no/r\n7") // the session repo, whatever GH_REPO says
+	r.Empty(res.dialog)                                         // allow: no question
 }
 
 func TestGHAskPostsOnlyAfterApproval(t *testing.T) {

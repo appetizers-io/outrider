@@ -110,9 +110,10 @@ func (s GHSession) target() string {
 
 // GHDecision is what to do with a gh invocation.
 type GHDecision struct {
-	Deny  string // non-empty: refuse with this message
-	Write bool   // a post on the session's PR
-	Text  string // what the post would say, for the dialog
+	Deny  string   // non-empty: refuse with this message
+	Write bool     // a post on the session's PR
+	Text  string   // what the post would say, for the dialog
+	Args  []string // what to run the real gh with
 }
 
 // denied ends the decision; panicking keeps the ported control flow flat.
@@ -151,8 +152,26 @@ func options(args, withValue []string) ([]opt, []string) {
 		case slices.Contains(withValue, x) && i+1 < len(args):
 			opts = append(opts, opt{k: x, v: args[i+1], hasV: true})
 			i++
-		case len(x) > 2 && slices.Contains(withValue, x[:2]) && x[1] != '-':
-			opts = append(opts, opt{k: x[:2], v: x[2:], hasV: true}) // -XPOST, -fbody=x
+		case len(x) > 2 && x[0] == '-' && x[1] != '-':
+			// short flags packed after one dash, read like gh does:
+			// -XPOST, -fbody=x, -iX PUT, -iXDELETE, -aRo/r
+			for j := 1; j < len(x); j++ {
+				f := "-" + x[j:j+1]
+				if !slices.Contains(withValue, f) {
+					opts = append(opts, opt{k: f})
+					continue
+				}
+				switch rest := x[j+1:]; {
+				case rest != "":
+					opts = append(opts, opt{k: f, v: strings.TrimPrefix(rest, "="), hasV: true})
+				case i+1 < len(args):
+					i++
+					opts = append(opts, opt{k: f, v: args[i], hasV: true})
+				default:
+					opts = append(opts, opt{k: f})
+				}
+				break
+			}
 		case strings.HasPrefix(x, "-"):
 			opts = append(opts, opt{k: x})
 		default:
@@ -274,8 +293,10 @@ func isDigits(s string) bool {
 	return s != "" && strings.IndexFunc(s, func(r rune) bool { return r < '0' || r > '9' }) < 0
 }
 
-// cliCall decides `gh pr comment|review` and `gh issue comment`: the text it would post.
-func (s GHSession) cliCall(args []string) string {
+// cliCall decides `gh pr comment|review` and `gh issue comment`: the text it
+// would post, and whether the command names no repo (gh would pick one from
+// GH_REPO, the working directory or its resolved remote).
+func (s GHSession) cliCall(args []string) (string, bool) {
 	opts, pos := options(args[2:], cliValue)
 	var repo *string
 	var text []string
@@ -306,6 +327,7 @@ func (s GHSession) cliCall(args []string) string {
 	if !isDigits(num) {
 		s.deny(args, "name the PR number explicitly")
 	}
+	noRepo := repo == nil
 	if repo != nil {
 		r := strings.TrimSuffix(githubURL.ReplaceAllString(*repo, ""), ".git")
 		repo = &r
@@ -321,7 +343,7 @@ func (s GHSession) cliCall(args []string) string {
 	if len(kind) > 0 {
 		out = strings.Join(kind, " ") + "\n" + out
 	}
-	return out
+	return out, noRepo
 }
 
 // DecideGH decides a gh invocation without running anything but file reads
@@ -346,7 +368,12 @@ func DecideGH(args []string, s GHSession) (d GHDecision) {
 		if !s.writable() {
 			s.deny(args, "subcommand not allowlisted")
 		}
-		d.Write, d.Text = true, s.cliCall(args)
+		var noRepo bool
+		d.Text, noRepo = s.cliCall(args)
+		d.Write = true
+		if noRepo {
+			d.Args = slices.Concat(args[:2], []string{"--repo", s.Repo}, args[2:])
+		}
 	default:
 		subs, ok := ghRead[args[0]]
 		if !ok {
@@ -355,9 +382,15 @@ func DecideGH(args []string, s GHSession) (d GHDecision) {
 		if subs != nil && (len(args) < 2 || !slices.Contains(subs, args[1])) {
 			s.deny(args, "subcommand not allowlisted")
 		}
+		if args[0] == "auth" && len(args) != 2 {
+			s.deny(args, "only plain `gh auth status`; it must not print the token")
+		}
 	}
 	if d.Write && !s.writable() {
 		s.deny(args, "GitHub writes are off")
+	}
+	if d.Args == nil {
+		d.Args = args
 	}
 	return d
 }

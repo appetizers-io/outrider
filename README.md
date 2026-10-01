@@ -25,8 +25,8 @@ reactions **on the session's PR** follow `github_writes`. With `ask` (the
 default in supervised mode) each one opens a native dialog showing the command
 and the text, and runs only if you click **Post**. `never` keeps GitHub
 read-only, `allow` posts without asking (the default in autonomous mode).
-Merging, closing, editing the PR, graphql mutations and writes to other PRs
-are refused in every mode.
+The guard refuses merging, closing, editing the PR, graphql mutations and
+writes to other PRs, and it runs writes against the session's repo.
 
 Sessions on **someone else's PR are review only**: the prompt forbids edits,
 commits and pushes (even lint fixes), and a `git` guard refuses `git push`.
@@ -43,16 +43,28 @@ mode) every `git push` in a session opens a native dialog, and the push runs
 only if you click **Push** (it denies after 5 minutes or where there is no
 dialog). `push: never` keeps commits local, and `push: allow` pushes without
 asking (the default in autonomous mode). Apart from the `git` guard, sessions
-get `pushInsteadOf` rewrites in their environment, so a push through the real
-git binary goes to a dead URL. Claude sessions also may not run the dialog
-tool (`osascript`, `zenity`/`kdialog`, `powershell`), so they can't click the
-dialog themselves.
+get `pushInsteadOf` rewrites in their environment, so a plain push through the
+real git binary goes to a dead URL. Claude sessions get deny rules for the
+dialog tool (`osascript`, `zenity`/`kdialog`, `powershell`); they only stop
+the obvious calls, not a determined agent.
 Codex sessions get the guards, the prompt and the gate's environment; its
 hooks need a one-time trust (`/hooks`), so the gate hook isn't wired there.
 
 The guards are the `llm-review-agent` binary itself: the `bin/` directory
 under `~/.cache/llm-review-agent` holds `gh` and `git` links to it, put first
 on each session's `PATH`.
+
+**What the guards are, and what they are not.** The `gh` and `git` guards,
+the `pushInsteadOf` trap, the deny rules and the approval dialogs are
+guardrails against an agent's mistakes. They are not a sandbox. The agent runs
+as you, with your credentials and your environment: it can change the
+`LLM_REVIEW_AGENT_*` and `GIT_CONFIG_*` variables of its own commands, call
+the real binaries by path, set a `pushurl` (which `pushInsteadOf` ignores), or
+use the GitHub API directly. A PR from someone you don't trust can carry a
+prompt injection in its diff, comments or checked-in agent settings. For
+those, keep the tool gate on (supervised mode) or run the agent in a sandbox
+(the Claude Code sandbox, a container or a VM) without write access to
+`~/.cache/llm-review-agent` and with your push credentials out of reach.
 
 ### Classifiers
 
@@ -129,8 +141,8 @@ Terminal.app and iTerm2 open without stealing focus (`open -g`).
 
 Approval dialogs (`push: ask`, `github_writes: ask`): `osascript` on macOS;
 `zenity`, else `kdialog`, on a Linux desktop (`$DISPLAY` or
-`$WAYLAND_DISPLAY`); a PowerShell message box on Windows. They are only taken
-from system locations, never from `PATH`. Without a dialog the answer is
+`$WAYLAND_DISPLAY`); a PowerShell message box on Windows. The dialog tool is
+only taken from fixed system locations, never from `PATH`. Without a dialog the answer is
 "deny".
 
 State and caches live in the same places on every OS:
