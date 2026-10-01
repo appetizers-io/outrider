@@ -1,0 +1,63 @@
+# git-cliff configuration: release notes and the next version, both from the
+# Conventional Commit titles on main (squash merges use the PR title).
+# https://git-cliff.org/docs/configuration
+
+[remote.github]
+owner = "appetizers-io"
+repo = "llm-review-agent"
+# token: $GITHUB_TOKEN (adds PR links and authors)
+
+[changelog]
+body = """
+{% if version %}\
+## [{{ version | trim_start_matches(pat="v") }}]\
+({{ self::url() }}/releases/tag/{{ version }}) - {{ timestamp | date(format="%Y-%m-%d") }}
+{% else %}\
+## Unreleased
+{% endif %}\
+{% for group, commits in commits | group_by(attribute="group") %}
+### {{ group | striptags | trim | upper_first }}
+{% for commit in commits %}
+- {% if commit.scope %}**{{ commit.scope }}:** {% endif %}\
+{% if commit.breaking %}[**breaking**] {% endif %}\
+{{ commit.message | split(pat="\n") | first | upper_first | trim }}\
+{% if commit.remote.pr_number %} ([#{{ commit.remote.pr_number }}]({{ self::url() }}/pull/{{ commit.remote.pr_number }}))\
+{% else %} ({{ commit.id | truncate(length=7, end="") }})\
+{% endif %}\
+{% if commit.remote.username %} by @{{ commit.remote.username }}{% endif %}
+{%- endfor %}
+{% endfor %}
+{% if previous.version and version %}
+**Full changelog:** {{ self::url() }}/compare/{{ previous.version }}...{{ version }}
+{% endif %}
+
+{%- macro url() -%}
+https://github.com/{{ remote.github.owner }}/{{ remote.github.repo }}
+{%- endmacro -%}
+"""
+trim = true
+
+[git]
+conventional_commits = true
+filter_unconventional = true
+# "(#12)" from squash-merge titles; the PR link comes from the GitHub remote
+commit_preprocessors = [{ pattern = '(?m) \(#[0-9]+\)$', replace = "" }]
+commit_parsers = [
+  { message = "^feat", group = "<!-- 0 -->Features" },
+  { message = "^fix", group = "<!-- 1 -->Bug fixes" },
+  { message = "^perf", group = "<!-- 2 -->Performance" },
+  { message = "^refactor", group = "<!-- 3 -->Refactoring" },
+  { message = "^docs", group = "<!-- 4 -->Documentation" },
+  { message = "^revert", group = "<!-- 5 -->Reverts" },
+  { message = "^(chore|ci|test|build|style)", skip = true },
+]
+filter_commits = true
+tag_pattern = "v[0-9].*"
+sort_commits = "oldest"
+
+[bump]
+# 0.x: feat bumps the minor version, and a breaking change also only bumps
+# the minor version (not straight to 1.0.0).
+features_always_bump_minor = true
+breaking_always_bump_major = false
+initial_tag = "v0.1.0"

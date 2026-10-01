@@ -239,12 +239,13 @@ and activity fingerprints to what the former Python version produced.
 
 CI and the release workflow only call these tasks. Releases are cut by hand:
 Actions → **Release** → Run workflow on `main`
-(or `gh workflow run release.yml -f bump=auto`). It runs the tests, picks the
-next version from the Conventional Commit titles since the last tag with
-[svu](https://github.com/caarlos0/svu) (`feat:` minor, `fix:` patch, `feat!:`
-major; or force `patch`/`minor`/`major`), and GoReleaser creates the tag and
-the release with a grouped changelog and the archives. PR titles must
-therefore be Conventional Commits.
+(or `gh workflow run release.yml -f bump=auto`). It runs the tests, then
+[git-cliff](https://git-cliff.org) (`cliff.toml`) picks the next version from
+the Conventional Commit titles since the last tag (`feat:` minor, `fix:` patch;
+or force `patch`/`minor`/`major`) and writes the release notes, and GoReleaser
+creates the tag and the release with those notes and the archives. PR titles
+must therefore be Conventional Commits. Preview the next release locally with
+`task changelog`.
 
 ## License
 

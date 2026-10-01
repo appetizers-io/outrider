@@ -50,6 +50,14 @@ tasks:
       - task: schema
       - git diff --exit-code config.schema.json
 
+  changelog:
+    desc: Preview the next version and its release notes (needs git-cliff, gh)
+    env:
+      GITHUB_TOKEN:
+        sh: gh auth token # PR links and authors
+    cmds:
+      - git cliff --unreleased --bump --strip all
+
   release:snapshot:
     desc: Local GoReleaser build of all archives into dist/ (no publishing)
     cmds:

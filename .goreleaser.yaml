@@ -34,20 +34,4 @@ release:
   target_commitish: "{{ .Commit }}"
 
 changelog:
-  use: github # commit links and authors
-  sort: asc
-  filters:
-    exclude:
-      - "^(chore|ci|test|build|style)(\\(.*\\))?:"
-  groups:
-    - title: Breaking changes
-      regexp: '^\w+(\(.+\))?!:'
-      order: 0
-    - title: Features
-      regexp: '^feat(\(.+\))?:'
-      order: 1
-    - title: Bug fixes
-      regexp: '^fix(\(.+\))?:'
-      order: 2
-    - title: Other changes
-      order: 999
+  disable: true # release notes come from git-cliff (cliff.toml)
