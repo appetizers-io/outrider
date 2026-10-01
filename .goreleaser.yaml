@@ -29,7 +29,7 @@ archives:
 checksum:
   name_template: checksums.txt
 
-# The release already exists (created in GitHub, with its notes); only attach
+# release-please creates the release and its notes (CHANGELOG.md); only attach
 # the archives and checksums, keep its title and notes.
 release:
   mode: keep-existing

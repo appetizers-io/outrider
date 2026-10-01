@@ -237,9 +237,13 @@ dialogs), `internal/classifier`, and `prompts/` (the prompt template).
 `testdata/python-parity.json` pins prompts, gate rules, launch-check requests
 and activity fingerprints to what the former Python version produced.
 
-CI and the release workflow only call these tasks. Releases are built by
-GoReleaser when a GitHub release is published (e.g.
-`gh release create v0.1.0 --generate-notes`); the archives are attached to it.
+CI and the release workflow only call these tasks. Releases are automated with
+[release-please](https://github.com/googleapis/release-please): it keeps a
+release PR open with the next version and its `CHANGELOG.md` entry, built from
+the Conventional Commit titles on `main` (`feat:` bumps the minor version,
+`fix:` the patch version; `feat!:` marks a breaking change). Merging that PR
+tags the release and GoReleaser attaches the archives to it. PR titles must
+therefore be Conventional Commits.
 
 ## License
 

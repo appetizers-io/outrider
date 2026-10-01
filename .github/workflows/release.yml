@@ -1,20 +1,56 @@
 name: Release
 
-# Runs when a GitHub release is published (UI or `gh release create`); builds
-# the archives and attaches them to that release.
+# release-please keeps a release PR open with the next version and its
+# CHANGELOG.md entry, built from the Conventional Commit titles merged to main.
+# Merging that PR creates the tag and the GitHub release; GoReleaser then
+# builds the archives and attaches them to it.
+#
+# release-please acts as a GitHub App, not GITHUB_TOKEN: PRs opened with
+# GITHUB_TOKEN start no workflows, so the required CI checks would never run
+# on the release PR. Setup: variable RELEASE_APP_CLIENT_ID and secret
+# RELEASE_APP_PRIVATE_KEY. Without them the workflow does nothing.
+
 on:
-  release:
-    types: [published]
+  push:
+    branches: [main]
 
 permissions:
-  contents: write
+  contents: read
+
+concurrency:
+  group: release
+  cancel-in-progress: false
 
 jobs:
-  release:
+  release-please:
+    if: vars.RELEASE_APP_CLIENT_ID != ''
     runs-on: ubuntu-latest
+    outputs:
+      release_created: ${{ steps.release.outputs.release_created }}
+      tag_name: ${{ steps.release.outputs.tag_name }}
+    steps:
+      - uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
+        id: app-token
+        with:
+          client-id: ${{ vars.RELEASE_APP_CLIENT_ID }}
+          private-key: ${{ secrets.RELEASE_APP_PRIVATE_KEY }}
+      - uses: googleapis/release-please-action@45996ed1f6d02564a971a2fa1b5860e934307cf7 # v5.0.0
+        id: release
+        with:
+          token: ${{ steps.app-token.outputs.token }}
+          config-file: release-please-config.json
+          manifest-file: .release-please-manifest.json
+
+  goreleaser:
+    needs: release-please
+    if: needs.release-please.outputs.release_created == 'true'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write # attach the archives to the release
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
+          ref: ${{ needs.release-please.outputs.tag_name }}
           persist-credentials: false
           fetch-depth: 0
       - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
