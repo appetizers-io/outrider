@@ -1,0 +1,39 @@
+version: "2"
+
+linters:
+  default: standard # errcheck, govet, ineffassign, staticcheck, unused
+  enable:
+    - errorlint
+    - gocritic
+    - gosec
+    - misspell
+    - nilerr
+    - revive
+    - unconvert
+    - unparam
+    - usestdlibvars
+  settings:
+    gosec:
+      excludes:
+        - G204 # running gh, git, tmux and the agent with arguments is the job
+        - G304 # reading files named by the config and the agent is the job
+        - G702 # same as G204, for exec with taint analysis
+        - G703 # same as G304, for file paths with taint analysis
+    revive:
+      rules:
+        - name: exported
+  exclusions:
+    presets:
+      - std-error-handling
+    rules:
+      - path: _test\.go
+        linters: [gosec, unparam]
+
+formatters:
+  enable:
+    - gofmt
+    - goimports
+  settings:
+    goimports:
+      local-prefixes:
+        - github.com/appetizers-io/llm-review-agent

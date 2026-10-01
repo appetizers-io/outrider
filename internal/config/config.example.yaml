@@ -1,0 +1,156 @@
+# yaml-language-server: $schema=./config.schema.json
+#
+# llm-review-agent configuration: every key with its default.
+# Every key is optional: delete what you don't change. Command-line flags
+# override this file. Validate with `llm-review-agent config check`.
+#
+# Location: --config, $LLM_REVIEW_AGENT_CONFIG, or
+# ~/.config/llm-review-agent/config.yaml
+
+# How prompts refer to you. null: first name from your GitHub profile, else
+# your login.
+owner_name: null
+
+# supervised: Claude sessions get deny rules for risky tools and, when its
+# classifier is available, the tool_gate on every call; other people's PRs are
+# review only. autonomous: no tool gating, and pushing to other people's PRs
+# follows others_prs.allow_push (default: allowed).
+mode: supervised              # supervised | autonomous
+
+# Pushes in sessions that may push (your own PRs, others' PRs with
+# others_prs.allow_push). ask: every `git push` opens a dialog and runs only
+# after you click Push (without a dialog it is refused). never: commits stay
+# local. allow: no question. null: ask in supervised mode, allow in autonomous.
+push: null                    # ask | never | allow | null
+
+# Comments, review comments and replies, reviews and reactions the agent posts
+# with `gh` on the session's PR. ask: each one opens a dialog showing the text
+# and runs only after you click Post. never: GitHub stays read-only. allow: no
+# question. null: ask in supervised mode, allow in autonomous mode.
+github_writes: null           # ask | never | allow | null
+
+agent: codex                  # codex | claude
+
+# auto: macOS: the terminal in a desktop (Aqua) session, else tmux. Linux: the
+# terminal when a display is present and a terminal resolves, else tmux.
+# Windows: always the terminal.
+launcher: auto                # auto | terminal | tmux
+
+# Terminal app for launcher: terminal. auto: detected once at startup
+# ($TERM_PROGRAM, then terminal-specific variables, then $TERMINAL, then the
+# platform default). A name forces that app: terminal-app, iterm, ghostty,
+# wezterm, kitty, windows-terminal, x-terminal-emulator, cmd. Anything else is
+# a command list with a {cmd} placeholder, e.g. [alacritty, -e, "{cmd}"].
+terminal: auto
+
+# Pause between polls (>= 10). Doubles on consecutive failures, up to 15 min.
+interval_seconds: 60
+
+# Notification window, and how long an unseen candidate PR is kept.
+lookback_hours: 168
+
+# Agent sessions allowed to run at once.
+max_agents: 1
+
+# Most recently seen non-owned PRs checked for the opt-in reaction per poll.
+candidate_limit: 50
+
+# A session lock older than this is dead.
+stale_lock_hours: 12
+
+repos:
+  # owner/repo globs or GitHub URLs. Empty: the checkout you run in, else
+  # every repo. * (also across "/"), ?, [abc], [!abc] and {a,b} work, e.g.
+  # ["open-component-model/*", "my-org/{api,web}"]. A broken glob is an error.
+  include: []
+  # owner/repo globs or GitHub URLs that never trigger.
+  exclude: []
+
+# Login globs (* and ?) whose activity alone never triggers a session,
+# e.g. ["netlify[bot]", "*[bot]"].
+ignore_authors: []
+
+triggers:
+  # Notifications on PRs you authored.
+  own_prs:
+    enabled: true
+    check: true               # run launch_check first (when available)
+  # Your reaction on someone else's PR opts it in; sessions cover the whole PR.
+  opt_in:
+    enabled: true
+    # +1 | -1 | laugh | confused | heart | hooray | rocket | eyes.
+    # Removing it stops the watch.
+    reaction: eyes
+    where: [description, comment, review, review_comment]
+    # Relaunch when reviews or comments on an opted-in PR change.
+    on_change:
+      check: true
+      # Changes made only by you (or by ignore_authors) never relaunch.
+      ignore_own_activity: true
+  # Someone replies in a review thread you took part in.
+  review_replies:
+    enabled: true
+    check: true
+    scope: thread             # thread: only the replied threads | pr: the whole PR
+    fresh_within_hours: null  # only replies this recent trigger; null: lookback_hours
+  # Someone @mentions you on a PR that is neither yours nor opted in.
+  mentions:
+    enabled: true
+    check: true
+    scope: comment            # comment: only the mentioning comments | pr: the whole PR
+    fresh_within_hours: null
+
+# Sessions on PRs someone else authored.
+others_prs:
+  # false: review only (no edits, commits or pushes; git push is blocked).
+  # true: it may push fixes to the PR branch (fast-forward only).
+  # null: false in supervised mode, true in autonomous mode.
+  allow_push: null
+
+# Named decision backends for launch_check and tool_gate. 'jev' is always
+# defined.
+classifiers:
+  # Jev via jev-use: `<command> judge` for launch checks, `<command> hook gate`
+  # as the tool gate.
+  jev:
+    kind: jev
+    # auto: on when the command is found and a Jev backend is configured
+    # (TYPESAFE_API_KEY, OPENROUTER_API_KEY, AI_GATEWAY_API_KEY, JEV_BACKEND).
+    enabled: auto             # auto | true | false
+    command: null             # null: jev-use on PATH, else npx -y jev-use@0.8.0
+    # Launch check: below this confidence Jev escalates, which launches.
+    # null: jev-use's defaults (0.5 reported, 0.4 estimated).
+    confidence_threshold: null
+    timeout_seconds: 60       # a slower launch check launches anyway
+  # Any local classifier. launch_command gets a JSON request on stdin and
+  # prints {"launch": bool} or {"probability": 0..1}, optionally with
+  # "reason". hook_command is a Claude Code / Codex PreToolUse hook; the session
+  # policy is in $LLM_REVIEW_AGENT_POLICY_FILE and $LLM_REVIEW_AGENT_GATE_TEXT.
+  # local:
+  #   kind: command
+  #   enabled: true
+  #   launch_command: ~/bin/pr-classifier launch
+  #   hook_command: ~/bin/pr-classifier hook
+  #   timeout_seconds: 30
+
+# Ask a classifier whether new activity is worth an agent session.
+launch_check:
+  classifier: jev             # name from classifiers; null: always launch
+  # Skip when the classifier is confident the probability that something is
+  # actionable is below this.
+  skip_below: 0.5
+
+# Check every tool call in supervised agent sessions (PreToolUse hook).
+tool_gate:
+  classifier: jev             # name from classifiers; null: no tool gate
+  matcher: Bash|Write|Edit|NotebookEdit
+  # Confidence below which the gate asks instead of deciding. null: the
+  # classifier's own default.
+  threshold: null
+  # Your own rules for every tool call, e.g. ["never modify generated/"].
+  rules: []
+  include_prompt_extra: false # also enforce prompts.extra through the gate
+
+prompts:
+  # Appended to every agent prompt, e.g. house rules for tests or commits.
+  extra: ""

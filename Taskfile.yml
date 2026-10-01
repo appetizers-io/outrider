@@ -1,0 +1,64 @@
+version: "3"
+
+# The single entrypoint for building and checking: CI and the release workflow
+# only call these tasks.
+
+vars:
+  BIN: bin/llm-review-agent{{exeExt}}
+
+tasks:
+  lint:
+    desc: golangci-lint
+    cmds:
+      - golangci-lint run
+
+  vet:
+    desc: go vet for every target OS
+    cmds:
+      - go vet ./...
+      - GOOS=linux go vet ./...
+      - GOOS=darwin go vet ./...
+      - GOOS=windows go vet ./...
+
+  test:
+    desc: Unit tests with the race detector
+    cmds:
+      - go test -race ./...
+
+  build:
+    desc: Build the binary into bin/
+    cmds:
+      - go build -o {{.BIN}} .
+
+  install:
+    desc: Build and install the binary into INSTALL_DIR (default ~/.local/bin)
+    vars:
+      INSTALL_DIR: '{{.INSTALL_DIR | default (print .HOME "/.local/bin")}}'
+    cmds:
+      - mkdir -p "{{.INSTALL_DIR}}"
+      - go build -o "{{.INSTALL_DIR}}/llm-review-agent{{exeExt}}" .
+      - echo "installed {{.INSTALL_DIR}}/llm-review-agent{{exeExt}}"
+
+  schema:
+    desc: Regenerate config.schema.json after changing internal/config
+    cmds:
+      - go run . config schema > config.schema.json
+
+  schema:check:
+    desc: Fail if config.schema.json is out of date
+    cmds:
+      - task: schema
+      - git diff --exit-code config.schema.json
+
+  release:snapshot:
+    desc: Local GoReleaser build of all archives into dist/ (no publishing)
+    cmds:
+      - goreleaser release --snapshot --clean
+
+  all:
+    desc: lint + vet + test + build
+    cmds:
+      - task: lint
+      - task: vet
+      - task: test
+      - task: build

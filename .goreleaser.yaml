@@ -1,0 +1,38 @@
+# yaml-language-server: $schema=https://goreleaser.com/static/schema.json
+version: 2
+
+project_name: llm-review-agent
+
+builds:
+  - main: .
+    binary: llm-review-agent
+    env:
+      - CGO_ENABLED=0
+    goos: [darwin, linux, windows]
+    goarch: [amd64, arm64]
+    flags: [-trimpath]
+    ldflags:
+      - -s -w -X github.com/appetizers-io/llm-review-agent/internal/cli.Version={{.Version}}
+
+archives:
+  - formats: [tar.gz]
+    format_overrides:
+      - goos: windows
+        formats: [zip]
+    files:
+      - LICENSE
+      - README.md
+      - src: internal/config/config.example.yaml
+        dst: config.example.yaml
+      - config.schema.json
+
+checksum:
+  name_template: checksums.txt
+
+# release-please creates the release and its notes (CHANGELOG.md); only attach
+# the archives and checksums, keep its title and notes.
+release:
+  mode: keep-existing
+
+changelog:
+  disable: true

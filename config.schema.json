@@ -2,227 +2,208 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://github.com/appetizers-io/llm-review-agent/config.schema.json",
   "$defs": {
+    "Classifier": {
+      "oneOf": [
+        {
+          "$ref": "#/$defs/JevClassifier"
+        },
+        {
+          "$ref": "#/$defs/CommandClassifier"
+        }
+      ]
+    },
+    "Classifiers": {
+      "additionalProperties": {
+        "$ref": "#/$defs/Classifier"
+      },
+      "type": "object"
+    },
     "CommandClassifier": {
-      "additionalProperties": false,
-      "description": "Any local classifier.\n\nlaunch_command gets a JSON request on stdin and prints\n{\"launch\": bool} or {\"probability\": 0..1}, optionally with \"reason\".\nhook_command is a Claude Code / Codex PreToolUse hook; the session policy\nis in $LLM_REVIEW_AGENT_POLICY_FILE and $LLM_REVIEW_AGENT_GATE_TEXT.",
       "properties": {
         "kind": {
-          "const": "command",
-          "title": "Kind",
-          "type": "string"
+          "type": "string",
+          "const": "command"
         },
         "enabled": {
-          "default": true,
-          "title": "Enabled",
-          "type": "boolean"
+          "type": "boolean",
+          "default": true
         },
         "launch_command": {
-          "anyOf": [
+          "oneOf": [
             {
+              "type": "string",
               "minLength": 1,
-              "type": "string"
+              "description": "Command for launch checks: JSON request on stdin, {\"launch\": bool} or {\"probability\": 0..1} on stdout. null: can't do them."
             },
             {
               "type": "null"
             }
-          ],
-          "default": null,
-          "description": "Command for launch checks; null: can't do them.",
-          "title": "Launch Command"
+          ]
         },
         "hook_command": {
-          "anyOf": [
+          "oneOf": [
             {
+              "type": "string",
               "minLength": 1,
-              "type": "string"
+              "description": "Claude Code / Codex PreToolUse hook command. null: can't gate tools."
             },
             {
               "type": "null"
             }
-          ],
-          "default": null,
-          "description": "PreToolUse hook command; null: can't gate tools.",
-          "title": "Hook Command"
+          ]
         },
         "timeout_seconds": {
-          "default": 30,
-          "description": "A slower launch check launches anyway.",
+          "type": "integer",
           "minimum": 1,
-          "title": "Timeout Seconds",
-          "type": "integer"
+          "description": "A slower launch check launches anyway.",
+          "default": 30
         }
       },
+      "additionalProperties": false,
+      "type": "object",
       "required": [
         "kind"
-      ],
-      "title": "CommandClassifier",
-      "type": "object"
+      ]
     },
     "JevClassifier": {
-      "additionalProperties": false,
-      "description": "Jev via jev-use: `<command> judge` for launch checks, `<command> hook\ngate` as the tool gate.",
       "properties": {
         "kind": {
-          "const": "jev",
+          "type": "string",
           "default": "jev",
-          "title": "Kind",
-          "type": "string"
+          "const": "jev"
         },
         "enabled": {
-          "default": "auto",
-          "description": "auto: on when the command is found and a Jev backend is configured (TYPESAFE_API_KEY, OPENROUTER_API_KEY, AI_GATEWAY_API_KEY, JEV_BACKEND).",
-          "enum": [
-            "auto",
-            true,
-            false
-          ],
-          "title": "Enabled"
+          "$ref": "#/$defs/JevEnabled",
+          "description": "auto: on when the command is found and a Jev backend is configured (TYPESAFE_API_KEY, OPENROUTER_API_KEY, AI_GATEWAY_API_KEY, JEV_BACKEND)."
         },
         "command": {
-          "anyOf": [
+          "oneOf": [
             {
+              "type": "string",
               "minLength": 1,
-              "type": "string"
+              "description": "null: jev-use on PATH, else npx -y jev-use@0.8.0."
             },
             {
               "type": "null"
             }
-          ],
-          "default": null,
-          "description": "null: jev-use on PATH, else npx -y jev-use@0.8.0.",
-          "title": "Command"
+          ]
         },
         "confidence_threshold": {
-          "anyOf": [
+          "oneOf": [
             {
+              "type": "number",
               "maximum": 1,
               "minimum": 0,
-              "type": "number"
+              "description": "Launch check: below this confidence Jev escalates, which launches. null: jev-use's defaults (0.5 reported, 0.4 estimated)."
             },
             {
               "type": "null"
             }
-          ],
-          "default": null,
-          "description": "Launch check: below this confidence Jev escalates, which launches. null: jev-use's defaults (0.5 reported, 0.4 estimated).",
-          "title": "Confidence Threshold"
+          ]
         },
         "timeout_seconds": {
-          "default": 60,
-          "description": "A slower launch check launches anyway.",
+          "type": "integer",
           "minimum": 1,
-          "title": "Timeout Seconds",
-          "type": "integer"
+          "description": "A slower launch check launches anyway.",
+          "default": 60
         }
       },
-      "title": "JevClassifier",
+      "additionalProperties": false,
       "type": "object"
     },
+    "JevEnabled": {
+      "enum": [
+        "auto",
+        true,
+        false
+      ],
+      "default": "auto"
+    },
     "LaunchCheck": {
-      "additionalProperties": false,
-      "description": "Ask a classifier whether new activity is worth an agent session.",
       "properties": {
         "classifier": {
-          "anyOf": [
+          "oneOf": [
             {
+              "type": "string",
               "minLength": 1,
-              "type": "string"
+              "description": "Name from classifiers; null: always launch."
             },
             {
               "type": "null"
             }
-          ],
-          "default": "jev",
-          "description": "Name from classifiers; null: always launch.",
-          "title": "Classifier"
+          ]
         },
         "skip_below": {
-          "default": 0.5,
-          "description": "Skip when the classifier is confident the probability that something is actionable is below this.",
+          "type": "number",
           "maximum": 1,
           "minimum": 0,
-          "title": "Skip Below",
-          "type": "number"
+          "description": "Skip when the classifier is confident the probability that something is actionable is below this.",
+          "default": 0.5
         }
       },
-      "title": "LaunchCheck",
+      "additionalProperties": false,
       "type": "object"
     },
     "Mentions": {
-      "additionalProperties": false,
-      "description": "Someone @mentions your login on a PR that is neither yours nor opted in\n(those already relaunch for any new activity).",
       "properties": {
         "enabled": {
-          "default": true,
-          "title": "Enabled",
-          "type": "boolean"
+          "type": "boolean",
+          "default": true
         },
         "check": {
-          "default": true,
+          "type": "boolean",
           "description": "Run the launch_check classifier before starting an agent (only when one is configured and available).",
-          "title": "Check",
-          "type": "boolean"
+          "default": true
         },
         "scope": {
-          "default": "comment",
-          "description": "comment: the session handles only the mentioning comments. pr: the whole PR.",
+          "type": "string",
           "enum": [
             "comment",
             "pr"
           ],
-          "title": "Scope",
-          "type": "string"
+          "description": "comment: the session handles only the mentioning comments. pr: the whole PR.",
+          "default": "comment"
         },
         "fresh_within_hours": {
-          "anyOf": [
+          "oneOf": [
             {
+              "type": "integer",
               "minimum": 1,
-              "type": "integer"
+              "description": "Only mentions this recent trigger. null: lookback_hours."
             },
             {
               "type": "null"
             }
-          ],
-          "default": null,
-          "description": "Only mentions this recent trigger. null: lookback_hours.",
-          "title": "Fresh Within Hours"
+          ]
         }
       },
-      "title": "Mentions",
+      "additionalProperties": false,
       "type": "object"
     },
     "OnChange": {
-      "additionalProperties": false,
-      "description": "Relaunch when reviews or comments on an opted-in PR change.",
       "properties": {
         "check": {
-          "default": true,
+          "type": "boolean",
           "description": "Run the launch_check classifier before starting an agent (only when one is configured and available).",
-          "title": "Check",
-          "type": "boolean"
+          "default": true
         },
         "ignore_own_activity": {
-          "default": true,
+          "type": "boolean",
           "description": "Changes made only by you (or by ignore_authors) never relaunch.",
-          "title": "Ignore Own Activity",
-          "type": "boolean"
+          "default": true
         }
       },
-      "title": "OnChange",
+      "additionalProperties": false,
       "type": "object"
     },
     "OptIn": {
-      "additionalProperties": false,
-      "description": "Your reaction on someone else's PR opts it in; sessions cover the whole PR.",
       "properties": {
         "enabled": {
-          "default": true,
-          "title": "Enabled",
-          "type": "boolean"
+          "type": "boolean",
+          "default": true
         },
         "reaction": {
-          "default": "eyes",
-          "description": "GitHub reaction that opts a PR in. Removing it stops the watch.",
+          "type": "string",
           "enum": [
             "+1",
             "-1",
@@ -233,503 +214,369 @@
             "rocket",
             "eyes"
           ],
-          "title": "Reaction",
-          "type": "string"
+          "description": "GitHub reaction that opts a PR in. Removing it stops the watch.",
+          "default": "eyes"
         },
         "where": {
-          "default": [
-            "description",
-            "comment",
-            "review",
-            "review_comment"
-          ],
-          "description": "Where the reaction counts.",
           "items": {
+            "type": "string",
             "enum": [
               "description",
               "comment",
               "review",
               "review_comment"
-            ],
-            "type": "string"
+            ]
           },
-          "minItems": 1,
-          "title": "Where",
           "type": "array",
-          "uniqueItems": true
+          "minItems": 1,
+          "uniqueItems": true,
+          "description": "Where the reaction counts."
         },
         "on_change": {
-          "$ref": "#/$defs/OnChange",
-          "default": {
-            "check": true,
-            "ignore_own_activity": true
-          }
+          "$ref": "#/$defs/OnChange"
         }
       },
-      "title": "OptIn",
+      "additionalProperties": false,
       "type": "object"
     },
-    "OthersPrs": {
-      "additionalProperties": false,
-      "description": "Sessions on PRs someone else authored.",
+    "OthersPRs": {
       "properties": {
         "allow_push": {
-          "anyOf": [
+          "oneOf": [
             {
-              "type": "boolean"
+              "type": "boolean",
+              "description": "false: review only. The agent must not edit, commit or push, and git push is blocked in the session. true: it may push fixes to the PR branch (fast-forward only). null: false in supervised mode, true in autonomous mode."
             },
             {
               "type": "null"
             }
-          ],
-          "default": null,
-          "description": "false: review only. The agent must not edit, commit or push, and `git push` is blocked in the session. true: it may push fixes to the PR branch (fast-forward only). null: false in supervised mode, true in autonomous mode.",
-          "title": "Allow Push"
+          ]
         }
       },
-      "title": "OthersPrs",
+      "additionalProperties": false,
       "type": "object"
     },
-    "OwnPrs": {
-      "additionalProperties": false,
-      "description": "Notifications on PRs you authored.",
+    "OwnPRs": {
       "properties": {
         "enabled": {
-          "default": true,
-          "title": "Enabled",
-          "type": "boolean"
+          "type": "boolean",
+          "default": true
         },
         "check": {
-          "default": true,
+          "type": "boolean",
           "description": "Run the launch_check classifier before starting an agent (only when one is configured and available).",
-          "title": "Check",
-          "type": "boolean"
+          "default": true
         }
       },
-      "title": "OwnPrs",
+      "additionalProperties": false,
       "type": "object"
     },
     "Prompts": {
-      "additionalProperties": false,
       "properties": {
         "extra": {
-          "default": "",
-          "description": "Appended to every agent prompt, e.g. house rules for tests or commits.",
-          "title": "Extra",
-          "type": "string"
+          "type": "string",
+          "description": "Appended to every agent prompt, e.g. house rules for tests or commits."
         }
       },
-      "title": "Prompts",
+      "additionalProperties": false,
       "type": "object"
     },
     "Repos": {
-      "additionalProperties": false,
       "properties": {
         "include": {
-          "default": [],
-          "description": "owner/repo globs or GitHub URLs. Empty: the checkout you run in, else every repo.",
           "items": {
-            "minLength": 1,
-            "type": "string"
+            "type": "string",
+            "minLength": 1
           },
-          "title": "Include",
-          "type": "array"
+          "type": "array",
+          "description": "owner/repo globs (*, ?, [abc], [!abc], {a,b}) or GitHub URLs. Empty: the checkout you run in, else every repo."
         },
         "exclude": {
-          "default": [],
-          "description": "owner/repo globs or GitHub URLs that never trigger.",
           "items": {
-            "minLength": 1,
-            "type": "string"
+            "type": "string",
+            "minLength": 1
           },
-          "title": "Exclude",
-          "type": "array"
+          "type": "array",
+          "description": "owner/repo globs or GitHub URLs that never trigger."
         }
       },
-      "title": "Repos",
+      "additionalProperties": false,
       "type": "object"
     },
     "ReviewReplies": {
-      "additionalProperties": false,
-      "description": "Someone replies in a review thread you took part in.",
       "properties": {
         "enabled": {
-          "default": true,
-          "title": "Enabled",
-          "type": "boolean"
+          "type": "boolean",
+          "default": true
         },
         "check": {
-          "default": true,
+          "type": "boolean",
           "description": "Run the launch_check classifier before starting an agent (only when one is configured and available).",
-          "title": "Check",
-          "type": "boolean"
+          "default": true
         },
         "scope": {
-          "default": "thread",
-          "description": "thread: the session handles only the replied threads. pr: the whole PR.",
+          "type": "string",
           "enum": [
             "thread",
             "pr"
           ],
-          "title": "Scope",
-          "type": "string"
+          "description": "thread: the session handles only the replied threads. pr: the whole PR.",
+          "default": "thread"
         },
         "fresh_within_hours": {
-          "anyOf": [
+          "oneOf": [
             {
+              "type": "integer",
               "minimum": 1,
-              "type": "integer"
+              "description": "Only replies this recent trigger. null: lookback_hours."
             },
             {
               "type": "null"
             }
-          ],
-          "default": null,
-          "description": "Only replies this recent trigger. null: lookback_hours.",
-          "title": "Fresh Within Hours"
+          ]
         }
       },
-      "title": "ReviewReplies",
+      "additionalProperties": false,
       "type": "object"
     },
+    "Terminal": {
+      "anyOf": [
+        {
+          "type": "string",
+          "enum": [
+            "auto",
+            "terminal-app",
+            "iterm",
+            "ghostty",
+            "wezterm",
+            "kitty",
+            "windows-terminal",
+            "x-terminal-emulator",
+            "cmd"
+          ]
+        },
+        {
+          "items": {
+            "type": "string",
+            "minLength": 1
+          },
+          "contains": {
+            "type": "string",
+            "pattern": "\\{cmd\\}"
+          },
+          "type": "array",
+          "minItems": 1
+        }
+      ],
+      "default": "auto"
+    },
     "ToolGate": {
-      "additionalProperties": false,
-      "description": "Check every tool call in supervised agent sessions (PreToolUse hook).",
       "properties": {
         "classifier": {
-          "anyOf": [
+          "oneOf": [
             {
+              "type": "string",
               "minLength": 1,
-              "type": "string"
+              "description": "Name from classifiers; null: no tool gate."
             },
             {
               "type": "null"
             }
-          ],
-          "default": "jev",
-          "description": "Name from classifiers; null: no tool gate.",
-          "title": "Classifier"
+          ]
         },
         "matcher": {
-          "default": "Bash|Write|Edit|NotebookEdit",
-          "description": "Tools the gate sees.",
+          "type": "string",
           "minLength": 1,
-          "title": "Matcher",
-          "type": "string"
+          "description": "Tools the gate sees."
         },
         "threshold": {
-          "anyOf": [
+          "oneOf": [
             {
+              "type": "number",
               "maximum": 1,
               "minimum": 0,
-              "type": "number"
+              "description": "Confidence below which the gate asks instead of deciding. null: the classifier's own default."
             },
             {
               "type": "null"
             }
-          ],
-          "default": null,
-          "description": "Confidence below which the gate asks instead of deciding. null: the classifier's own default.",
-          "title": "Threshold"
+          ]
         },
         "rules": {
-          "default": [],
-          "description": "Your own rules for every tool call, e.g. \"never modify generated/\".",
           "items": {
-            "minLength": 1,
-            "type": "string"
+            "type": "string",
+            "minLength": 1
           },
-          "title": "Rules",
-          "type": "array"
+          "type": "array",
+          "description": "Your own rules for every tool call, e.g. never modify generated/."
         },
         "include_prompt_extra": {
-          "default": false,
-          "description": "Also enforce prompts.extra through the gate.",
-          "title": "Include Prompt Extra",
-          "type": "boolean"
+          "type": "boolean",
+          "description": "Also enforce prompts.extra through the gate."
         }
       },
-      "title": "ToolGate",
+      "additionalProperties": false,
       "type": "object"
     },
     "Triggers": {
-      "additionalProperties": false,
       "properties": {
         "own_prs": {
-          "$ref": "#/$defs/OwnPrs",
-          "default": {
-            "enabled": true,
-            "check": true
-          }
+          "$ref": "#/$defs/OwnPRs"
         },
         "opt_in": {
-          "$ref": "#/$defs/OptIn",
-          "default": {
-            "enabled": true,
-            "reaction": "eyes",
-            "where": [
-              "description",
-              "comment",
-              "review",
-              "review_comment"
-            ],
-            "on_change": {
-              "check": true,
-              "ignore_own_activity": true
-            }
-          }
+          "$ref": "#/$defs/OptIn"
         },
         "review_replies": {
-          "$ref": "#/$defs/ReviewReplies",
-          "default": {
-            "enabled": true,
-            "check": true,
-            "scope": "thread",
-            "fresh_within_hours": null
-          }
+          "$ref": "#/$defs/ReviewReplies"
         },
         "mentions": {
-          "$ref": "#/$defs/Mentions",
-          "default": {
-            "enabled": true,
-            "check": true,
-            "scope": "comment",
-            "fresh_within_hours": null
-          }
+          "$ref": "#/$defs/Mentions"
         }
       },
-      "title": "Triggers",
+      "additionalProperties": false,
       "type": "object"
     }
   },
-  "additionalProperties": false,
-  "description": "llm-review-agent configuration. Every key is optional; command-line flags\noverride this file.",
   "properties": {
     "owner_name": {
-      "anyOf": [
+      "oneOf": [
         {
+          "type": "string",
           "minLength": 1,
-          "type": "string"
+          "description": "How prompts refer to you. null: first name from your GitHub profile, else your login."
         },
         {
           "type": "null"
         }
-      ],
-      "default": null,
-      "description": "How prompts refer to you. null: first name from your GitHub profile, else your login.",
-      "title": "Owner Name"
+      ]
     },
     "mode": {
-      "default": "supervised",
-      "description": "supervised: Claude sessions get deny rules for risky tools and, when its classifier is available, the tool_gate on every call; other people's PRs are review only. autonomous: no tool gating, and pushing to other people's PRs follows others_prs.allow_push (default: allowed).",
+      "type": "string",
       "enum": [
         "supervised",
         "autonomous"
       ],
-      "title": "Mode",
-      "type": "string"
+      "description": "supervised: Claude sessions get deny rules for risky tools and, when its classifier is available, the tool_gate on every call; other people's PRs are review only. autonomous: no tool gating, and pushing to other people's PRs follows others_prs.allow_push (default: allowed).",
+      "default": "supervised"
     },
     "push": {
-      "anyOf": [
+      "oneOf": [
         {
+          "type": "string",
           "enum": [
             "ask",
             "never",
             "allow"
           ],
-          "type": "string"
+          "description": "Pushes in sessions that may push (your own PRs, others' PRs with others_prs.allow_push). ask: every git push opens a dialog and runs only after you click Push (without a dialog it is refused). never: commits stay local. allow: no question. null: ask in supervised mode, allow in autonomous mode."
         },
         {
           "type": "null"
         }
-      ],
-      "default": null,
-      "description": "Pushes in sessions that may push (your own PRs, others' PRs with others_prs.allow_push). ask: every `git push` opens a dialog and runs only after you click Push (macOS; elsewhere it is refused). never: commits stay local. allow: no question. null: ask in supervised mode, allow in autonomous mode.",
-      "title": "Push"
+      ]
     },
     "github_writes": {
-      "anyOf": [
+      "oneOf": [
         {
+          "type": "string",
           "enum": [
             "ask",
             "never",
             "allow"
           ],
-          "type": "string"
+          "description": "Comments, review comments and replies, reviews and reactions the agent posts with gh on the session's PR. ask: each one opens a dialog showing the text and runs only after you click Post (without a dialog it is refused). never: GitHub stays read-only. allow: no question. null: ask in supervised mode, allow in autonomous mode."
         },
         {
           "type": "null"
         }
-      ],
-      "default": null,
-      "description": "Comments, review comments and replies, reviews and reactions the agent posts with `gh` on the session's PR, in every session. ask: each one opens a dialog showing the text and runs only after you click Post (macOS; elsewhere it is refused). never: GitHub stays read-only. allow: no question. Merging, closing, editing the PR and writes to other PRs are always refused. null: ask in supervised mode, allow in autonomous mode.",
-      "title": "Github Writes"
+      ]
     },
     "agent": {
-      "default": "codex",
-      "description": "Coding agent CLI to launch.",
+      "type": "string",
       "enum": [
         "codex",
         "claude"
       ],
-      "title": "Agent",
-      "type": "string"
+      "description": "Coding agent CLI to launch.",
+      "default": "codex"
     },
     "launcher": {
-      "default": "auto",
-      "description": "auto: Terminal on a macOS desktop session, else tmux.",
+      "type": "string",
       "enum": [
         "auto",
         "terminal",
         "tmux"
       ],
-      "title": "Launcher",
-      "type": "string"
+      "description": "auto: macOS: the terminal in a desktop (Aqua) session, else tmux. Linux: the terminal when a display is present and a terminal resolves, else tmux. Windows: always the terminal.",
+      "default": "auto"
+    },
+    "terminal": {
+      "$ref": "#/$defs/Terminal",
+      "description": "Terminal app for launcher: terminal. auto: detected once at startup. A name forces that app. A command list with a {cmd} placeholder runs anything else, e.g. [alacritty, -e, '{cmd}']."
     },
     "interval_seconds": {
-      "default": 60,
-      "description": "Pause between polls. Doubles on consecutive failures, up to 15 minutes.",
+      "type": "integer",
       "minimum": 10,
-      "title": "Interval Seconds",
-      "type": "integer"
+      "description": "Pause between polls. Doubles on consecutive failures, up to 15 minutes.",
+      "default": 60
     },
     "lookback_hours": {
-      "default": 168,
-      "description": "Notification window, and how long an unseen candidate PR is kept.",
+      "type": "integer",
       "minimum": 1,
-      "title": "Lookback Hours",
-      "type": "integer"
+      "description": "Notification window, and how long an unseen candidate PR is kept.",
+      "default": 168
     },
     "max_agents": {
-      "default": 1,
-      "description": "Agent sessions allowed to run at once.",
+      "type": "integer",
       "minimum": 1,
-      "title": "Max Agents",
-      "type": "integer"
+      "description": "Agent sessions allowed to run at once.",
+      "default": 1
     },
     "candidate_limit": {
-      "default": 50,
-      "description": "Most recently seen non-owned PRs checked for the opt-in reaction per poll.",
+      "type": "integer",
       "minimum": 1,
-      "title": "Candidate Limit",
-      "type": "integer"
+      "description": "Most recently seen non-owned PRs checked for the opt-in reaction per poll.",
+      "default": 50
     },
     "stale_lock_hours": {
-      "default": 12,
-      "description": "A session lock older than this is dead.",
+      "type": "number",
       "exclusiveMinimum": 0,
-      "title": "Stale Lock Hours",
-      "type": "number"
+      "description": "A session lock older than this is dead.",
+      "default": 12
     },
     "repos": {
-      "$ref": "#/$defs/Repos",
-      "default": {
-        "include": [],
-        "exclude": []
-      }
+      "$ref": "#/$defs/Repos"
     },
     "ignore_authors": {
-      "default": [],
-      "description": "Login globs whose activity alone never triggers a session, e.g. \"netlify[bot]\" or \"*[bot]\".",
       "items": {
-        "minLength": 1,
-        "type": "string"
-      },
-      "title": "Ignore Authors",
-      "type": "array"
-    },
-    "triggers": {
-      "$ref": "#/$defs/Triggers",
-      "default": {
-        "own_prs": {
-          "check": true,
-          "enabled": true
-        },
-        "opt_in": {
-          "enabled": true,
-          "on_change": {
-            "check": true,
-            "ignore_own_activity": true
-          },
-          "reaction": "eyes",
-          "where": [
-            "description",
-            "comment",
-            "review",
-            "review_comment"
-          ]
-        },
-        "review_replies": {
-          "check": true,
-          "enabled": true,
-          "fresh_within_hours": null,
-          "scope": "thread"
-        },
-        "mentions": {
-          "check": true,
-          "enabled": true,
-          "fresh_within_hours": null,
-          "scope": "comment"
-        }
-      }
-    },
-    "others_prs": {
-      "$ref": "#/$defs/OthersPrs",
-      "default": {
-        "allow_push": null
-      }
-    },
-    "classifiers": {
-      "additionalProperties": {
-        "oneOf": [
-          {
-            "$ref": "#/$defs/JevClassifier"
-          },
-          {
-            "$ref": "#/$defs/CommandClassifier"
-          }
-        ]
-      },
-      "default": {
-        "jev": {
-          "command": null,
-          "confidence_threshold": null,
-          "enabled": "auto",
-          "kind": "jev",
-          "timeout_seconds": 60
-        }
-      },
-      "description": "Named decision backends. 'jev' is always defined; add `kind: command` entries for local classifiers.",
-      "propertyNames": {
+        "type": "string",
         "minLength": 1
       },
-      "title": "Classifiers",
-      "type": "object"
+      "type": "array",
+      "description": "Login globs (* and ?) whose activity alone never triggers a session, e.g. netlify[bot] or *[bot]."
+    },
+    "triggers": {
+      "$ref": "#/$defs/Triggers"
+    },
+    "others_prs": {
+      "$ref": "#/$defs/OthersPRs"
+    },
+    "classifiers": {
+      "$ref": "#/$defs/Classifiers",
+      "description": "Named decision backends. 'jev' is always defined; add kind: command entries for local classifiers."
     },
     "launch_check": {
-      "$ref": "#/$defs/LaunchCheck",
-      "default": {
-        "classifier": "jev",
-        "skip_below": 0.5
-      }
+      "$ref": "#/$defs/LaunchCheck"
     },
     "tool_gate": {
-      "$ref": "#/$defs/ToolGate",
-      "default": {
-        "classifier": "jev",
-        "matcher": "Bash|Write|Edit|NotebookEdit",
-        "threshold": null,
-        "rules": [],
-        "include_prompt_extra": false
-      }
+      "$ref": "#/$defs/ToolGate"
     },
     "prompts": {
-      "$ref": "#/$defs/Prompts",
-      "default": {
-        "extra": ""
-      }
+      "$ref": "#/$defs/Prompts"
     }
   },
+  "additionalProperties": false,
+  "type": "object",
   "title": "llm-review-agent configuration",
-  "type": "object"
+  "description": "Every key is optional; command-line flags override this file."
 }

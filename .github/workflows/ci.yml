@@ -1,6 +1,8 @@
 name: CI
 
-# The org-wide "CI Health Check" required workflow gates merges on these jobs.
+# Every step runs a Taskfile task, the same commands as locally.
+# The org-wide "CI Health Check" required workflow gates merges on the jobs
+# lint, typecheck and test.
 
 on:
   pull_request:
@@ -16,32 +18,53 @@ concurrency:
 
 jobs:
   lint:
-    runs-on: appetizers-arm64
+    runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-      - uses: astral-sh/setup-uv@c18668ad3cf93ea998bef934396af7bb5c839dc7 # v10.2.0
         with:
-          enable-cache: true
-      - run: uv sync --locked
-      - run: uv run ruff check --output-format=github
-      - run: uv run ruff format --check
+          persist-credentials: false
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: go.mod
+      - uses: go-task/setup-task@a00fbb05ce67b35648be3c78cbc9fd85354c757e # v2.2.0
+        with:
+          version: 3.x
+      - uses: golangci/golangci-lint-action@ba0d7d2ec06a0ea1cb5fa41b2e4a3ab91d21278a # v9.3.0
+        with:
+          version: v2.13.2
+          install-only: true
+      - run: task lint
+      - run: task schema:check
 
   typecheck:
-    runs-on: appetizers-arm64
+    runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-      - uses: astral-sh/setup-uv@c18668ad3cf93ea998bef934396af7bb5c839dc7 # v10.2.0
         with:
-          enable-cache: true
-      - run: uv sync --locked
-      - run: uv run mypy
+          persist-credentials: false
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: go.mod
+      - uses: go-task/setup-task@a00fbb05ce67b35648be3c78cbc9fd85354c757e # v2.2.0
+        with:
+          version: 3.x
+      - run: task vet
 
   test:
-    runs-on: appetizers-arm64
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-      - uses: astral-sh/setup-uv@c18668ad3cf93ea998bef934396af7bb5c839dc7 # v10.2.0
         with:
-          enable-cache: true
-      - run: uv sync --locked
-      - run: uv run pytest
+          persist-credentials: false
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: go.mod
+      - uses: go-task/setup-task@a00fbb05ce67b35648be3c78cbc9fd85354c757e # v2.2.0
+        with:
+          version: 3.x
+      - run: task test
+      - run: task build
