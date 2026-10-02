@@ -468,11 +468,19 @@ func (l *Launcher) open(ctx context.Context, r Request, p Prepared) error {
 	if err != nil {
 		return err
 	}
+	// the terminal app starts the runner with its own environment; tmux
+	// sessions inherit the watcher's
+	envFile := filepath.Join(p.Dir, watcherEnvFile)
+	_ = os.Remove(envFile) // WriteFile keeps an existing file's mode
+	if err := writeJSON(envFile, os.Environ()); err != nil {
+		return err
+	}
 	args := l.Terminal.OpenCommand(l.GOOS, script, fmt.Sprintf("PR %s#%d", r.Repo, r.N), runner)
 	if args == nil {
 		return errors.New("no terminal to open the session in")
 	}
 	if _, err := l.Run(ctx, proc.Cmd{Args: args}); err != nil {
+		_ = os.Remove(envFile)
 		return fmt.Errorf("open terminal: %w", err)
 	}
 	return nil

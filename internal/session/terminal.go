@@ -128,9 +128,27 @@ func expand(template, cmd []string) []string {
 	return out
 }
 
+// itermScript opens a tab in iTerm2's current window (a window if it has none)
+// that runs the script (item 1) as its process, and names it (item 2). The
+// texts are arguments, never part of the script. Unlike `open -a iTerm
+// <script>`, nothing is typed into a login shell, where shell init (e.g. the
+// Kiro CLI or Fig integration) can swallow it; and adding a tab doesn't bring
+// iTerm2 to the front.
+const itermScript = "on run argv\n" +
+	"tell application id \"com.googlecode.iterm2\"\n" +
+	"set c to quoted form of (item 1 of argv)\n" +
+	"if (count of windows) is 0 then\n" +
+	"set s to current session of (create window with default profile command c)\n" +
+	"else\n" +
+	"tell current window to set s to current session of (create tab with default profile command c)\n" +
+	"end if\n" +
+	"set name of s to (item 2 of argv)\n" +
+	"end tell\nend run"
+
 // OpenCommand is the command that opens a new terminal window running cmd.
 // script is an executable file that runs cmd, for apps that open files
-// (Terminal.app, iTerm2); title names the window where the app allows it.
+// (Terminal.app) or run one (iTerm2); title names the window where the app
+// allows it.
 func (t Terminal) OpenCommand(goos, script, title string, cmd []string) []string {
 	if t.Command != nil {
 		return expand(t.Command, cmd)
@@ -142,7 +160,7 @@ func (t Terminal) OpenCommand(goos, script, title string, cmd []string) []string
 		// into the new window
 		return []string{"open", "-g", "-a", "Terminal", script}
 	case "iterm":
-		return []string{"open", "-g", "-a", "iTerm", script}
+		return []string{"osascript", "-e", itermScript, "--", script, title} // "--": a path starting with "-" is no option
 	case "ghostty":
 		if mac {
 			return append([]string{"open", "-g", "-n", "-a", "Ghostty", "--args", "-e"}, cmd...)
