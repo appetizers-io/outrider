@@ -33,8 +33,9 @@ release:
   # the commit the workflow tested; GitHub creates the tag on it
   target_commitish: "{{ .Commit }}"
 
-changelog:
-  disable: true # release notes come from git-cliff (cliff.toml)
+# No changelog section: the release workflow passes git-cliff's notes with
+# --release-notes. Do not set changelog.disable, it would also drop that file
+# and leave the release body empty.
 
 # brew install appetizers-io/tap/outrider. Publishing needs HOMEBREW_TAP_TOKEN
 # (contents:write on the tap only); without it the cask is only written to
@@ -46,8 +47,12 @@ homebrew_casks:
     repository:
       owner: appetizers-io
       name: homebrew-tap
-      token: '{{ envOrDefault "HOMEBREW_TAP_TOKEN" "" }}'
-    skip_upload: '{{ if isEnvSet "HOMEBREW_TAP_TOKEN" }}false{{ else }}true{{ end }}'
+      # must be exactly one {{ .Env.X }}: GoReleaser applies token templates
+      # with ApplySingleEnvOnly (no functions)
+      token: "{{ .Env.HOMEBREW_TAP_TOKEN }}"
+    # skip when the secret is missing or empty (the workflow always sets the
+    # variable, so isEnvSet would be true even without the secret)
+    skip_upload: '{{ if index .Env "HOMEBREW_TAP_TOKEN" }}false{{ else }}true{{ end }}'
     commit_msg_template: "outrider {{ .Tag }}"
     dependencies:
       - formula: gh
