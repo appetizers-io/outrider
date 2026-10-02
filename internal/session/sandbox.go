@@ -101,7 +101,7 @@ func (l *Launcher) prepareSandbox(ctx context.Context, r Request, worktree strin
 	if filepath.Base(gitDir) == ".git" {
 		sb.Checkout = filepath.Dir(gitDir)
 	}
-	if l.Agent == "codex" {
+	if cfg, _ := l.scoped(r); cfg.Agent == "codex" {
 		// a private CODEX_HOME holds only the login: the user's rules can
 		// allow commands outside the sandbox, and their MCP servers and
 		// plugins run outside it

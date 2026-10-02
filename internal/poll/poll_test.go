@@ -174,10 +174,8 @@ func (h *hub) launch(ctx context.Context, r session.Request) bool {
 func (h *hub) poller(cfgText string) *Poller {
 	cfg, err := config.Parse([]byte(cfgText), "c.yaml")
 	require.NoError(h.t, err)
-	ignore, err := config.LoginGlobs(cfg.IgnoreAuthors)
-	require.NoError(h.t, err)
 	return &Poller{
-		GH: &github.Client{Run: h.gh}, Cfg: &cfg, Login: "me", Launch: h.launch, IgnoreAuthors: ignore,
+		GH: &github.Client{Run: h.gh}, Cfg: &cfg, Login: "me", Launch: h.launch,
 		Log: slog.New(slog.DiscardHandler), Now: time.Now, StatePath: filepath.Join(h.t.TempDir(), "state.json"),
 	}
 }
@@ -524,6 +522,61 @@ func TestIgnoreAuthorsOnWatchedPR(t *testing.T) {
 	h.activity["o/r#5"] = []map[string]any{act(2, "2026-01-02", "coderabbitai[bot]", "")}
 	h.poll(h.poller(`ignore_authors: ["coderabbitai*"]`), watchedState(t, new("stale")))
 	require.Empty(t, h.launches)
+}
+
+func TestOverridesScopeIgnoreAuthorsToOthersPRs(t *testing.T) {
+	const cfg = `overrides: [{match: [{prs: others}], ignore_authors: ["*[bot]"]}]`
+	h := newHub(t)
+	h.pr(1, "me")
+	h.notify("n1", 1, "t1")
+	h.activity["o/r#1"] = []map[string]any{act(1, "2026-01-02", "coderabbitai[bot]", "")}
+	h.poll(h.poller(cfg), liveState(t))
+	require.Len(t, h.launches, 1) // your own PR: the bot's findings count
+
+	h = newHub(t)
+	h.pr(5, "bob")
+	h.eyes["o/r#5"] = new("comment")
+	h.activity["o/r#5"] = []map[string]any{act(2, "2026-01-02", "coderabbitai[bot]", "")}
+	h.poll(h.poller(cfg), watchedState(t, new("stale")))
+	require.Empty(t, h.launches) // someone else's: ignored
+}
+
+func TestPassResolvesEachScopeOnce(t *testing.T) {
+	ps := &pass{Poller: newHub(t).poller(`overrides: [{match: [{prs: others}], ignore_authors: ["*[bot]"]}]`), scopes: map[scope]resolved{}}
+	for _, tc := range []struct {
+		repo   string
+		own    bool
+		ignore bool
+	}{
+		{repo: "o/r", own: false, ignore: true},
+		{repo: "o/r", own: false, ignore: true},
+		{repo: "o/r", own: true},
+	} {
+		_, ignore := ps.scoped(tc.repo, tc.own)
+		require.Equal(t, tc.ignore, ignore.MatchLogin("x[bot]"))
+	}
+	require.Len(t, ps.scopes, 2)
+}
+
+func TestOverridesScopeTheOptInTrigger(t *testing.T) {
+	for _, tc := range []struct {
+		name   string
+		config string
+		want   int
+	}{
+		{name: "off for the repo", config: "overrides: [{match: [{repo: o/*}], triggers: {opt_in: {enabled: false}}}]"},
+		{name: "off for another repo", config: "overrides: [{match: [{repo: x/*}], triggers: {opt_in: {enabled: false}}}]", want: 1},
+		{name: "on only for the repo", config: "triggers: {opt_in: {enabled: false}}\noverrides: [{match: [{url: 'https://github.com/o/r'}], triggers: {opt_in: {enabled: true}}}]", want: 1},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			h := newHub(t)
+			h.pr(5, "bob")
+			h.eyes["o/r#5"] = new("comment")
+			h.activity["o/r#5"] = []map[string]any{act(2, "2026-01-02", "alice", "")}
+			h.poll(h.poller(tc.config), watchedState(t, new("stale")))
+			require.Len(t, h.launches, tc.want)
+		})
+	}
 }
 
 func TestOwnActivityRelaunchesWhenNotIgnored(t *testing.T) {

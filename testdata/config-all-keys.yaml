@@ -79,3 +79,11 @@ tool_gate:                    # every tool call in supervised sessions
 prompts:
   extra: |
     Run `make test` before committing.
+
+overrides:
+  - match:
+      - {repo: "my-org/*", prs: others}
+      - {url: "https://github.com/upstream-org/repo"}
+    ignore_authors: ["*[bot]"]
+    triggers: {opt_in: {on_change: {check: false}}}
+    launch_check: {skip_below: 0.7}

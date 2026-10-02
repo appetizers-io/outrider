@@ -128,6 +128,10 @@ func TestCheckConfig(t *testing.T) {
 			status: OK, detail: "push never, github_writes never, sandbox: read-only",
 		},
 		{
+			name: "overrides", setup: func(m *machine) { m.cfg = "overrides: [{match: [{prs: others}], ignore_authors: ['*[bot]']}]" },
+			status: OK, detail: "sandbox: off); overrides: overrides[0] (prs: others)",
+		},
+		{
 			name: "invalid", edit: func(_ *testing.T, in *Input) { in.ConfigErr = errors.New("c.yaml is invalid:\n- at '/agent'") },
 			status: Fail, detail: "at '/agent'", fix: "outrider config check",
 		},
@@ -234,6 +238,17 @@ func TestCheckAgent(t *testing.T) {
 		{
 			name: "other missing", setup: func(m *machine) { m.cfg = "agent: claude"; m.tools = without(m.tools, "codex") },
 			status: Info, detail: "codex not found on PATH, not configured",
+		},
+		{
+			name: "other set by overrides", setup: func(m *machine) { m.cfg = "overrides: [{match: [{prs: own}], agent: claude}]" },
+			status: OK, detail: "claude 2.1.286 (Claude Code) (/usr/bin/claude), set by overrides",
+		},
+		{
+			name: "other set by overrides, missing", setup: func(m *machine) {
+				m.cfg = "overrides: [{match: [{prs: own}], agent: claude}]"
+				m.tools = without(m.tools, "claude")
+			},
+			status: Fail, detail: "claude not found on PATH", fix: "remove agent from the overrides",
 		},
 	})
 }
@@ -367,6 +382,14 @@ func TestCheckSandbox(t *testing.T) {
 			},
 			status: Fail, detail: "off; others' PRs: read-only: the claude sandbox on Linux needs socat; sandboxed sessions are refused",
 			fix: "sandbox and others_prs.sandbox to off",
+		},
+		{
+			name: "an override, without socat", setup: func(m *machine) {
+				m.cfg = "overrides: [{match: [{repo: o/*}], sandbox: read-only, agent: claude}]"
+				m.tools = without(m.tools, "socat")
+			},
+			status: Fail, detail: "off; overrides: read-only: the claude sandbox on Linux needs socat",
+			fix: "or change overrides[0] (repo: o/*)",
 		},
 		{
 			name: "old claude", setup: func(m *machine) {

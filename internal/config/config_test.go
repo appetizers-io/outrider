@@ -216,6 +216,7 @@ func TestConfigWithAllKeysLoads(t *testing.T) {
 	require.Equal(t, []string{"my-org/*"}, c.Repos.Include)
 	require.Equal(t, []string{"never modify generated/ or vendor/"}, c.ToolGate.Rules)
 	require.Equal(t, []string{"alacritty", "-e", "{cmd}"}, c.Terminal.Command)
+	require.Equal(t, []string{"*[bot]"}, c.For("my-org/x", false).IgnoreAuthors)
 	// it really sets every key
 	var data, defaults any
 	require.NoError(t, yaml.Unmarshal(text, &data))

@@ -65,6 +65,30 @@
         "kind"
       ]
     },
+    "Identity": {
+      "properties": {
+        "repo": {
+          "type": "string",
+          "minLength": 1,
+          "description": "owner/repo glob (*, ?, [abc], [!abc], {a,b}), e.g. my-org/*."
+        },
+        "url": {
+          "type": "string",
+          "pattern": "^(https?://|git@|ssh://git@)github\\.com[/:][^/]+/[^/]+?/?$",
+          "description": "GitHub repo URL, e.g. https://github.com/my-org/repo."
+        },
+        "prs": {
+          "type": "string",
+          "enum": [
+            "own",
+            "others"
+          ],
+          "description": "own: PRs you authored. others: everyone else's."
+        }
+      },
+      "additionalProperties": false,
+      "type": "object"
+    },
     "JevClassifier": {
       "properties": {
         "kind": {
@@ -285,6 +309,96 @@
       },
       "additionalProperties": false,
       "type": "object"
+    },
+    "Override": {
+      "properties": {
+        "match": {
+          "items": {
+            "$ref": "#/$defs/Identity"
+          },
+          "type": "array",
+          "minItems": 1,
+          "description": "PRs this override applies to: any of these identities."
+        },
+        "push": {
+          "oneOf": [
+            {
+              "type": "string",
+              "enum": [
+                "ask",
+                "never",
+                "allow"
+              ],
+              "description": "Pushes in sessions that may push (your own PRs, others' PRs with others_prs.allow_push). ask: every git push opens a dialog and runs only after you click Push (without a dialog it is refused). never: commits stay local. allow: no question. null: ask in supervised mode, allow in autonomous mode."
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "github_writes": {
+          "oneOf": [
+            {
+              "type": "string",
+              "enum": [
+                "ask",
+                "never",
+                "allow"
+              ],
+              "description": "Comments, review comments and replies, reviews and reactions the agent posts with gh on the session's PR. ask: each one opens a dialog showing the text and runs only after you click Post (without a dialog it is refused). never: GitHub stays read-only. allow: no question. null: ask in supervised mode, allow in autonomous mode."
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "sandbox": {
+          "type": "string",
+          "enum": [
+            "off",
+            "read-only"
+          ],
+          "description": "read-only: every session runs in the agent's own OS sandbox (Claude Code: sandbox settings and deny rules; Codex: --sandbox read-only, approvals never): no file writes, no commits, no pushes, no GitHub posts, no network. The PR context is fetched into the session dir first. push and github_writes must be never or unset. Where the sandbox is unavailable, sessions are refused. off: no sandbox.",
+          "default": "off"
+        },
+        "agent": {
+          "type": "string",
+          "enum": [
+            "codex",
+            "claude"
+          ],
+          "description": "Coding agent CLI to launch.",
+          "default": "codex"
+        },
+        "ignore_authors": {
+          "items": {
+            "type": "string",
+            "minLength": 1
+          },
+          "type": "array",
+          "description": "Login globs (* and ?) whose activity alone never triggers a session, e.g. netlify[bot] or *[bot]."
+        },
+        "triggers": {
+          "$ref": "#/$defs/Triggers"
+        },
+        "others_prs": {
+          "$ref": "#/$defs/OthersPRs"
+        },
+        "launch_check": {
+          "$ref": "#/$defs/LaunchCheck"
+        },
+        "tool_gate": {
+          "$ref": "#/$defs/ToolGate"
+        },
+        "prompts": {
+          "$ref": "#/$defs/Prompts"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "match"
+      ]
     },
     "OwnPRs": {
       "properties": {
@@ -539,6 +653,29 @@
       "description": "Coding agent CLI to launch.",
       "default": "codex"
     },
+    "ignore_authors": {
+      "items": {
+        "type": "string",
+        "minLength": 1
+      },
+      "type": "array",
+      "description": "Login globs (* and ?) whose activity alone never triggers a session, e.g. netlify[bot] or *[bot]."
+    },
+    "triggers": {
+      "$ref": "#/$defs/Triggers"
+    },
+    "others_prs": {
+      "$ref": "#/$defs/OthersPRs"
+    },
+    "launch_check": {
+      "$ref": "#/$defs/LaunchCheck"
+    },
+    "tool_gate": {
+      "$ref": "#/$defs/ToolGate"
+    },
+    "prompts": {
+      "$ref": "#/$defs/Prompts"
+    },
     "launcher": {
       "type": "string",
       "enum": [
@@ -586,32 +723,16 @@
     "repos": {
       "$ref": "#/$defs/Repos"
     },
-    "ignore_authors": {
-      "items": {
-        "type": "string",
-        "minLength": 1
-      },
-      "type": "array",
-      "description": "Login globs (* and ?) whose activity alone never triggers a session, e.g. netlify[bot] or *[bot]."
-    },
-    "triggers": {
-      "$ref": "#/$defs/Triggers"
-    },
-    "others_prs": {
-      "$ref": "#/$defs/OthersPRs"
-    },
     "classifiers": {
       "$ref": "#/$defs/Classifiers",
       "description": "Named decision backends. 'jev' is always defined; add kind: command entries for local classifiers."
     },
-    "launch_check": {
-      "$ref": "#/$defs/LaunchCheck"
-    },
-    "tool_gate": {
-      "$ref": "#/$defs/ToolGate"
-    },
-    "prompts": {
-      "$ref": "#/$defs/Prompts"
+    "overrides": {
+      "items": {
+        "$ref": "#/$defs/Override"
+      },
+      "type": "array",
+      "description": "Layers over the keys above for some PRs: every entry whose match selects a PR applies, in file order, later entries win. Only per-PR keys."
     }
   },
   "additionalProperties": false,

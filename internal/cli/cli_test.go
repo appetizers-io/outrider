@@ -166,6 +166,46 @@ func TestFlagsOverrideTheConfigFile(t *testing.T) {
 	r.Equal("iterm", s.Cfg.Terminal.Name)
 }
 
+func TestFlagsBeatOverrides(t *testing.T) {
+	r := require.New(t)
+	p := filepath.Join(isolate(t), "c.yaml")
+	r.NoError(os.WriteFile(p, []byte("overrides: [{match: [{prs: others}], agent: claude, github_writes: allow}]\n"), 0o600))
+	s, err := effective(t, "--config", p, "--agent", "codex")
+	r.NoError(err)
+	others := s.Cfg.For("o/r", false)
+	r.Equal("codex", others.Agent)
+	r.Equal("allow", others.GitHubWritesMode()) // no flag: the override's
+}
+
+func TestConfigShowForARepo(t *testing.T) {
+	r := require.New(t)
+	p := filepath.Join(isolate(t), "c.yaml")
+	r.NoError(os.WriteFile(p, []byte("overrides: [{match: [{repo: my-org/*, prs: others}], ignore_authors: ['*[bot]']}]\n"), 0o600))
+	for _, tc := range []struct {
+		name   string
+		args   []string
+		header string
+		ignore []any
+	}{
+		{name: "matching", args: []string{"--repo", "https://github.com/my-org/api", "--prs", "others"},
+			header: "# my-org/api, others' PRs; overrides applied: overrides[0] (repo: my-org/*, prs: others)\n", ignore: []any{"*[bot]"}},
+		{name: "own PR", args: []string{"--repo", "my-org/api"},
+			header: "# my-org/api, your own PRs; overrides applied: none\n", ignore: []any{}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			o := cli(t, sandbox(t), append([]string{"config", "show", p}, tc.args...)...)
+			r.Equal(0, o.code, o.stderr)
+			r.True(strings.HasPrefix(o.stdout, tc.header), o.stdout)
+			var shown map[string]any
+			r.NoError(yaml.Unmarshal([]byte(o.stdout), &shown))
+			r.Equal(tc.ignore, shown["ignore_authors"])
+			r.NotContains(shown, "overrides")
+		})
+	}
+	o := cli(t, sandbox(t), "config", "show", p, "--repo", "a/b", "--prs", "mine")
+	r.NotEqual(0, o.code)
+}
+
 func TestNoJevAndJevCmdFlags(t *testing.T) {
 	isolate(t)
 	s, err := effective(t, "--no-jev")
@@ -319,7 +359,7 @@ func TestStartupReportsTheSandbox(t *testing.T) {
 	d.GOOS = "windows"
 	o = cli(t, d, "--once", "--launcher", "terminal", "--terminal", "cmd", "--no-jev", "--agent", "claude", "--sandbox", "read-only")
 	require.Equal(t, 0, o.code, o.stderr)
-	require.Contains(t, o.stderr, "sandbox: read-only UNAVAILABLE (outrider supports no claude sandbox on windows); sandboxed sessions are refused")
+	require.Contains(t, o.stderr, "sandbox: read-only UNAVAILABLE for claude (outrider supports no claude sandbox on windows); its sandboxed sessions are refused")
 }
 
 func TestOwnerNameFromTheConfig(t *testing.T) {

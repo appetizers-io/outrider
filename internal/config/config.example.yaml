@@ -175,3 +175,14 @@ tool_gate:
 prompts:
   # Appended to every agent prompt, e.g. house rules for tests or commits.
   extra: ""
+
+# Per-PR keys (push, github_writes, sandbox, agent, ignore_authors, triggers,
+# others_prs, launch_check, tool_gate, prompts) for some PRs only. Every entry
+# whose match selects a PR applies, in file order; later entries win. An
+# identity in match sets any of repo (owner/repo glob), url (GitHub repo URL)
+# and prs (own or others); unset attributes match anything.
+# overrides:
+#   - match: [{prs: others}]
+#     ignore_authors: ["*[bot]"]
+#   - match: [{repo: "my-org/*", prs: others}, {url: "https://github.com/upstream-org/repo"}]
+#     launch_check: {skip_below: 0.7}

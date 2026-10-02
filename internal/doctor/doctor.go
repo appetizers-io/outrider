@@ -125,6 +125,9 @@ func checkConfig(_ context.Context, in *Input) Result {
 	r.Status = OK
 	r.Detail = fmt.Sprintf("%s (mode %s, push %s, github_writes %s, %s)", config.Describe(in.Settings.ConfigSource),
 		cfg.Mode, cfg.PushMode(), cfg.GitHubWritesMode(), mode)
+	if names := cfg.Names(); len(names) > 0 {
+		r.Detail += "; overrides: " + strings.Join(names, ", ")
+	}
 	return r
 }
 
@@ -266,10 +269,16 @@ func checkOtherAgent(ctx context.Context, in *Input) Result {
 		other = "codex"
 	}
 	detail, err := agentResult(ctx, in.Deps, other)
-	if err != nil {
-		detail = err.Error()
+	switch {
+	case !slices.Contains(watch.Agents(&in.Settings.Cfg), other):
+		if err != nil {
+			detail = err.Error()
+		}
+		return Result{Name: "other agent", Status: Info, Detail: detail + ", not configured"}
+	case err != nil:
+		return Result{Name: "other agent", Status: Fail, Detail: err.Error(), Fix: agentInstall[other] + ", or remove agent from the overrides"}
 	}
-	return Result{Name: "other agent", Status: Info, Detail: detail + ", not configured"}
+	return Result{Name: "other agent", Status: OK, Detail: detail + ", set by overrides"}
 }
 
 func checkLauncher(ctx context.Context, in *Input) Result {
@@ -362,10 +371,17 @@ func checkSandbox(ctx context.Context, in *Input) Result {
 		return Result{Name: "sandbox", Status: Info, Detail: strings.TrimPrefix(mode, "sandbox: ")}
 	}
 	mode = strings.TrimPrefix(mode, "sandbox: ")
-	if err := session.SandboxSupport(ctx, cfg.Agent, d.GOOS, watch.CodexHome(d), d.LookPath, d.Run); err != nil {
-		return Result{
-			Name: "sandbox", Status: Fail, Detail: mode + ": " + err.Error() + "; sandboxed sessions are refused",
-			Fix: "install or update what is named above, or set sandbox and others_prs.sandbox to off (see docs/safety.md)",
+	errs := watch.SandboxSupport(ctx, cfg, watch.CodexHome(d), d)
+	for _, agent := range watch.SandboxAgents(cfg) {
+		if err := errs[agent]; err != nil {
+			fix := "install or update what is named above, or set sandbox and others_prs.sandbox to off"
+			if names := cfg.SandboxedBy(); len(names) > 0 {
+				fix += ", or change " + strings.Join(names, ", ")
+			}
+			return Result{
+				Name: "sandbox", Status: Fail, Detail: mode + ": " + err.Error() + "; sandboxed sessions are refused",
+				Fix: fix + " (see docs/safety.md)",
+			}
 		}
 	}
 	return Result{Name: "sandbox", Status: OK, Detail: mode + " (" + session.SandboxNote(cfg.Agent) + ")"}

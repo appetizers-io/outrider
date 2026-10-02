@@ -17,6 +17,7 @@ outrider config generate --write    # write it to ~/.config/outrider/config.yaml
 outrider config generate -o x.yaml  # or anywhere else (--force to overwrite)
 outrider config check [PATH]        # validate
 outrider config show [PATH]         # the effective config, defaults filled in
+outrider config show --repo my-org/api --prs others  # the config of a PR there
 outrider config schema              # the JSON Schema
 ```
 
@@ -55,6 +56,7 @@ matter for its case.
 | [`custom-classifier.yaml`](examples/configs/custom-classifier.yaml) | your own launch check and tool gate |
 | [`many-repos.yaml`](examples/configs/many-repos.yaml) | many repos, include/exclude globs, ignored bots |
 | [`headless.yaml`](examples/configs/headless.yaml) | a background service: tmux, no dialogs |
+| [`overrides.yaml`](examples/configs/overrides.yaml) | different settings per repo, and for your own vs. others' PRs |
 
 ## Safety: mode, pushes and posts
 
@@ -125,6 +127,40 @@ Login globs know only `*` and `?`; brackets are literal, so `"*[bot]"` matches
 `dependabot[bot]`. A broken glob (an unclosed `[` or `{`) is an error at
 startup instead of silently matching nothing.
 
+## Overrides
+
+`overrides` changes per-PR keys for some PRs only. Each entry has a `match`,
+a list of identities; an entry applies when any identity matches the PR. In
+an identity every attribute it sets must match, and an unset one matches
+anything:
+
+| Attribute | Matches |
+|---|---|
+| `repo` | an `owner/repo` glob |
+| `url` | a GitHub repo URL |
+| `prs` | `own` (you authored the PR) or `others` |
+
+Every matching entry applies, in file order; a later one wins. An entry sets
+keys like the top level: unset keys stay, lists replace, nested keys merge.
+
+```yaml
+ignore_authors: []
+overrides:
+  - match: [{prs: others}]              # bots never relaunch others' PRs
+    ignore_authors: ["*[bot]"]
+  - match:
+      - {repo: "my-org/*", prs: others}
+      - {url: "https://github.com/upstream-org/repo"}
+    launch_check: {skip_below: 0.7}
+```
+
+Only per-PR keys can be overridden: `push`, `github_writes`, `sandbox`,
+`agent`, `ignore_authors`, `triggers`, `others_prs`, `launch_check`,
+`tool_gate` and `prompts`. Others are errors. Conflicts (e.g. a read-only
+sandbox and `push: allow`) are checked at startup for each entry, and for all
+entries on your own PRs and on others' together. `config show --repo`,
+`doctor` and the session's `policy.json` name the entries that apply.
+
 ## Triggers, launch check and tool gate
 
 - `triggers.*`: which activity starts a session. See [Triggers](triggers.md).
@@ -133,7 +169,8 @@ startup instead of silently matching nothing.
 
 ## Flags
 
-Flags override the file. They are checked against the same schema.
+Flags override the file, overrides included. They are checked against the
+same schema.
 
 | Flag | Config key |
 |---|---|
