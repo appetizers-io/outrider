@@ -12,6 +12,10 @@ mode: supervised
 github_writes: ask             # each post opens a dialog
 others_prs:
   allow_push: false            # review only: no edits, commits or pushes
+  # Review with evidence: let sessions commit locally and push failing tests or
+  # repro scripts to your own forks (never to the PR's head or base repo).
+  # Each push still follows `push` (ask: a dialog shows the destination).
+  # review_forks: ["my-login/*"]
 
 repos:
   include: ["my-org/*"]

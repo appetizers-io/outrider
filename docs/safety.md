@@ -87,9 +87,59 @@ A session on a PR someone else authored is review only unless
   `git push`, `git rebase`, `git reset --hard`, `git cherry-pick`, `git merge`
   and `git am`.
 
+With [`others_prs.review_forks`](#review-forks) set, a review-only session may
+also commit locally and push evidence to your own forks.
+
 On your own PR the agent may commit, rebase onto the base branch and push
 with `--force-with-lease`. Claude still gets deny rules for plain force pushes,
 deleting branches and remote branches.
+
+## Review forks
+
+```yaml
+others_prs:
+  review_forks: ["me/*"]   # owner/repo globs of your own forks
+```
+
+A review-only session on someone else's PR becomes **review with evidence**:
+the agent may edit files and commit locally, and push failing tests, repro
+scripts or a CI workflow to a fork matching `review_forks`. Each push follows
+`push` (`ask`: the dialog shows where it goes, `never`, `allow`); posting to
+the PR still follows `github_writes`.
+
+The `git` guard decides every push in these sessions:
+
+- It resolves the destination the way git does: a remote of the checkout
+  through `git remote get-url --push --all` (its `pushurl`, `insteadOf` and
+  `pushInsteadOf` applied), else the URL given, which must not be rewritten
+  by a `url.*.insteadOf` rule or name a remote in another config file. The
+  result must be exactly one `github.com` https or ssh URL, normalised to
+  `owner/repo`.
+- It pushes only to a repo matching `review_forks`, and never to the PR's
+  head repo or its base repo, even when a glob matches them. It refuses every
+  push when GitHub didn't report the head repo.
+- Only plain `git push <remote> <refspec>...` with a few options (`-u`,
+  `--dry-run`, `--force-with-lease`, `--force-if-includes`, `--atomic`,
+  `--no-verify`, `-q`, `-v`, `--porcelain`, `--progress`) is allowed. It
+  refuses `--mirror`, `--all`, `--tags`, `--delete`, `:ref`, `+ref`,
+  `--force`, `--prune`, `--repo`, aliases, `send-pack`, and global options
+  such as `-c`, `--config-env`, `-C` and `--git-dir`.
+- It refuses the push when `GIT_CONFIG_PARAMETERS`, `GIT_CONFIG_GLOBAL`,
+  `GIT_CONFIG_SYSTEM`, `GIT_DIR`, `GIT_WORK_TREE` or a `GIT_CONFIG_KEY_<n>`
+  other than the push trap's is set, since they can redirect it.
+- In `ask` mode the destination is resolved again after you click **Push**;
+  if it changed, the push is refused.
+- The push trap stays in the session; an allowed push runs without it.
+
+Claude's deny rules for `Edit`, `Write` and `git commit` are dropped for these
+sessions; plain force pushes, `git push --delete`, `git rebase`,
+`git reset --hard` and `git branch -D` stay denied. `policy.json` lists the
+forks.
+
+GitHub refuses a push that adds or changes `.github/workflows/` unless the
+token has the `workflow` scope; `outrider doctor` warns when `review_forks` is
+set and the scope is missing. `review_forks` with a read-only sandbox for
+others' PRs is a config error.
 
 ## Pushes: `push`
 
@@ -173,6 +223,7 @@ From two security reviews of the Go rewrite. The open items are tracked in
 | The push dialog shows the session's checkout | A push with `-C`, `--git-dir` or `GIT_DIR` can target something else. |
 | `gh api -X PATCH …/issues/comments/<id>` | In `ask` or `allow` mode it can edit any comment in the session's repo, not only yours. |
 | The guard links are shared | All sessions use `~/.cache/outrider/bin`, which one session could replace. |
+| A review-fork push is checked, then run | Config changed by a background process between the check and the push, a remote's `vcs` helper, a hook, or GitHub redirecting a renamed repo can still send it elsewhere. |
 
 In a [read-only sandbox](#read-only-sandbox) the gaps above that need a write
 or the network (changing the guards' environment to push or post, the real

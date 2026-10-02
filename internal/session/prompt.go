@@ -24,9 +24,10 @@ type PromptInput struct {
 	Extra         string // prompts.extra
 	AllowPush     bool   // others_prs.allow_push in effect
 	PolicyFile    string
-	Push          string  // review-only | never | ask | allow
-	GHWrites      string  // never | ask | allow
-	ContextDir    *string // read-only sandbox: the prefetched PR context; nil: no sandbox
+	Push          string   // review-only | review-forks | never | ask | allow
+	GHWrites      string   // never | ask | allow
+	ContextDir    *string  // read-only sandbox: the prefetched PR context; nil: no sandbox
+	ReviewForks   []string // review only, but evidence may be pushed to these owner/repo globs (following Push)
 }
 
 // tristate is a yes/no that GitHub may leave out.
@@ -66,6 +67,7 @@ func Prompt(in PromptInput) (string, error) {
 		"GHWrites": in.GHWrites, "Writable": in.GHWrites == "ask" || in.GHWrites == "allow",
 		"Scope": in.Scope, "ScopeWhy": why, "PolicyFile": in.PolicyFile, "Extra": strings.TrimSpace(in.Extra),
 		"Sandbox": sandbox, "ContextFiles": github.ContextFiles,
+		"Forks": len(in.ReviewForks) > 0, "ReviewForks": strings.Join(in.ReviewForks, ", "),
 	}
 	if sandbox {
 		data["ContextDir"] = *in.ContextDir

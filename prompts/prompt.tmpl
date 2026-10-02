@@ -60,6 +60,23 @@ Base branch: {{.Base}}
 {{- if .PushRule}}
 {{template "push" .}}
 {{- end}}
+{{- else if .Forks}}REVIEW WITH EVIDENCE: this PR belongs to {{.Author}}, not {{.Owner}}.
+- do NOT change the PR branch: no pushes to it, its head repo
+  ({{.Head}}) or the base repo ({{.Repo}}), no rebases or force-pushes
+- put findings and suggested changes (explanation or diff) in this
+  session; {{.Owner}} decides what to raise with {{.Author}}
+- when evidence helps (a failing test, a repro script, a CI workflow that
+  runs them), commit it locally on a branch `review/pr-{{.N}}-<topic>` and
+  push it to one of {{.Owner}}'s review forks ({{.ReviewForks}}):
+  `git remote add fork git@github.com:<fork>.git` once, then
+  `git push fork HEAD:review/pr-{{.N}}-<topic>`. Only plain `git push <remote>
+  <refspec>` works; the git guard refuses every other destination
+{{- if eq .Push "ask"}}
+- each push opens a dialog for {{.Owner}} showing where it goes. If the
+  push is denied, do NOT retry it or work around it; keep the commits local
+{{- else if eq .Push "never"}}
+- pushing is off: keep the commits local and tell {{.Owner}} what is ready
+{{- end}}
 {{- else}}REVIEW ONLY: this PR belongs to {{.Author}}, not {{.Owner}}.
 - do NOT edit files, commit or push, not even trivial fixes (lint,
   formatting, typos, failing CI); `git push` is blocked in this session
@@ -146,6 +163,7 @@ work around it (no curl/API tokens).
 {{- define "force" -}}
 {{- if .Own}}do NOT force-push, except `--force-with-lease` after the rebase
 {{- else if .AllowPush}}do NOT force-push
+{{- else if .Forks}}do NOT push to this PR's branch or repos; evidence goes to a review fork only
 {{- else}}do NOT commit or push anything
 {{- end}}
 {{- end -}}

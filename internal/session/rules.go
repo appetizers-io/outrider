@@ -37,6 +37,16 @@ func DenyRules(push, goos string) []string {
 			"Bash(git am:*)",
 		}, dialogDenyRules(goos)...)
 	}
+	if push == "review-forks" { // local commits are fine; the PR branch keeps its history
+		return append(dialogDenyRules(goos),
+			"Bash(git push --force:*)",
+			"Bash(git push -f:*)",
+			"Bash(git push --delete:*)",
+			"Bash(git rebase:*)",
+			"Bash(git reset --hard:*)",
+			"Bash(git branch -D:*)",
+		)
+	}
 	rules := append(dialogDenyRules(goos), // the approval dialog is for the owner to click
 		"Bash(git push --force:*)",
 		"Bash(git push -f:*)",
@@ -56,6 +66,10 @@ var pushGateRules = map[string]string{
 		"absolute path, unsetting or changing GIT_CONFIG_* or OUTRIDER_* " +
 		"variables, git remote/config changes to push URLs, curl or API calls.",
 	"never": " Deny every git push, by any route.",
+	"review-forks": " Every git push must be plain `git push <remote> <refspec>`; the git " +
+		"guard checks where it goes and may ask the owner. Deny any push by another route: a " +
+		"git binary by absolute path, -c or GIT_CONFIG_* changes, unsetting or changing " +
+		"OUTRIDER_* variables, curl or API calls.",
 }
 
 var ghWriteGateRules = map[string]string{
@@ -83,6 +97,13 @@ func Rules(repo string, n int, author, owner string, own bool, push, ghWrites st
 			"reset, merge or any other change to the branch or to GitHub " +
 			"(except the posts allowed below). " +
 			"Reading files, git log/diff/fetch, building and running tests is fine."
+	case push == "review-forks":
+		rules = "REVIEW WITH EVIDENCE: someone else's PR. Editing files and committing " +
+			"locally (tests, repro scripts, CI workflow files) is fine, and so is pushing " +
+			"that evidence to one of the owner's review forks listed below. Deny every push " +
+			"to the PR branch, the PR's head repo or its base repo, force pushes, rebases or " +
+			"history rewrites of the PR branch, and any change to GitHub (except the posts " +
+			"allowed below)."
 	case own:
 		rules = "This is " + owner + "'s own PR: edits, commits, rebasing onto the base " +
 			"branch and `git push --force-with-lease` to this PR branch are fine. " +
@@ -107,6 +128,9 @@ func GateText(cfg *config.Config, repo string, n int, author, owner string, own 
 		extra = append(extra, p)
 	}
 	text := Rules(repo, n, author, owner, own, push, ghWrites)
+	if push == "review-forks" {
+		text += " Review forks (owner/repo globs): " + strings.Join(cfg.OthersPRs.ReviewForks, ", ") + "."
+	}
 	if len(extra) > 0 {
 		numbered := make([]string, len(extra))
 		for i, r := range extra {

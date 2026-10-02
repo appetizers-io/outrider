@@ -195,6 +195,13 @@ func checkGitHub(ctx context.Context, in *Input) Result {
 		r.Fix = "gh auth refresh --hostname " + host + " --scopes " + requiredScope
 		return r
 	}
+	if len(in.Settings.Cfg.OthersPRs.ReviewForks) > 0 && !slices.Contains(have, "workflow") {
+		// GitHub refuses a push that adds or changes .github/workflows without it
+		r.Status = Warn
+		r.Detail += "; missing workflow, so review sessions can't push CI workflows to others_prs.review_forks"
+		r.Fix = "gh auth refresh --hostname " + host + " --scopes workflow"
+		return r
+	}
 	r.Status = OK
 	return r
 }

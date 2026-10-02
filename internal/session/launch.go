@@ -152,6 +152,7 @@ type Policy struct {
 	ReviewOnly   bool       `json:"review_only"`
 	PushAllowed  bool       `json:"push_allowed"`
 	Push         string     `json:"push"`
+	ReviewForks  []string   `json:"review_forks"` // review only, but pushes to these forks
 	GitHubWrites string     `json:"github_writes"`
 	Scope        []string   `json:"scope"`
 	DenyRules    []string   `json:"deny_rules"`
@@ -203,12 +204,21 @@ func (l *Launcher) Prepare(r Request, worktree, lock string, sb *Sandbox) (Prepa
 	if reviewOnly {
 		push = "review-only"
 	}
+	// review with evidence: local commits, pushes only to the owner's forks;
+	// forkPush is the push mode for those
+	forks, forkPush := l.Cfg.OthersPRs.ReviewForks, push
+	if reviewOnly && sb == nil && len(forks) > 0 {
+		push, forkPush = "review-forks", l.Cfg.PushMode()
+	} else {
+		forks = nil
+	}
 	supervised := l.Cfg.Mode == "supervised"
 	gated := supervised && l.ToolGate != nil
 	mode := map[string]string{
-		"review-only": ", review only: git push blocked",
-		"never":       ", git push blocked",
-		"ask":         ", git push asks you first",
+		"review-only":  ", review only: git push blocked",
+		"review-forks": ", review only: git push only to your review forks (" + forkPush + ")",
+		"never":        ", git push blocked",
+		"ask":          ", git push asks you first",
 	}[push]
 	ghNote, ok := map[string]string{
 		"ask":   "gh posts to this PR ask you first",
@@ -239,7 +249,8 @@ func (l *Launcher) Prepare(r Request, worktree, lock string, sb *Sandbox) (Prepa
 	prompt, err := Prompt(PromptInput{
 		Repo: r.Repo, N: r.N, PR: r.PR, Trigger: r.Trigger, Owner: l.Owner, Login: l.Login,
 		Remote: remote, Scope: r.Scope, ScopeWhy: r.ScopeWhy, Extra: l.Cfg.Prompts.Extra,
-		AllowPush: allowPush, PolicyFile: policyFile, Push: push, GHWrites: ghWrites, ContextDir: contextDir,
+		AllowPush: allowPush, PolicyFile: policyFile, Push: forkPush, GHWrites: ghWrites, ContextDir: contextDir,
+		ReviewForks: forks,
 	})
 	if err != nil {
 		return Prepared{}, err
@@ -272,7 +283,7 @@ func (l *Launcher) Prepare(r Request, worktree, lock string, sb *Sandbox) (Prepa
 	policy := Policy{
 		Repo: r.Repo, PR: r.N, URL: r.PR.URL, Author: author, OwnPR: own, Owner: l.Owner,
 		Trigger: r.Trigger, Mode: l.Cfg.Mode, ReviewOnly: reviewOnly,
-		PushAllowed: push == "ask" || push == "allow", Push: push, GitHubWrites: ghWrites,
+		PushAllowed: forkPush == "ask" || forkPush == "allow", Push: forkPush, ReviewForks: forks, GitHubWrites: ghWrites,
 		Scope: r.Scope, DenyRules: []string{}, Sandbox: sandbox, PRContext: contextDir,
 		ToolGate: PolicyGate{Matcher: l.Cfg.ToolGate.Matcher, Threshold: l.Cfg.ToolGate.Threshold, Rules: rules},
 	}
@@ -326,13 +337,17 @@ func (l *Launcher) Prepare(r Request, worktree, lock string, sb *Sandbox) (Prepa
 	env := map[string]string{
 		guard.EnvRealGH:   ghPath,
 		guard.EnvRealGit:  gitPath,
-		guard.EnvPush:     push,
+		guard.EnvPush:     forkPush,
 		guard.EnvGHWrites: ghWrites,
 		guard.EnvRepo:     r.Repo,
 		guard.EnvPR:       itoa(r.N),
 		guard.EnvSession:  name,
 	}
-	if push != "allow" {
+	if forks != nil {
+		env[guard.EnvReviewForks] = strings.Join(forks, "\n")
+		env[guard.EnvHeadRepo] = headRepo(r.PR)
+	}
+	if forkPush != "allow" || forks != nil {
 		for k, v := range PushTrap() {
 			env[k] = v
 		}
@@ -365,6 +380,15 @@ func (l *Launcher) Prepare(r Request, worktree, lock string, sb *Sandbox) (Prepa
 		return Prepared{}, err
 	}
 	return Prepared{Dir: dir, Spec: spec}, nil
+}
+
+// headRepo is the PR head's owner/repo, "" when GitHub doesn't say.
+func headRepo(pr github.PR) string {
+	if pr.HeadRepositoryOwner == nil || pr.HeadRepository == nil ||
+		pr.HeadRepositoryOwner.Login == "" || pr.HeadRepository.Name == "" {
+		return ""
+	}
+	return pr.HeadRepositoryOwner.Login + "/" + pr.HeadRepository.Name
 }
 
 // installGuards links gh and git in <root>/bin to this binary (copies on Windows).

@@ -47,6 +47,7 @@ triggers:
 others_prs:
   allow_push: false           # review only (default in supervised mode)
   sandbox: read-only          # others' PRs in the read-only sandbox; null: as sandbox
+  review_forks: []            # no evidence pushes (a read-only sandbox can't push)
 
 # decision backends: jev is built in; local ones use kind: command
 classifiers:

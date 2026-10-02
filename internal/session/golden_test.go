@@ -109,7 +109,11 @@ func TestGateRulesGolden(t *testing.T) {
 		cfg := cfgs[cfgName]
 		var b strings.Builder
 		for _, own := range []bool{true, false} {
-			for _, push := range []string{"ask", "never", "allow", "review-only"} {
+			for _, push := range []string{"ask", "never", "allow", "review-only", "review-forks"} {
+				if own && push == "review-forks" {
+					continue // only for someone else's PR
+				}
+				cfg.OthersPRs.ReviewForks = []string{"me/*", "me-evidence/r"}
 				for _, gh := range []string{"ask", "never", "allow"} {
 					fmt.Fprintf(&b, "== own_%t push_%s gh_%s\n%s\n\n", own, push, gh,
 						GateText(&cfg, "o/r", 7, "bob", "Matthias", own, push, gh))
@@ -149,6 +153,20 @@ func TestReadOnlyPromptKeepsTheGuardrail(t *testing.T) {
 		if strings.Contains(got, "STRICT") {
 			t.Errorf("prompt still has the old STRICT header")
 		}
+	}
+}
+
+func TestReviewForksPromptsGolden(t *testing.T) {
+	for _, push := range []string{"ask", "allow"} {
+		in := PromptInput{
+			Repo: "o/r", N: 1, PR: goldenPR("bob"), Trigger: "trigger x", Owner: "Matthias", Login: "me",
+			Push: push, GHWrites: "ask", PolicyFile: "/s/policy.json", ReviewForks: []string{"me/*", "me-evidence/r"},
+		}
+		got, err := Prompt(in)
+		if err != nil {
+			t.Fatal(err)
+		}
+		golden.Assert(t, got, fmt.Sprintf("prompts/review-forks-bob-push_%s.txt", push))
 	}
 }
 
