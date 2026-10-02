@@ -251,6 +251,21 @@
               "type": "null"
             }
           ]
+        },
+        "sandbox": {
+          "oneOf": [
+            {
+              "type": "string",
+              "enum": [
+                "off",
+                "read-only"
+              ],
+              "description": "sandbox for sessions on PRs someone else authored, e.g. read-only while your own PRs run unsandboxed. read-only needs allow_push false or unset. null: sandbox."
+            },
+            {
+              "type": "null"
+            }
+          ]
         }
       },
       "additionalProperties": false,
@@ -490,6 +505,15 @@
           "type": "null"
         }
       ]
+    },
+    "sandbox": {
+      "type": "string",
+      "enum": [
+        "off",
+        "read-only"
+      ],
+      "description": "read-only: every session runs in the agent's own OS sandbox (Claude Code: sandbox settings and deny rules; Codex: --sandbox read-only, approvals never): no file writes, no commits, no pushes, no GitHub posts, no network. The PR context is fetched into the session dir first. push and github_writes must be never or unset. Where the sandbox is unavailable, sessions are refused. off: no sandbox.",
+      "default": "off"
     },
     "agent": {
       "type": "string",

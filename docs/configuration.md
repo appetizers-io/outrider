@@ -64,6 +64,12 @@ matter for its case.
 | `push` | `ask` in supervised, `allow` in autonomous | `ask`, `never`, `allow` |
 | `github_writes` | `ask` in supervised, `allow` in autonomous | `ask`, `never`, `allow` |
 | `others_prs.allow_push` | `false` in supervised, `true` in autonomous | `true`, `false` |
+| `sandbox` | `off` | `off`, `read-only` |
+| `others_prs.sandbox` | `null`: as `sandbox` | `off`, `read-only` |
+
+`sandbox: read-only` makes `push` and `github_writes` default to `never`;
+setting either to anything else with it is an error at startup, and so is
+`others_prs.allow_push: true` with a read-only sandbox for others' PRs.
 
 What each value does is on the [Safety](safety.md) page.
 
@@ -124,6 +130,7 @@ Flags override the file. They are checked against the same schema.
 | `--launcher` | `launcher` |
 | `--terminal` | `terminal` |
 | `--github-writes` | `github_writes` |
+| `--sandbox` | `sandbox` |
 | `--interval` | `interval_seconds` |
 | `--lookback-hours` | `lookback_hours` |
 | `--max-agents` | `max_agents` |

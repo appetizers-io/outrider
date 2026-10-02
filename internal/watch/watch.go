@@ -106,6 +106,30 @@ func onOff(r *classifier.Resolved) string {
 	return "on"
 }
 
+// logSandbox logs the sandbox mode and returns why read-only sessions can't
+// run here, if they can't; those sessions are then refused.
+func logSandbox(ctx context.Context, cfg *config.Config, codexHome string, d Deps, log *slog.Logger) error {
+	own, others := cfg.SandboxFor(true), cfg.SandboxFor(false)
+	if own != config.ReadOnly && others != config.ReadOnly {
+		log.Info("sandbox: off")
+		return nil
+	}
+	mode := "sandbox: read-only"
+	switch {
+	case own != config.ReadOnly:
+		mode = "sandbox: off; others' PRs: read-only"
+	case others != config.ReadOnly:
+		mode = "sandbox: read-only; others' PRs: off"
+	}
+	err := session.SandboxSupport(ctx, cfg.Agent, d.GOOS, codexHome, d.LookPath, d.Run)
+	if err != nil {
+		log.Error(fmt.Sprintf("%s UNAVAILABLE (%v); sandboxed sessions are refused", mode, err))
+		return err
+	}
+	log.Info(fmt.Sprintf("%s (%s)", mode, session.SandboxNote(cfg.Agent)))
+	return nil
+}
+
 // Settings are the effective settings: the config file, overridden by flags.
 type Settings struct {
 	Cfg             config.Config
@@ -245,6 +269,11 @@ func Run(ctx context.Context, s Settings, d Deps, log *slog.Logger) error {
 	log.Info(fmt.Sprintf("max active agents: %d", cfg.MaxAgents))
 	log.Info(fmt.Sprintf("launch check: %s (%s)", onOff(launchCheck), checkNote))
 	log.Info(fmt.Sprintf("tool gate: %s (%s)", onOff(toolGate), gateNote))
+	codexHome := d.Getenv("CODEX_HOME")
+	if codexHome == "" {
+		codexHome = filepath.Join(d.Home, ".codex")
+	}
+	sandboxErr := logSandbox(ctx, cfg, codexHome, d, log)
 	log.Info("GitHub notifications: READ ONLY")
 	log.Info("review output: LOCAL SESSION ONLY")
 	if len(s.Include) > 0 {
@@ -257,7 +286,7 @@ func Run(ctx context.Context, s Settings, d Deps, log *slog.Logger) error {
 	launch := &session.Launcher{
 		Root: root, Self: d.Self, Cfg: cfg, ConfigSource: s.ConfigSource, Login: user.Login, Owner: owner,
 		Agent: cfg.Agent, Launcher: launcher, Terminal: terminal, LaunchCheck: launchCheck, ToolGate: toolGate,
-		Local: local, DryRun: s.DryRun, GOOS: d.GOOS, Run: d.Run, LookPath: d.LookPath, Log: log,
+		Local: local, DryRun: s.DryRun, SandboxErr: sandboxErr, CodexHome: codexHome, GOOS: d.GOOS, Run: d.Run, LookPath: d.LookPath, Log: log,
 	}
 	p := &poll.Poller{
 		GH: gh, Cfg: cfg, Login: user.Login, Include: include, Exclude: exclude, IgnoreAuthors: ignore,

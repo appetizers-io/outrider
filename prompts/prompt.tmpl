@@ -42,7 +42,8 @@ Base branch: {{.Base}}
 {{- end}}
 
 {{- define "branch" -}}
-{{- if .Own}}This is {{.Owner}}'s OWN PR (own work):
+{{- if .Sandbox}}{{template "sandbox" .}}
+{{- else if .Own}}This is {{.Owner}}'s OWN PR (own work):
 - before changing anything: `git fetch {{.Remote}} && git rebase {{.Remote}}/{{.Base}}`
 - after committing: fetch and rebase onto {{.Remote}}/{{.Base}} again
 - if a rebase conflicts, stop and explain it here; do not force-resolve
@@ -67,13 +68,30 @@ Base branch: {{.Base}}
 {{- end}}
 {{- end}}
 
+{{- define "sandbox" -}}
+READ-ONLY SANDBOX: this session can't change anything. The operating
+system's sandbox blocks file edits, commits, pushes, GitHub posts and
+network access, so gh and git fetch can't reach GitHub; do not try to
+work around it.
+- the PR context was fetched for you into {{.ContextDir}}:
+{{- range .ContextFiles}}
+  - {{index . 0}}: {{index . 1}}
+{{- end}}
+- the PR head is checked out here; read the code and run what only reads
+- put findings and suggested changes (explanation or diff) in this
+  session; {{.Owner}} decides what to do with them
+{{- end}}
+
 {{- define "work" -}}
 {{- if .Scope}}SCOPE: this session is ONLY about the comment(s) below, {{.ScopeWhy}}:
 {{range .Scope}}- {{.}}
-{{end}}Read them (`gh pr view {{.N}} --repo {{.Repo}} --comments`, or
+{{end}}{{if .Sandbox}}Read them in the PR context files (match the ids in the
+URLs){{else}}Read them (`gh pr view {{.N}} --repo {{.Repo}} --comments`, or
 `gh api repos/{{.Repo}}/pulls/{{.N}}/comments` for review threads; match the ids in
-the URLs) and handle only them. Do NOT review, summarize or act on anything
+the URLs){{end}} and handle only them. Do NOT review, summarize or act on anything
 else in this PR.
+{{- else if .Sandbox}}Use the PR context files and git to inspect recent reviews, inline
+review comments, PR discussion, commits and CI/checks.
 {{- else}}Use gh/git to inspect recent reviews, inline review comments,
 PR discussion, commits and CI/checks.
 {{- end}}

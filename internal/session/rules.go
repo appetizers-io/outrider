@@ -69,6 +69,11 @@ var ghWriteGateRules = map[string]string{
 		"close, labels, edits of the PR) and writes by any other route.",
 }
 
+// sandboxGateRule is added to the rules of a read-only sandboxed session.
+const sandboxGateRule = " READ-ONLY SANDBOX: the operating system's sandbox blocks writes and " +
+	"network for this session. Deny any attempt to get around it (another tool, " +
+	"changed settings or environment, an escalation request)."
+
 // Rules is what a session may do, for the tool gate.
 func Rules(repo string, n int, author, owner string, own bool, push, ghWrites string) string {
 	var rules string

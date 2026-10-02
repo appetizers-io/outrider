@@ -269,6 +269,9 @@ func TestDerivedModes(t *testing.T) {
 		{"others_prs: {allow_push: true}", true, "ask", "ask"},
 		{"mode: autonomous\nothers_prs: {allow_push: false}\npush: ask", false, "ask", "allow"},
 		{"github_writes: never", false, "ask", "never"},
+		{"sandbox: read-only", false, "never", "never"},
+		{"mode: autonomous\nsandbox: read-only\npush: never", true, "never", "never"},
+		{"others_prs: {sandbox: read-only}\npush: allow", false, "allow", "ask"},
 	} {
 		c, err := Parse([]byte(tc.text), "c.yaml")
 		require.NoError(t, err)
@@ -328,4 +331,39 @@ prompts: {extra: "Run make test."}
 	again, err := Parse(out, "shown")
 	r.NoError(err)
 	r.Equal(c, again)
+}
+
+func TestSandbox(t *testing.T) {
+	for _, tc := range []struct {
+		text       string
+		own, other string
+	}{
+		{"", "off", "off"},
+		{"sandbox: off", "off", "off"},
+		{"sandbox: read-only", "read-only", "read-only"},
+		{"others_prs: {sandbox: read-only}", "off", "read-only"},
+		{"sandbox: read-only\nothers_prs: {sandbox: off}", "read-only", "off"},
+	} {
+		r := require.New(t)
+		c, err := Parse([]byte(tc.text), "c.yaml")
+		r.NoError(err, tc.text)
+		r.Equal(tc.own, c.SandboxFor(true), tc.text)
+		r.Equal(tc.other, c.SandboxFor(false), tc.text)
+	}
+}
+
+func TestReadOnlySandboxRefusesConflictingKeys(t *testing.T) {
+	for _, tc := range []struct{ text, want string }{
+		{"sandbox: read-only\npush: allow", "push: 'allow' conflicts with sandbox: read-only"},
+		{"sandbox: read-only\npush: ask", "push: 'ask' conflicts"},
+		{"sandbox: read-only\ngithub_writes: ask", "github_writes: 'ask' conflicts"},
+		{"others_prs: {sandbox: read-only, allow_push: true}", "others_prs.allow_push: true conflicts"},
+		{"sandbox: read-only\nothers_prs: {allow_push: true}", "others_prs.allow_push: true conflicts"},
+		{"sandbox: on", "sandbox"},
+	} {
+		_, err := Parse([]byte(tc.text), "c.yaml")
+		require.ErrorContains(t, err, tc.want, tc.text)
+	}
+	_, err := Parse([]byte("sandbox: read-only\npush: never\ngithub_writes: never\nothers_prs: {allow_push: false}"), "c.yaml")
+	require.NoError(t, err)
 }

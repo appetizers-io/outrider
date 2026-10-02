@@ -175,6 +175,21 @@ func TestNoJevAndJevCmdFlags(t *testing.T) {
 	require.Equal(t, config.EnabledAuto, s.Cfg.Classifiers["jev"].Jev.Enabled)
 }
 
+func TestSandboxFlag(t *testing.T) {
+	r := require.New(t)
+	isolate(t)
+	s, err := effective(t, "--sandbox", "read-only")
+	r.NoError(err)
+	r.Equal("read-only", s.Cfg.Sandbox)
+	r.Equal("never", s.Cfg.PushMode())
+	r.Equal("never", s.Cfg.GitHubWritesMode())
+	// a conflicting explicit setting is refused at startup
+	_, err = effective(t, "--sandbox", "read-only", "--github-writes", "ask")
+	r.ErrorContains(err, "github_writes: 'ask' conflicts with sandbox: read-only")
+	_, err = effective(t, "--sandbox", "maybe")
+	r.ErrorContains(err, "/sandbox")
+}
+
 func TestInvalidFlagsAndConfig(t *testing.T) {
 	dir := isolate(t)
 	// flags are checked against the config schema, like the file
@@ -279,9 +294,30 @@ func TestStartupReportsConfigOwnerAndClassifiers(t *testing.T) {
 		"launcher: tmux",
 		"terminal: none (none found)",
 		"summary: own_new=0",
+		"sandbox: off",
 	} {
 		require.Contains(t, o.stderr, want)
 	}
+}
+
+func TestStartupReportsTheSandbox(t *testing.T) {
+	d := machine(t, ok)
+	run := d.Run
+	d.Run = func(ctx context.Context, c proc.Cmd) (proc.Result, error) {
+		if strings.Join(c.Args, " ") == "claude --version" {
+			return proc.Result{Stdout: "2.1.286 (Claude Code)\n"}, nil
+		}
+		return run(ctx, c)
+	}
+	o := cli(t, d, "--once", "--launcher", "tmux", "--no-jev", "--agent", "claude", "--sandbox", "read-only")
+	require.Equal(t, 0, o.code, o.stderr)
+	require.Contains(t, o.stderr, "sandbox: read-only (claude: native sandbox + deny rules)")
+
+	// fail closed: without the platform sandbox, sandboxed sessions are refused
+	d.GOOS = "windows"
+	o = cli(t, d, "--once", "--launcher", "terminal", "--terminal", "cmd", "--no-jev", "--agent", "claude", "--sandbox", "read-only")
+	require.Equal(t, 0, o.code, o.stderr)
+	require.Contains(t, o.stderr, "sandbox: read-only UNAVAILABLE (outrider supports no claude sandbox on windows); sandboxed sessions are refused")
 }
 
 func TestOwnerNameFromTheConfig(t *testing.T) {

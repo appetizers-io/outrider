@@ -50,6 +50,18 @@ func (c *calls) run(_ context.Context, cmd proc.Cmd) (proc.Result, error) {
 		}
 		return proc.Result{Stdout: fmt.Sprintf(`{"verdicts": [{"answer": %v, "confidence": 0.9}]}`, answer)}, nil
 	}
+	// what a sandboxed session asks for first
+	switch strings.Join(cmd.Args[:min(3, len(cmd.Args))], " ") {
+	case "gh pr view":
+		return proc.Result{Stdout: `{"title": "T", "statusCheckRollup": []}`}, nil
+	case "gh pr diff":
+		return proc.Result{Stdout: "diff --git a/x b/x\n"}, nil
+	case "git rev-parse --path-format=absolute":
+		return proc.Result{Stdout: "/repo/.git\n"}, nil
+	}
+	if cmd.Args[0] == "gh" && cmd.Args[1] == "api" {
+		return proc.Result{Stdout: "[[]]"}, nil
+	}
 	return proc.Result{}, nil
 }
 
