@@ -56,6 +56,20 @@ func (c *Client) Me(ctx context.Context) (User, error) {
 	return JSON[User](ctx, c, "api", "user")
 }
 
+// Repo is what GitHub tells about a repository.
+type Repo struct {
+	FullName string `json:"full_name"`
+	Fork     bool   `json:"fork"`
+	Parent   *struct {
+		FullName string `json:"full_name"`
+	} `json:"parent"`
+}
+
+// Repo looks an owner/repo up.
+func (c *Client) Repo(ctx context.Context, repo string) (Repo, error) {
+	return JSON[Repo](ctx, c, "api", "repos/"+repo)
+}
+
 // Notification is an entry of the notification feed.
 type Notification struct {
 	ID         string `json:"id"`

@@ -379,6 +379,10 @@ func TestLocalCheckoutIsWatched(t *testing.T) {
 			return proc.Result{Stdout: "/src/r\n"}, nil
 		case "git remote get-url upstream":
 			return proc.Result{Stdout: "git@github.com:o/r.git\n"}, nil
+		case "git remote get-url --push --all -- origin":
+			return proc.Result{Stdout: "https://github.com/me/r.git\n"}, nil
+		case "gh api repos/me/r":
+			return proc.Result{Stdout: `{"full_name": "me/r", "fork": true, "parent": {"full_name": "o/r"}}`}, nil
 		}
 		return inner(ctx, c)
 	}
@@ -386,6 +390,13 @@ func TestLocalCheckoutIsWatched(t *testing.T) {
 	require.Equal(t, 0, o.code, o.stderr)
 	require.Contains(t, o.stderr, "repos: o/r")
 	require.Contains(t, o.stderr, "local checkout for o/r: /src/r (remote upstream)")
+	require.Contains(t, o.stderr, "review forks: me/r (auto: origin)")
+
+	p := filepath.Join(d.Home, "c.yaml")
+	require.NoError(t, os.WriteFile(p, []byte("others_prs: {review_forks: []}\n"), 0o600))
+	o = cli(t, d, "--once", "--launcher", "tmux", "--remote", "upstream", "--config", p)
+	require.Equal(t, 0, o.code, o.stderr)
+	require.Contains(t, o.stderr, "review forks: off (review_forks: [])")
 }
 
 func TestOldDirsAreMovedAndTheirConfigLoaded(t *testing.T) {
@@ -502,7 +513,7 @@ func TestDoctorJSON(t *testing.T) {
 	r.Equal(0, o.code, o.stdout+o.stderr)
 	var results []map[string]string
 	r.NoError(json.Unmarshal([]byte(o.stdout), &results))
-	r.Len(results, 13)
+	r.Len(results, 14)
 	for _, res := range results {
 		r.ElementsMatch([]string{"name", "status", "detail", "fix"}, slices.Collect(maps.Keys(res)))
 	}

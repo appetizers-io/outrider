@@ -54,6 +54,8 @@ type Input struct {
 	ConfigErr error          // why the config could not be loaded
 	Deps      watch.Deps
 	Dialogs   approve.Platform
+
+	forks watch.ReviewForks // resolved by Run
 }
 
 // requiredScope is the gh token scope outrider reads GitHub with: private
@@ -62,11 +64,12 @@ const requiredScope = "repo"
 
 var checks = []func(context.Context, *Input) Result{
 	checkConfig, checkGitHub, checkGit, checkAgent, checkOtherAgent, checkLauncher, checkDialogs,
-	checkLaunchCheck, checkToolGate, checkSandbox, checkCheckout, checkFiles, checkLeftovers,
+	checkLaunchCheck, checkToolGate, checkSandbox, checkCheckout, checkReviewForks, checkFiles, checkLeftovers,
 }
 
-// Run runs every check.
+// Run runs every check, with review_forks resolved the way the watcher does.
 func Run(ctx context.Context, in Input) []Result {
+	resolveForks(ctx, &in)
 	out := make([]Result, 0, len(checks))
 	for _, check := range checks {
 		out = append(out, check(ctx, &in))
@@ -195,7 +198,7 @@ func checkGitHub(ctx context.Context, in *Input) Result {
 		r.Fix = "gh auth refresh --hostname " + host + " --scopes " + requiredScope
 		return r
 	}
-	if len(in.Settings.Cfg.OthersPRs.ReviewForks) > 0 && !slices.Contains(have, "workflow") {
+	if len(in.Settings.Cfg.OthersPRs.Forks()) > 0 && !slices.Contains(have, "workflow") {
 		// GitHub refuses a push that adds or changes .github/workflows without it
 		r.Status = Warn
 		r.Detail += "; missing workflow, so review sessions can't push CI workflows to others_prs.review_forks"
@@ -377,6 +380,23 @@ func checkCheckout(ctx context.Context, in *Input) Result {
 		return Result{Name: "checkout", Status: Info, Detail: "not inside a GitHub checkout; repos come from repos.include"}
 	}
 	return Result{Name: "checkout", Status: Info, Detail: fmt.Sprintf("%s at %s (remote %s)", repo, loc.Path, loc.Remote)}
+}
+
+// resolveForks resolves review_forks into in.forks and the config, so the
+// checks see the effective list.
+func resolveForks(ctx context.Context, in *Input) {
+	repo, loc, _ := watch.LocalCheckout(ctx, &in.Settings, in.Deps)
+	user, _ := (&github.Client{Run: in.Deps.Run}).Me(ctx)
+	in.forks = watch.ResolveReviewForks(ctx, &in.Settings.Cfg, repo, loc, user.Login, in.Deps)
+	in.Settings.Cfg.OthersPRs.ReviewForks = &in.forks.Forks
+}
+
+func checkReviewForks(_ context.Context, in *Input) Result {
+	r := Result{Name: "review forks", Status: Info, Detail: in.forks.String()}
+	if in.forks.Failed {
+		r.Status, r.Fix = Warn, "check `gh api repos/<origin>` and `git remote get-url --push origin`, or set others_prs.review_forks"
+	}
+	return r
 }
 
 // creatable tells whether dir exists as a directory, or whether its nearest

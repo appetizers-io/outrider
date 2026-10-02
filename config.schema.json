@@ -268,12 +268,19 @@
           ]
         },
         "review_forks": {
-          "items": {
-            "type": "string",
-            "minLength": 1
-          },
-          "type": "array",
-          "description": "owner/repo globs of your own forks that review-only sessions may push evidence to (failing tests, repro scripts), e.g. me/*. Such sessions may edit and commit locally; git push goes only to a matching repo that is neither the PR's head nor its base repo, and follows push. Pushing workflow files needs the workflow token scope. Empty: review only, no pushes."
+          "oneOf": [
+            {
+              "items": {
+                "type": "string",
+                "minLength": 1
+              },
+              "type": "array",
+              "description": "owner/repo globs of your own forks that review-only sessions may push evidence to (failing tests, repro scripts), e.g. me/*. Such sessions may edit and commit locally; git push goes only to a matching repo that is neither the PR's head nor its base repo, and follows push. Pushing workflow files needs the workflow token scope. null: auto, the checkout's origin when --remote watches another remote and origin is your fork of the watched repo. []: review only, no pushes."
+            },
+            {
+              "type": "null"
+            }
+          ]
         }
       },
       "additionalProperties": false,

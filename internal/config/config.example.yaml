@@ -121,7 +121,10 @@ others_prs:
   # may edit and commit locally; git push goes only to a matching repo that is
   # neither the PR's head nor its base repo, and follows push. Pushing workflow
   # files needs the workflow token scope. Not with sandbox: read-only.
-  review_forks: []
+  # null: auto. With --remote set to another remote than origin (a fork
+  # checkout), origin is the review fork when it is yours and GitHub says it
+  # is a fork of the watched repo. []: off, no pushes.
+  review_forks: null
 
 # Named decision backends for launch_check and tool_gate. 'jev' is always
 # defined.

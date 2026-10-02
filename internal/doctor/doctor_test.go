@@ -414,6 +414,62 @@ func TestCheckCheckout(t *testing.T) {
 	})
 }
 
+func TestCheckReviewForks(t *testing.T) {
+	// the shared resolution runs first, so the github check sees the auto fork
+	forkCheckout := func(m *machine) {
+		m.outputs["git rev-parse --show-toplevel"] = "/src/r\n"
+		m.outputs["git remote get-url upstream"] = "https://github.com/o/r.git\n"
+		m.outputs["git remote get-url --push --all -- origin"] = "https://github.com/me/r.git\n"
+		m.outputs["gh api repos/me/r"] = `{"full_name": "me/r", "fork": true, "parent": {"full_name": "o/r"}}`
+	}
+	upstream := func(_ *testing.T, in *Input) { in.Settings.Remote = "upstream" }
+	both := func(t *testing.T, in *Input) []Result {
+		t.Helper()
+		rs := Run(t.Context(), *in)
+		i := slices.IndexFunc(rs, func(r Result) bool { return r.Name == "review forks" })
+		j := slices.IndexFunc(rs, func(r Result) bool { return r.Name == "github" })
+		return []Result{rs[i], rs[j]}
+	}
+	for _, tc := range []struct {
+		name   string
+		setup  func(m *machine)
+		status Status
+		detail string
+		github string
+	}{
+		{name: "outside a checkout", status: Info, detail: "off (not in a local checkout)", github: "scopes gist, read:org, repo"},
+		{name: "auto: origin", setup: forkCheckout, status: Info, detail: "me/r (auto: origin)", github: "missing workflow"},
+		{
+			name: "lookup fails", setup: func(m *machine) { forkCheckout(m); delete(m.outputs, "gh api repos/me/r") },
+			status: Warn, detail: "off (cannot look up origin me/r on GitHub",
+		},
+		{
+			name: "explicit list", setup: func(m *machine) { forkCheckout(m); m.cfg = "others_prs: {review_forks: [me/x]}" },
+			status: Info, detail: "me/x (config)",
+		},
+		{
+			name: "off", setup: func(m *machine) { forkCheckout(m); m.cfg = "others_prs: {review_forks: []}" },
+			status: Info, detail: "off (review_forks: [])", github: "scopes gist, read:org, repo",
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			r := require.New(t)
+			m := newMachine()
+			if tc.setup != nil {
+				tc.setup(m)
+			}
+			in := m.input(t)
+			if tc.setup != nil {
+				upstream(t, in)
+			}
+			got := both(t, in)
+			r.Equal(tc.status, got[0].Status, got[0].Detail)
+			r.Contains(got[0].Detail, tc.detail)
+			r.Contains(got[1].Detail, tc.github)
+		})
+	}
+}
+
 func TestCheckFiles(t *testing.T) {
 	runCases(t, checkFiles, []checkCase{
 		{name: "fresh home", status: OK, detail: filepath.Join(".cache", "outrider")},

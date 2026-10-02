@@ -113,7 +113,7 @@ func TestGateRulesGolden(t *testing.T) {
 				if own && push == "review-forks" {
 					continue // only for someone else's PR
 				}
-				cfg.OthersPRs.ReviewForks = []string{"me/*", "me-evidence/r"}
+				cfg.OthersPRs.ReviewForks = &[]string{"me/*", "me-evidence/r"}
 				for _, gh := range []string{"ask", "never", "allow"} {
 					fmt.Fprintf(&b, "== own_%t push_%s gh_%s\n%s\n\n", own, push, gh,
 						GateText(&cfg, "o/r", 7, "bob", "Matthias", own, push, gh))

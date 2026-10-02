@@ -87,8 +87,9 @@ A session on a PR someone else authored is review only unless
   `git push`, `git rebase`, `git reset --hard`, `git cherry-pick`, `git merge`
   and `git am`.
 
-With [`others_prs.review_forks`](#review-forks) set, a review-only session may
-also commit locally and push evidence to your own forks.
+With [review forks](#review-forks) (set, or found automatically in a fork
+checkout), a review-only session may also commit locally and push evidence to
+your own forks.
 
 On your own PR the agent may commit, rebase onto the base branch and push
 with `--force-with-lease`. Claude still gets deny rules for plain force pushes,
@@ -100,6 +101,27 @@ deleting branches and remote branches.
 others_prs:
   review_forks: ["me/*"]   # owner/repo globs of your own forks
 ```
+
+`review_forks` has three states:
+
+- **unset or `null` (default): auto.** `origin` of the local checkout is the
+  review fork when all of these hold:
+  1. outrider runs in the checkout with `--remote` set to another remote than
+     `origin` (e.g. `upstream`);
+  2. `origin`'s push URL, resolved like the guard does
+     (`git remote get-url --push --all origin`), is one `github.com` repo
+     owned by your GitHub login;
+  3. GitHub (`gh api repos/<origin>`, once at startup) reports that repo
+     under the same name as a fork whose parent is the watched repo.
+
+  If any lookup fails, auto stays off (fail closed) and the startup log says
+  why.
+- **a list:** exactly these globs, nothing automatic.
+- **`[]`:** off, no evidence pushes.
+
+The startup log and `outrider doctor` show the result:
+`review forks: me/repo (auto: origin)`, `review forks: me/* (config)` or
+`review forks: off (origin o/repo is not your fork)`.
 
 A review-only session on someone else's PR becomes **review with evidence**:
 the agent may edit files and commit locally, and push failing tests, repro
@@ -137,8 +159,8 @@ sessions; plain force pushes, `git push --delete`, `git rebase`,
 forks.
 
 GitHub refuses a push that adds or changes `.github/workflows/` unless the
-token has the `workflow` scope; `outrider doctor` warns when `review_forks` is
-set and the scope is missing. `review_forks` with a read-only sandbox for
+token has the `workflow` scope; `outrider doctor` warns when there are review
+forks and the scope is missing. `review_forks` with a read-only sandbox for
 others' PRs is a config error.
 
 ## Pushes: `push`

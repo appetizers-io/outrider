@@ -66,7 +66,7 @@ matter for its case.
 | `others_prs.allow_push` | `false` in supervised, `true` in autonomous | `true`, `false` |
 | `sandbox` | `off` | `off`, `read-only` |
 | `others_prs.sandbox` | `null`: as `sandbox` | `off`, `read-only` |
-| `others_prs.review_forks` | `[]`: no evidence pushes | owner/repo globs of your own forks, e.g. `["me/*"]` |
+| `others_prs.review_forks` | `null`: auto, your `origin` fork in a fork checkout | owner/repo globs of your own forks, e.g. `["me/*"]`; `[]`: off |
 
 `sandbox: read-only` makes `push` and `github_writes` default to `never`;
 setting either to anything else with it is an error at startup, and so is
@@ -75,7 +75,12 @@ sandbox for others' PRs.
 
 `others_prs.review_forks` lets review-only sessions commit locally and push
 evidence (failing tests, repro scripts, a CI workflow) to your own forks; each
-push follows `push`. See [Review forks](safety.md#review-forks).
+push follows `push`. Unset, it is automatic: in a fork checkout watched with
+`--remote upstream`, `origin` is the review fork when it is yours and a fork
+of the watched repo. A list is used as is; `[]` turns it off. The startup log
+and `outrider doctor` show the result, e.g.
+`review forks: me/repo (auto: origin)`. See
+[Review forks](safety.md#review-forks).
 
 What each value does is on the [Safety](safety.md) page.
 
