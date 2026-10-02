@@ -1,0 +1,19 @@
+{
+  "version": 1,
+  "repo": "o/r",
+  "pr": 1,
+  "title": "T",
+  "url": "https://github.com/o/r/pull/1",
+  "author": "bob",
+  "own": false,
+  "owner": "Matthias",
+  "owner_login": "me",
+  "trigger": "my PR notification (comment)",
+  "failing_checks": [
+    "unit",
+    "ci/x"
+  ],
+  "activity": [],
+  "question": "Should a coding agent working for Matthias act on this PR now: a concrete change request, a question that needs Matthias's answer, a reply in their review thread that needs a response, or a failing CI check on their own PR?",
+  "state_text": "GitHub pull request o/r#1: T\nPR author: bob (someone else's PR; Matthias is a reviewer)\nMatthias's GitHub login: me\nWhy this check runs: my PR notification (comment)\nFailing CI checks: unit, ci/x\n\nNew activity since the last check (oldest first):\n- (none)"
+}

@@ -22,8 +22,8 @@ type Watched struct {
 	Repo        string  `json:"repo"`
 }
 
-// State is kept between polls. Keys are owner/repo#n; fields are sorted like
-// the Python version wrote them.
+// State is kept between polls. Keys are owner/repo#n; the fields are in
+// alphabetical order, so the file keeps a stable layout.
 type State struct {
 	Candidates  map[string]Candidate `json:"candidates"`
 	Handled     map[string]string    `json:"handled"` // when activity was last judged

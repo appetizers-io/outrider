@@ -131,20 +131,6 @@ func ResolveRole(cfg *config.Config, name *string, lookPath LookPath) (*Resolved
 	return r, *name + ": " + note
 }
 
-// pyStr formats a JSON value like Python's str(): None, True, False, numbers as written.
-func pyStr(v any) string {
-	switch x := v.(type) {
-	case nil:
-		return "None"
-	case bool:
-		if x {
-			return "True"
-		}
-		return "False"
-	}
-	return fmt.Sprint(v)
-}
-
 func number(v any) (float64, bool) {
 	n, ok := v.(json.Number)
 	if !ok {
@@ -201,13 +187,13 @@ func CheckLaunch(ctx context.Context, r *Resolved, req Request, skipBelow float6
 	}
 	reason := ""
 	if v := obj["reason"]; v != nil && v != "" && v != false {
-		reason = " (" + pyStr(v) + ")"
+		reason = fmt.Sprintf(" (%v)", v)
 	}
 	if launch, ok := obj["launch"].(bool); ok {
-		return launch, fmt.Sprintf("%s: launch=%s%s", r.Name, pyStr(launch), reason)
+		return launch, fmt.Sprintf("%s: launch=%t%s", r.Name, launch, reason)
 	}
 	if p, ok := number(obj["probability"]); ok {
-		return p >= skipBelow, fmt.Sprintf("%s: p=%s%s", r.Name, pyStr(obj["probability"]), reason)
+		return p >= skipBelow, fmt.Sprintf("%s: p=%v%s", r.Name, obj["probability"], reason)
 	}
 	return true, r.Name + ": unexpected answer, launching anyway"
 }
@@ -221,9 +207,9 @@ func jevVerdict(name string, answer map[string]any, skipBelow float64) (bool, st
 	if !ok {
 		return true, name + ": unexpected answer, launching anyway"
 	}
-	note := fmt.Sprintf("%s p=%s conf=%s", name, pyStr(v["answer"]), pyStr(v["confidence"]))
+	note := fmt.Sprintf("%s p=%v conf=%v", name, orUnknown(v["answer"]), orUnknown(v["confidence"]))
 	if esc, _ := v["escalate"].(bool); esc {
-		return true, fmt.Sprintf("%s unsure (%s), launching anyway", note, pyStr(v["reason"]))
+		return true, fmt.Sprintf("%s unsure (%v), launching anyway", note, orUnknown(v["reason"]))
 	}
 	raw, present := v["answer"]
 	if !present {
@@ -236,13 +222,12 @@ func jevVerdict(name string, answer map[string]any, skipBelow float64) (bool, st
 	return p >= skipBelow, note
 }
 
-// PyFloat formats a float like Python's str(): 0.8, 1.0.
-func PyFloat(f float64) string {
-	s := strconv.FormatFloat(f, 'f', -1, 64)
-	if !strings.ContainsAny(s, ".eE") {
-		s += ".0"
+// orUnknown is a JSON value for a log note; a missing one reads "unknown".
+func orUnknown(v any) any {
+	if v == nil {
+		return "unknown"
 	}
-	return s
+	return v
 }
 
 // HookEnv is the environment the tool-gate hook runs with.
@@ -252,12 +237,12 @@ func HookEnv(r *Resolved, gateText string, threshold *float64, policyFile string
 		"OUTRIDER_GATE_TEXT":   gateText,
 	}
 	if threshold != nil {
-		env["OUTRIDER_GATE_THRESHOLD"] = PyFloat(*threshold)
+		env["OUTRIDER_GATE_THRESHOLD"] = strconv.FormatFloat(*threshold, 'f', -1, 64)
 	}
 	if r.Kind == config.KindJev {
 		env["JEV_GATE_STATE"] = gateText
 		if threshold != nil {
-			env["JEV_GATE_THRESHOLD"] = PyFloat(*threshold)
+			env["JEV_GATE_THRESHOLD"] = strconv.FormatFloat(*threshold, 'f', -1, 64)
 		}
 	}
 	return env

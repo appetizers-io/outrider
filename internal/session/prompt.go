@@ -2,6 +2,7 @@ package session
 
 import (
 	"fmt"
+	"strconv"
 	"strings"
 	"text/template"
 
@@ -27,14 +28,12 @@ type PromptInput struct {
 	GHWrites      string // never | ask | allow
 }
 
-func pyBool(b *bool) string {
-	switch {
-	case b == nil:
-		return "None"
-	case *b:
-		return "True"
+// tristate is a yes/no that GitHub may leave out.
+func tristate(b *bool) string {
+	if b == nil {
+		return "unknown"
 	}
-	return "False"
+	return strconv.FormatBool(*b)
 }
 
 // Prompt is the text an agent session starts with.
@@ -59,7 +58,7 @@ func Prompt(in PromptInput) (string, error) {
 	data := map[string]any{
 		"Trigger": in.Trigger, "Repo": in.Repo, "N": in.N, "URL": in.PR.URL, "Title": in.PR.Title,
 		"Author": author, "Head": owner + "/" + name, "HeadRef": in.PR.HeadRefName,
-		"MaintainerCanModify": pyBool(in.PR.MaintainerCanModify), "Base": in.PR.BaseRefName,
+		"MaintainerCanModify": tristate(in.PR.MaintainerCanModify), "Base": in.PR.BaseRefName,
 		"Owner": in.Owner, "Remote": remote, "Own": own, "AllowPush": in.AllowPush,
 		"MayPush": own || in.AllowPush, "Push": in.Push, "PushRule": in.Push == "ask" || in.Push == "never",
 		"GHWrites": in.GHWrites, "Writable": in.GHWrites == "ask" || in.GHWrites == "allow",

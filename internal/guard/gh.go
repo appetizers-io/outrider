@@ -116,7 +116,7 @@ type GHDecision struct {
 	Args  []string // what to run the real gh with
 }
 
-// denied ends the decision; panicking keeps the ported control flow flat.
+// denied ends the decision; panicking keeps the control flow flat.
 type denied struct{ msg string }
 
 func (s GHSession) deny(args []string, why string) {

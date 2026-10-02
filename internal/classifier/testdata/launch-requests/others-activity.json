@@ -1,0 +1,47 @@
+{
+  "version": 1,
+  "repo": "o/r",
+  "pr": 1,
+  "title": "T",
+  "url": "https://github.com/o/r/pull/1",
+  "author": "bob",
+  "own": false,
+  "owner": "Matthias",
+  "owner_login": "me",
+  "trigger": "my PR notification (comment)",
+  "failing_checks": [
+    "unit",
+    "ci/x"
+  ],
+  "activity": [
+    {
+      "kind": "comment",
+      "state": null,
+      "user": "alice",
+      "path": null,
+      "at": "2026-01-01T00:00:00Z",
+      "body": "  hello\nworld  ",
+      "url": null
+    },
+    {
+      "kind": "review",
+      "state": "APPROVED",
+      "user": "bob",
+      "path": null,
+      "at": "2026-01-02T00:00:00Z",
+      "body": "",
+      "url": null
+    },
+    {
+      "kind": "inline comment",
+      "state": null,
+      "user": "carol",
+      "path": "a/b.go",
+      "at": "2026-01-03T00:00:00Z",
+      "body": "fix this ünïcode 🚀 \u003c\u0026\u003e",
+      "url": "https://x/c3"
+    }
+  ],
+  "question": "Should a coding agent working for Matthias act on this PR now: a concrete change request, a question that needs Matthias's answer, a reply in their review thread that needs a response, or a failing CI check on their own PR?",
+  "state_text": "GitHub pull request o/r#1: T\nPR author: bob (someone else's PR; Matthias is a reviewer)\nMatthias's GitHub login: me\nWhy this check runs: my PR notification (comment)\nFailing CI checks: unit, ci/x\n\nNew activity since the last check (oldest first):\n- comment by alice at 2026-01-01T00:00:00Z:\n  hello\n  world\n- review by bob at 2026-01-02T00:00:00Z [APPROVED]\n- inline comment by carol at 2026-01-03T00:00:00Z on a/b.go:\n  fix this ünïcode 🚀 \u003c\u0026\u003e"
+}

@@ -50,8 +50,8 @@ func NewerThan(items []github.Activity, t string) []github.Activity {
 	return out
 }
 
-// asciiJSON is JSON with every non-ASCII character escaped, like Python's
-// json.dumps (ensure_ascii, the default).
+// asciiJSON is JSON without HTML escaping and with every non-ASCII character
+// escaped as \uXXXX. Fingerprint hashes this exact form, so it must not change.
 func asciiJSON(v any) (string, error) {
 	var b strings.Builder
 	enc := json.NewEncoder(&b)
@@ -75,9 +75,8 @@ func asciiJSON(v any) (string, error) {
 }
 
 // Fingerprint identifies the state of a PR's reviews and comments. The
-// encoding must stay byte-identical to the Python version: stored
-// fingerprints are compared across versions, and a change would relaunch
-// every watched PR.
+// encoding must stay byte-identical: fingerprints are stored in state.json,
+// and a different one would relaunch every watched PR once.
 func Fingerprint(items []github.Activity) string {
 	data := make([][]any, len(items))
 	for i, x := range items {
@@ -92,8 +91,8 @@ func Fingerprint(items []github.Activity) string {
 }
 
 // Mentions returns a matcher for text that @mentions login: not inside a
-// word, an email address or a path, and not a longer login. The Python
-// version's regexp, with lookbehind (regexp2: Go's regexp has none).
+// word, an email address or a path, and not a longer login. It needs
+// lookbehind, which Go's regexp lacks, hence regexp2.
 func Mentions(login string) func(text string) bool {
 	rx := regexp2.MustCompile(`(?<![\w@/])@`+regexp2.Escape(login)+`(?![\w-])`, regexp2.IgnoreCase)
 	return func(text string) bool {

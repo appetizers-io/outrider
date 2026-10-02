@@ -93,12 +93,13 @@ func TestInvalid(t *testing.T) {
 	}
 }
 
-func TestYAML11BooleansStillLoad(t *testing.T) {
-	// the Python version read YAML 1.1, where yes/no/on/off are booleans
-	c, err := Parse([]byte("triggers: {own_prs: {enabled: no}}\nclassifiers: {jev: {enabled: yes}}\n"), "c.yaml")
+func TestBooleansAreTrueAndFalse(t *testing.T) {
+	// YAML 1.2: yes/no/on/off are strings, not booleans
+	_, err := Parse([]byte("triggers: {own_prs: {enabled: no}}\n"), "c.yaml")
+	require.ErrorContains(t, err, "/triggers/own_prs/enabled")
+	c, err := Parse([]byte("triggers: {own_prs: {enabled: false}}\n"), "c.yaml")
 	require.NoError(t, err)
 	require.False(t, c.Triggers.OwnPRs.Enabled)
-	require.Equal(t, EnabledTrue, c.Classifiers["jev"].Jev.Enabled)
 }
 
 func TestNestedKeysKeepTheirDefaults(t *testing.T) {
@@ -205,15 +206,24 @@ func TestExampleConfigShowsEveryKey(t *testing.T) {
 	}
 }
 
-func TestPythonExampleConfigLoads(t *testing.T) {
-	// config.example.yaml as shipped with the Python version
-	text, err := os.ReadFile("../../testdata/config-python-example.yaml")
+func TestConfigWithAllKeysLoads(t *testing.T) {
+	// a config that sets every key the way users write them; it must keep loading
+	text, err := os.ReadFile("../../testdata/config-all-keys.yaml")
 	require.NoError(t, err)
-	c, err := Parse(text, "config-python-example.yaml")
+	c, err := Parse(text, "config-all-keys.yaml")
 	require.NoError(t, err)
 	require.Equal(t, "Matthias", *c.OwnerName)
 	require.Equal(t, []string{"open-component-model/*"}, c.Repos.Include)
 	require.Equal(t, []string{"never modify generated/ or vendor/"}, c.ToolGate.Rules)
+	require.Equal(t, []string{"alacritty", "-e", "{cmd}"}, c.Terminal.Command)
+	// it really sets every key
+	var data, defaults any
+	require.NoError(t, yaml.Unmarshal(text, &data))
+	shown, err := yaml.Marshal(Default())
+	require.NoError(t, err)
+	require.NoError(t, yaml.Unmarshal(shown, &defaults))
+	missing := slices.DeleteFunc(keys("", defaults), func(k string) bool { return slices.Contains(keys("", data), k) })
+	require.Empty(t, missing)
 }
 
 func TestValidateChecksBuiltConfigs(t *testing.T) {
@@ -269,7 +279,7 @@ func TestDerivedModes(t *testing.T) {
 }
 
 func TestExistingConfigsLoadUnchanged(t *testing.T) {
-	// a config written for the Python version, every key set
+	// a config from an earlier version, every key set
 	text := `
 owner_name: Matthias
 mode: autonomous
