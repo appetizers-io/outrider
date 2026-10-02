@@ -44,8 +44,8 @@ read-only sandbox for others' PRs, is refused at startup.
 | Network | none (`network.allowedDomains: []`, `strictAllowlist`) | none |
 | Escalation | `--permission-mode manual`, `disableBypassPermissionsMode`; deny rules for `Edit`, `Write`, `NotebookEdit`, `WebFetch`, `WebSearch` and the review-only git commands | `--ask-for-approval never`: a blocked command fails, nothing asks to leave the sandbox |
 | Tools | only `Bash`, `Read`, `Glob`, `Grep` (`--tools`) | apps, plugins, browser and computer use and web search off |
-| What the checkout can configure | nothing: `--setting-sources user` skips its `.claude/settings*.json` (hooks), `--strict-mcp-config` its `.mcp.json` | nothing: the worktree and its checkout are untrusted, so its `.codex/` config and rules aren't loaded |
-| Your own setup | your user settings and hooks still load | a private `CODEX_HOME` in the session dir that holds only a link to your `auth.json`: your rules (an `allow` rule runs a command outside the sandbox), MCP servers and plugins aren't loaded |
+| What the checkout can configure | nothing: `--setting-sources ""` skips its `.claude/settings*.json` (hooks), `--strict-mcp-config` its `.mcp.json` | nothing: the worktree and its checkout are untrusted, so its `.codex/` config and rules aren't loaded |
+| Your own setup | not loaded either: no user settings, hooks, status line or model preference (login still works; it isn't a setting) | a private `CODEX_HOME` in the session dir that holds only a link to your `auth.json`: your rules (an `allow` rule runs a command outside the sandbox), MCP servers and plugins aren't loaded |
 
 Plan mode (`--permission-mode plan`) isn't used: it doesn't add a boundary the
 sandbox and deny rules don't already enforce, it makes every sandboxed command
@@ -53,23 +53,20 @@ ask, and leaving it is one click.
 
 **Fail closed.** At startup outrider checks the platform and the agent
 version and logs the mode, e.g.
-`sandbox: read-only (claude: native sandbox + deny rules)`. When the sandbox
+`sandbox: read-only (claude: native sandbox + deny rules, no user or project settings)`. When the sandbox
 isn't available, it logs `UNAVAILABLE` with the reason and refuses every
 session that would need it (`refusing session: read-only sandbox
 unavailable`); it never runs one unsandboxed. Claude Code's
 `failIfUnavailable` is a second check.
 
-**Your Claude settings must not loosen it.** Claude Code adds the sandbox
-lists of your user settings (`~/.claude/settings.json`, or
-`$CLAUDE_CONFIG_DIR/settings.json`; `--setting-sources user` loads no other
-file) to outrider's. `sandbox.excludedCommands` run outside the sandbox after
-one approval, and `sandbox.filesystem.allowWrite` and
-`sandbox.network.allowedDomains` open writes and network. When that file sets
-any of them, every read-only Claude session is refused
-(`refusing session: read-only sandbox not enforceable: your Claude settings
-... set sandbox.excludedCommands ...; remove sandbox.excludedCommands from
-that file`). The file is read again for each session, so removing the keys
-needs no restart. `outrider doctor` reports the same.
+**Your Claude settings can't loosen it.** Claude Code would add the sandbox
+settings of your user settings file (e.g. `sandbox.excludedCommands`, which
+run outside the sandbox after one approval, network or filesystem
+exceptions) and the domains of `WebFetch(domain:...)` allow rules to
+outrider's. So read-only Claude sessions load no settings files at all
+(`--setting-sources ""`), only outrider's `--settings`; `outrider doctor`
+says so (`no user or project settings`). The cost: your hooks, status line
+and model preference don't apply in those sessions.
 
 The prefetched PR context is untrusted: each file is cut at 2 MiB (ending in
 an `[outrider: truncated ...]` note), and the prompt says the files are data,
@@ -86,7 +83,7 @@ never instructions.
 **What the sandbox doesn't cover.** The agent still reads everything you can
 read (your files and credentials) and sends what it reads to its model
 provider. Claude's `Read`, `Glob` and `Grep` run outside the sandbox (they
-only read). Your own user-level Claude hooks and settings still run. The
+only read). Your own Claude settings and hooks aren't loaded. The
 agent's process (Claude Code or Codex itself) runs outside the sandbox and
 writes its own state, e.g. `.claude/` in the worktree. A sandboxed session
 can't fetch CI logs; it gets the failed checks and their links.
@@ -163,6 +160,9 @@ The `git` guard decides every push in these sessions:
   push when GitHub didn't report the head repo.
 - It pushes only to branches under `refs/heads/review/` (`HEAD:review/<name>`
   or a local branch `review/<name>`); `main`, tags and other refs are refused.
+  A `review/` branch on the fork may be force-updated with
+  `--force-with-lease` (to replace evidence after a re-run); nothing else can
+  be force-pushed.
 - Only plain `git push <remote> <refspec>...` with a few options (`-u`,
   `--dry-run`, `--force-with-lease`, `--force-if-includes`, `--atomic`,
   `--no-verify`, `-q`, `-v`, `--porcelain`, `--progress`) is allowed. It

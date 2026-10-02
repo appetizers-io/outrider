@@ -49,7 +49,7 @@ func TestReadOnlyClaudeSessionRunsInTheNativeSandbox(t *testing.T) {
 
 				settings := filepath.Join(l.Root, "sessions", "o__r", "pr-1", "claude-settings.json")
 				r.Equal(append([]string{"/bin/claude", "--name", "PR o/r#1", "--remote-control", "PR o/r#1", "--settings", settings},
-					"--setting-sources", "user", "--strict-mcp-config", "--permission-mode", "manual", "--tools", "Bash,Read,Glob,Grep"),
+					"--setting-sources", "", "--strict-mcp-config", "--permission-mode", "manual", "--tools", "Bash,Read,Glob,Grep"),
 					got.spec.Agent)
 
 				// nothing is pushed or posted, on your own PR too
@@ -154,53 +154,6 @@ func TestUnavailableSandboxRefusesTheSession(t *testing.T) {
 	// sessions that aren't sandboxed still start
 	l, c = newLauncher(t, "others_prs: {sandbox: read-only}")
 	l.SandboxErr = errors.New("no claude sandbox on windows")
-	r.True(l.Launch(t.Context(), Request{Repo: "o/r", N: 1, PR: pr("me"), Trigger: "t"}))
-	r.NotEmpty(c.args)
-}
-
-// Security review A1: user-level sandbox lists are added to outrider's, so
-// they would open a read-only session's sandbox.
-func TestUserSandboxLoosening(t *testing.T) {
-	dir := t.TempDir()
-	for _, tc := range []struct{ name, settings, err string }{
-		{"no file", "", ""},
-		{"no sandbox key", `{"model": "opus", "sandbox": {"enabled": true, "excludedCommands": []}}`, ""},
-		{"excludedCommands", `{"sandbox": {"excludedCommands": ["git commit *", "gpg *"]}}`,
-			"set sandbox.excludedCommands, which would let"},
-		{"allowWrite", `{"sandbox": {"filesystem": {"allowWrite": ["~/x"]}}}`, "remove sandbox.filesystem.allowWrite from"},
-		{"allowedDomains", `{"sandbox": {"network": {"allowedDomains": ["evil.com"]}}}`, "sandbox.network.allowedDomains"},
-		{"all three", `{"sandbox": {"excludedCommands": ["x"], "filesystem": {"allowWrite": ["y"]}, "network": {"allowedDomains": ["z"]}}}`,
-			"remove sandbox.excludedCommands and sandbox.filesystem.allowWrite and sandbox.network.allowedDomains from"},
-		{"broken", `{"sandbox": `, "cannot parse your Claude settings"},
-	} {
-		path := filepath.Join(dir, tc.name+".json")
-		if tc.settings != "" {
-			require.NoError(t, os.WriteFile(path, []byte(tc.settings), 0o600))
-		}
-		err := UserSandboxLoosening(path)
-		if tc.err == "" {
-			require.NoError(t, err, tc.name)
-			continue
-		}
-		require.ErrorContains(t, err, tc.err, tc.name)
-		require.ErrorContains(t, err, path, tc.name)
-	}
-	require.Equal(t, filepath.Join("/h", ".claude", "settings.json"), ClaudeUserSettings(func(string) string { return "" }, "/h"))
-	require.Equal(t, filepath.Join("/c", "settings.json"), ClaudeUserSettings(func(string) string { return "/c" }, "/h"))
-}
-
-func TestLooseUserSandboxRefusesTheSession(t *testing.T) {
-	r := require.New(t)
-	settings := filepath.Join(t.TempDir(), "settings.json")
-	r.NoError(os.WriteFile(settings, []byte(`{"sandbox": {"excludedCommands": ["gpg *"]}}`), 0o600))
-	l, c := newLauncher(t, "sandbox: read-only")
-	l.ClaudeUser = settings
-	r.True(l.Launch(t.Context(), Request{Repo: "o/r", N: 1, PR: pr("bob"), Trigger: "t"})) // handled: not retried
-	r.Empty(c.args)                                                                        // no worktree, no agent
-
-	// sessions that aren't sandboxed still start
-	l, c = newLauncher(t, "others_prs: {sandbox: read-only}")
-	l.ClaudeUser = settings
 	r.True(l.Launch(t.Context(), Request{Repo: "o/r", N: 1, PR: pr("me"), Trigger: "t"}))
 	r.NotEmpty(c.args)
 }

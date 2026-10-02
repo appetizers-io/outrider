@@ -313,7 +313,7 @@ func TestStartupReportsTheSandbox(t *testing.T) {
 	}
 	o := cli(t, d, "--once", "--launcher", "tmux", "--no-jev", "--agent", "claude", "--sandbox", "read-only")
 	require.Equal(t, 0, o.code, o.stderr)
-	require.Contains(t, o.stderr, "sandbox: read-only (claude: native sandbox + deny rules)")
+	require.Contains(t, o.stderr, "sandbox: read-only (claude: native sandbox + deny rules, no user or project settings)")
 
 	// fail closed: without the platform sandbox, sandboxed sessions are refused
 	d.GOOS = "windows"

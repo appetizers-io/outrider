@@ -368,14 +368,6 @@ func checkSandbox(ctx context.Context, in *Input) Result {
 			Fix: "install or update what is named above, or set sandbox and others_prs.sandbox to off (see docs/safety.md)",
 		}
 	}
-	if cfg.Agent == "claude" {
-		if err := session.UserSandboxLoosening(session.ClaudeUserSettings(d.Getenv, d.Home)); err != nil {
-			return Result{
-				Name: "sandbox", Status: Fail, Detail: mode + ": " + err.Error() + "; sandboxed sessions are refused",
-				Fix: "remove the named keys from your Claude settings, or set sandbox and others_prs.sandbox to off",
-			}
-		}
-	}
 	return Result{Name: "sandbox", Status: OK, Detail: mode + " (" + session.SandboxNote(cfg.Agent) + ")"}
 }
 

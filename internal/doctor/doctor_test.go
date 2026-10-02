@@ -358,7 +358,7 @@ func TestCheckSandbox(t *testing.T) {
 		{name: "off", status: Info, detail: "off"},
 		{
 			name: "claude on linux", setup: func(m *machine) { m.cfg = "sandbox: read-only\nagent: claude" },
-			status: OK, detail: "read-only (claude: native sandbox + deny rules)",
+			status: OK, detail: "read-only (claude: native sandbox + deny rules, no user or project settings)",
 		},
 		{
 			name: "others only, without socat", setup: func(m *machine) {
@@ -387,16 +387,6 @@ func TestCheckSandbox(t *testing.T) {
 				require.NoError(t, os.WriteFile(filepath.Join(codex, "auth.json"), []byte("{}"), 0o600))
 			},
 			status: OK, detail: "read-only (codex: --sandbox read-only",
-		},
-		{
-			name: "claude settings loosen the sandbox", setup: func(m *machine) { m.cfg = "sandbox: read-only\nagent: claude" },
-			edit: func(t *testing.T, in *Input) {
-				dir := filepath.Join(in.Deps.Home, ".claude")
-				require.NoError(t, os.MkdirAll(dir, 0o700))
-				require.NoError(t, os.WriteFile(filepath.Join(dir, "settings.json"),
-					[]byte(`{"sandbox": {"excludedCommands": ["gpg *"]}}`), 0o600))
-			},
-			status: Fail, detail: "set sandbox.excludedCommands", fix: "remove the named keys from your Claude settings",
 		},
 		{
 			name: "windows", setup: func(m *machine) { m.cfg = "sandbox: read-only"; m.goos = "windows" },

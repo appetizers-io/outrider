@@ -48,7 +48,6 @@ type Launcher struct {
 	DryRun       bool
 	SandboxErr   error  // why read-only sessions can't run here; nil: they can
 	CodexHome    string // the user's CODEX_HOME
-	ClaudeUser   string // the user's Claude Code settings file (ClaudeUserSettings)
 	GOOS         string
 	Run          proc.Runner
 	LookPath     func(string) (string, error)
@@ -96,13 +95,6 @@ func (l *Launcher) launch(ctx context.Context, r Request) (bool, error) {
 		// fail closed: never run a read-only session unsandboxed
 		l.Log.Error(fmt.Sprintf("%s: refusing session: read-only sandbox unavailable: %v", key, l.SandboxErr))
 		return true, nil //nolint:nilerr // refused for good: handled, not retried
-	}
-	if l.sandboxed(r) && l.Agent == "claude" {
-		// read on every launch: fixing the file needs no restart
-		if err := UserSandboxLoosening(l.ClaudeUser); err != nil {
-			l.Log.Error(fmt.Sprintf("%s: refusing session: read-only sandbox not enforceable: %v", key, err))
-			return true, nil
-		}
 	}
 	if r.Gate != nil && l.LaunchCheck != nil {
 		items, err := r.Gate(ctx)

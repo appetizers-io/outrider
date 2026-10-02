@@ -8,7 +8,6 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
-	"slices"
 	"strings"
 
 	"golang.org/x/mod/semver"
@@ -26,7 +25,7 @@ var minVersion = map[string]string{"claude": "v2.1.285", "codex": "v0.156.0"}
 // SandboxNote describes the read-only sandbox of an agent for the startup log.
 func SandboxNote(agent string) string {
 	if agent == "claude" {
-		return "claude: native sandbox + deny rules"
+		return "claude: native sandbox + deny rules, no user or project settings"
 	}
 	return "codex: --sandbox read-only, approvals never, private CODEX_HOME"
 }
@@ -67,64 +66,6 @@ func SandboxSupport(ctx context.Context, agent, goos, codexHome string, lookPath
 		}
 	}
 	return nil
-}
-
-// ClaudeUserSettings is the settings file `--setting-sources user` loads:
-// settings.json in $CLAUDE_CONFIG_DIR, else in ~/.claude. Claude Code reads
-// no user-level settings.local.json; that name is a checkout's local
-// settings, which read-only sessions skip.
-func ClaudeUserSettings(getenv func(string) string, home string) string {
-	if dir := getenv("CLAUDE_CONFIG_DIR"); dir != "" {
-		return filepath.Join(dir, "settings.json")
-	}
-	return filepath.Join(home, ".claude", "settings.json")
-}
-
-// UserSandboxLoosening tells why the user's Claude Code settings at path
-// would open a read-only session's sandbox, or nil. Claude Code adds these
-// user-level lists to outrider's sandbox settings: excludedCommands run
-// outside the sandbox after one approval, allowWrite and allowedDomains open
-// writes and network. A missing file is fine; one that can't be read or
-// parsed is an error, so the session fails closed.
-func UserSandboxLoosening(path string) error {
-	raw, err := os.ReadFile(path)
-	if errors.Is(err, os.ErrNotExist) {
-		return nil
-	}
-	if err != nil {
-		return fmt.Errorf("cannot read your Claude settings %s: %w", path, err)
-	}
-	var s struct {
-		Sandbox struct {
-			ExcludedCommands []any `json:"excludedCommands"`
-			Filesystem       struct {
-				AllowWrite []any `json:"allowWrite"`
-			} `json:"filesystem"`
-			Network struct {
-				AllowedDomains []any `json:"allowedDomains"`
-			} `json:"network"`
-		} `json:"sandbox"`
-	}
-	if err := json.Unmarshal(raw, &s); err != nil {
-		return fmt.Errorf("cannot parse your Claude settings %s: %w", path, err)
-	}
-	var keys []string
-	for key, list := range map[string][]any{
-		"sandbox.excludedCommands":       s.Sandbox.ExcludedCommands,
-		"sandbox.filesystem.allowWrite":  s.Sandbox.Filesystem.AllowWrite,
-		"sandbox.network.allowedDomains": s.Sandbox.Network.AllowedDomains,
-	} {
-		if len(list) > 0 {
-			keys = append(keys, key)
-		}
-	}
-	if len(keys) == 0 {
-		return nil
-	}
-	slices.Sort(keys)
-	return fmt.Errorf("your Claude settings %s set %s, which would let a read-only session write or reach "+
-		"the network outside its sandbox; remove %s from that file (or turn the sandbox off)",
-		path, strings.Join(keys, ", "), strings.Join(keys, " and "))
 }
 
 // Sandbox is what a read-only session gets prepared before it starts.
@@ -198,10 +139,12 @@ func tomlString(s string) string {
 const readOnlyTools = "Bash,Read,Glob,Grep"
 
 // ClaudeSandboxArgs are the Claude Code flags of a read-only session, after
-// --settings: no project or local settings (a PR's checkout can't add hooks
-// or loosen anything), no MCP servers, no bypass mode, read-only tools.
+// --settings: no settings files at all (`--setting-sources ""`), so neither a
+// PR's checkout nor the user's own settings can add hooks or loosen the
+// sandbox (Claude Code adds their sandbox lists and WebFetch allow rules to
+// outrider's); no MCP servers, no bypass mode, read-only tools.
 func ClaudeSandboxArgs() []string {
-	return []string{"--setting-sources", "user", "--strict-mcp-config", "--permission-mode", "manual", "--tools", readOnlyTools}
+	return []string{"--setting-sources", "", "--strict-mcp-config", "--permission-mode", "manual", "--tools", readOnlyTools}
 }
 
 // ClaudeSandbox is the sandbox key of a read-only session's --settings: Bash
