@@ -6,7 +6,7 @@ import (
 	"strings"
 	"unicode/utf8"
 
-	"github.com/appetizers-io/llm-review-agent/internal/github"
+	"github.com/appetizers-io/outrider/internal/github"
 )
 
 // Request is what a launch-check classifier judges.

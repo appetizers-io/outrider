@@ -11,10 +11,10 @@ import (
 	"github.com/spf13/cobra"
 	"go.yaml.in/yaml/v3"
 
-	"github.com/appetizers-io/llm-review-agent/internal/config"
+	"github.com/appetizers-io/outrider/internal/config"
 )
 
-func configCmd(stdout, stderr io.Writer) *cobra.Command {
+func configCmd(stdout, stderr io.Writer, migrateDirs func()) *cobra.Command {
 	cmd := &cobra.Command{Use: "config", Short: "Inspect the configuration", Args: cobra.NoArgs}
 	cmd.AddCommand(&cobra.Command{
 		Use:   "schema",
@@ -36,6 +36,7 @@ func configCmd(stdout, stderr io.Writer) *cobra.Command {
 			text := config.Example
 			target := output
 			if write {
+				migrateDirs()
 				target = config.DefaultPath()
 			}
 			if target == "" {
@@ -67,6 +68,7 @@ func configCmd(stdout, stderr io.Writer) *cobra.Command {
 	cmd.AddCommand(gen)
 
 	load := func(args []string) (config.Config, string, error) {
+		migrateDirs()
 		path := ""
 		if len(args) > 0 {
 			path = args[0]

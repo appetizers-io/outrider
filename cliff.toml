@@ -4,7 +4,7 @@
 
 [remote.github]
 owner = "appetizers-io"
-repo = "llm-review-agent"
+repo = "outrider"
 # token: $GITHUB_TOKEN (adds PR links and authors)
 
 [changelog]

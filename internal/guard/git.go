@@ -5,7 +5,7 @@ import (
 	"strings"
 )
 
-// git: $LLM_REVIEW_AGENT_PUSH decides what `git push` (also through aliases) does:
+// git: $OUTRIDER_PUSH decides what `git push` (also through aliases) does:
 //
 //	review-only / never: refused
 //	ask:   a native dialog asks the owner; only a click on "Push" lets it through
@@ -54,7 +54,7 @@ const deniedNotApproved = "The owner did not approve this push. Do not retry or 
 	"it; keep the commits local and explain what is ready to push."
 
 func gitDeny(args []string, why string) string {
-	return "llm-review-agent guard: blocked `git " + strings.Join(args, " ") + "`. " + why
+	return "outrider guard: blocked `git " + strings.Join(args, " ") + "`. " + why
 }
 
 // DecideGit decides a git invocation. alias returns the definition of

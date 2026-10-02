@@ -1,4 +1,4 @@
-module github.com/appetizers-io/llm-review-agent
+module github.com/appetizers-io/outrider
 
 go 1.27
 

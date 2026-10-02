@@ -21,7 +21,7 @@ func execReal(real string, args, env []string, stderr io.Writer) int {
 		return exitErr.ExitCode()
 	}
 	if err != nil {
-		_, _ = fmt.Fprintf(stderr, "llm-review-agent guard: cannot run %s: %v\n", real, err)
+		_, _ = fmt.Fprintf(stderr, "outrider guard: cannot run %s: %v\n", real, err)
 		return 1
 	}
 	return 0

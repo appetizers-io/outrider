@@ -18,6 +18,7 @@ func isolate(t *testing.T) string {
 	dir := t.TempDir()
 	t.Setenv("XDG_CONFIG_HOME", filepath.Join(dir, "xdg"))
 	t.Setenv(EnvVar, "")
+	t.Setenv(LegacyEnvVar, "")
 	return dir
 }
 
@@ -159,7 +160,7 @@ func TestSchemaDocumentsDefaults(t *testing.T) {
 	r := require.New(t)
 	r.Equal(SchemaID, s["$id"])
 	r.Equal(false, s["additionalProperties"])
-	r.Equal("llm-review-agent configuration", s["title"])
+	r.Equal("outrider configuration", s["title"])
 	defs := s["$defs"].(map[string]any)
 	onChange := defs["OnChange"].(map[string]any)["properties"].(map[string]any)
 	r.Equal(true, onChange["ignore_own_activity"].(map[string]any)["default"])

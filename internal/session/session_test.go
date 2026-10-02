@@ -15,10 +15,10 @@ import (
 
 	"github.com/stretchr/testify/require"
 
-	"github.com/appetizers-io/llm-review-agent/internal/classifier"
-	"github.com/appetizers-io/llm-review-agent/internal/config"
-	"github.com/appetizers-io/llm-review-agent/internal/github"
-	"github.com/appetizers-io/llm-review-agent/internal/proc"
+	"github.com/appetizers-io/outrider/internal/classifier"
+	"github.com/appetizers-io/outrider/internal/config"
+	"github.com/appetizers-io/outrider/internal/github"
+	"github.com/appetizers-io/outrider/internal/proc"
 )
 
 // As the agent of a session the test binary reports what it sees.
@@ -27,7 +27,7 @@ func TestMain(m *testing.M) {
 		lock, _ := os.ReadFile(os.Getenv("FAKE_AGENT_LOCK"))
 		path := strings.Split(os.Getenv("PATH"), string(os.PathListSeparator))[0]
 		wd, _ := os.Getwd()
-		report := fmt.Sprintf("args=%q\nlock=%s\npush=%s\npath=%s\nwd=%s\n", os.Args[1:], lock, os.Getenv("LLM_REVIEW_AGENT_PUSH"), path, wd)
+		report := fmt.Sprintf("args=%q\nlock=%s\npush=%s\npath=%s\nwd=%s\n", os.Args[1:], lock, os.Getenv("OUTRIDER_PUSH"), path, wd)
 		_ = os.WriteFile(os.Getenv("FAKE_AGENT_OUT"), []byte(report), 0o600)
 		os.Exit(3)
 	}
@@ -129,7 +129,7 @@ func TestReviewOnlySessionDeniesEditsAndPushes(t *testing.T) {
 	r.Equal("jev-use hook gate", hook["hooks"].([]any)[0].(map[string]any)["command"])
 	r.Contains(got.settingsEnv()["JEV_GATE_STATE"], "REVIEW ONLY")
 	r.True(got.usesSettings())
-	r.Equal("review-only", got.spec.Env["LLM_REVIEW_AGENT_PUSH"])
+	r.Equal("review-only", got.spec.Env["OUTRIDER_PUSH"])
 	r.Contains(got.prompt, "REVIEW ONLY")
 	r.Equal([]string{"/bin/claude", "--name", "PR o/r#1", "--remote-control", "PR o/r#1", "--settings"}, got.spec.Agent[:6])
 }
@@ -145,9 +145,9 @@ func TestOwnPRSessionAllowsWorkButNotForce(t *testing.T) {
 	r.Contains(got.deny(), dialogRule()) // can't click its own approval dialog
 	r.Contains(got.settingsEnv()["JEV_GATE_STATE"], "own PR")
 	r.Contains(got.settingsEnv()["JEV_GATE_STATE"], "asks the owner")
-	r.Equal("ask", got.spec.Env["LLM_REVIEW_AGENT_PUSH"])
+	r.Equal("ask", got.spec.Env["OUTRIDER_PUSH"])
 	r.Equal("5", got.spec.Env["GIT_CONFIG_COUNT"])
-	r.Equal("url.llm-review-agent-push-blocked://.pushInsteadOf", got.spec.Env["GIT_CONFIG_KEY_0"])
+	r.Equal("url.outrider-push-blocked://.pushInsteadOf", got.spec.Env["GIT_CONFIG_KEY_0"])
 	r.Equal("git@", got.spec.Env["GIT_CONFIG_VALUE_0"])
 	r.Equal("ask", got.policy["push"])
 	r.Contains(got.prompt, "opens a dialog for")
@@ -158,7 +158,7 @@ func TestPushNeverKeepsCommitsLocal(t *testing.T) {
 	l.ToolGate = jevGate
 	got := l.launched(t, "me")
 	require.Contains(t, got.deny(), "Bash(git push:*)")
-	require.Equal(t, "never", got.spec.Env["LLM_REVIEW_AGENT_PUSH"])
+	require.Equal(t, "never", got.spec.Env["OUTRIDER_PUSH"])
 	require.Contains(t, got.prompt, "do not push")
 	require.Equal(t, false, got.policy["push_allowed"])
 }
@@ -177,19 +177,19 @@ func TestAutonomousModeHasNoGatingAndMayPush(t *testing.T) {
 	got := l.launched(t, "bob")
 	require.Nil(t, got.settings)
 	require.False(t, got.usesSettings())
-	require.Equal(t, "allow", got.spec.Env["LLM_REVIEW_AGENT_PUSH"])
+	require.Equal(t, "allow", got.spec.Env["OUTRIDER_PUSH"])
 	require.NotContains(t, got.spec.Env, "GIT_CONFIG_COUNT")
 }
 
 func TestAutonomousModeCanStillAskBeforePushing(t *testing.T) {
 	l, _ := newLauncher(t, "mode: autonomous\npush: ask\n")
-	require.Equal(t, "ask", l.launched(t, "me").spec.Env["LLM_REVIEW_AGENT_PUSH"])
+	require.Equal(t, "ask", l.launched(t, "me").spec.Env["OUTRIDER_PUSH"])
 }
 
 func TestAutonomousModeRespectsExplicitReviewOnly(t *testing.T) {
 	l, _ := newLauncher(t, "mode: autonomous\nothers_prs: {allow_push: false}\n")
 	got := l.launched(t, "bob")
-	require.Equal(t, "review-only", got.spec.Env["LLM_REVIEW_AGENT_PUSH"])
+	require.Equal(t, "review-only", got.spec.Env["OUTRIDER_PUSH"])
 	require.Nil(t, got.settings)
 }
 
@@ -223,9 +223,9 @@ func TestLocalClassifierAsToolGate(t *testing.T) {
 	r.Equal("cls hook", hook["command"])
 	r.Equal("Tool gate (local): checking this action", hook["statusMessage"])
 	env := got.settingsEnv()
-	r.Contains(env["LLM_REVIEW_AGENT_GATE_TEXT"], "REVIEW ONLY")
+	r.Contains(env["OUTRIDER_GATE_TEXT"], "REVIEW ONLY")
 	r.NotContains(env, "JEV_GATE_STATE")
-	r.True(strings.HasSuffix(env["LLM_REVIEW_AGENT_POLICY_FILE"].(string), "policy.json"))
+	r.True(strings.HasSuffix(env["OUTRIDER_POLICY_FILE"].(string), "policy.json"))
 }
 
 func TestPolicyFileDescribesTheSession(t *testing.T) {
@@ -243,17 +243,17 @@ func TestPolicyFileDescribesTheSession(t *testing.T) {
 	r.Nil(p["scope"])
 	r.Equal("/c.yaml", p["config"])
 	r.Contains(got.prompt, "policy.json")
-	r.Contains(got.spec.Env, "LLM_REVIEW_AGENT_POLICY_FILE")
+	r.Contains(got.spec.Env, "OUTRIDER_POLICY_FILE")
 }
 
 func TestGitHubWritesAskByDefaultInSupervisedMode(t *testing.T) {
 	r := require.New(t)
 	l, _ := newLauncher(t, "")
 	got := l.launched(t, "bob")
-	r.Equal("ask", got.spec.Env["LLM_REVIEW_AGENT_GH_WRITES"])
-	r.Equal("o/r", got.spec.Env["LLM_REVIEW_AGENT_REPO"])
-	r.Equal("1", got.spec.Env["LLM_REVIEW_AGENT_PR"])
-	r.Equal("PR o/r#1", got.spec.Env["LLM_REVIEW_AGENT_SESSION"])
+	r.Equal("ask", got.spec.Env["OUTRIDER_GH_WRITES"])
+	r.Equal("o/r", got.spec.Env["OUTRIDER_REPO"])
+	r.Equal("1", got.spec.Env["OUTRIDER_PR"])
+	r.Equal("PR o/r#1", got.spec.Env["OUTRIDER_SESSION"])
 	r.Equal("ask", got.policy["github_writes"])
 	r.Contains(got.prompt, "post to GitHub only when")
 	r.Contains(got.prompt, "opens a dialog for")
@@ -265,7 +265,7 @@ func TestGitHubWritesAskByDefaultInSupervisedMode(t *testing.T) {
 func TestGitHubWritesNeverKeepsGitHubReadOnly(t *testing.T) {
 	l, _ := newLauncher(t, "github_writes: never\n")
 	got := l.launched(t, "me")
-	require.Equal(t, "never", got.spec.Env["LLM_REVIEW_AGENT_GH_WRITES"])
+	require.Equal(t, "never", got.spec.Env["OUTRIDER_GH_WRITES"])
 	require.Contains(t, got.spec.Header[1], "gh is read-only")
 	require.Contains(t, got.prompt, "do NOT post comments")
 }
@@ -410,7 +410,7 @@ func TestOthersPRsAreReviewOnlyOwnAsk(t *testing.T) {
 	for _, tc := range []struct{ author, push string }{{"bob", "review-only"}, {"me", "ask"}} {
 		l, _ := newLauncher(t, "")
 		got := l.launched(t, tc.author)
-		require.Equal(t, tc.push, got.spec.Env["LLM_REVIEW_AGENT_PUSH"])
+		require.Equal(t, tc.push, got.spec.Env["OUTRIDER_PUSH"])
 		require.Equal(t, tc.push == "review-only", strings.Contains(got.prompt, "REVIEW ONLY"))
 	}
 }

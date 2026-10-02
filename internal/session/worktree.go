@@ -8,7 +8,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/appetizers-io/llm-review-agent/internal/proc"
+	"github.com/appetizers-io/outrider/internal/proc"
 )
 
 // worktree checks the PR out in its own worktree, off the local checkout of

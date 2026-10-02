@@ -1,11 +1,11 @@
 # yaml-language-server: $schema=./config.schema.json
 #
-# llm-review-agent configuration: every key with its default.
+# outrider configuration: every key with its default.
 # Every key is optional: delete what you don't change. Command-line flags
-# override this file. Validate with `llm-review-agent config check`.
+# override this file. Validate with `outrider config check`.
 #
-# Location: --config, $LLM_REVIEW_AGENT_CONFIG, or
-# ~/.config/llm-review-agent/config.yaml
+# Location: --config, $OUTRIDER_CONFIG, or
+# ~/.config/outrider/config.yaml
 
 # How prompts refer to you. null: first name from your GitHub profile, else
 # your login.
@@ -125,7 +125,7 @@ classifiers:
   # Any local classifier. launch_command gets a JSON request on stdin and
   # prints {"launch": bool} or {"probability": 0..1}, optionally with
   # "reason". hook_command is a Claude Code / Codex PreToolUse hook; the session
-  # policy is in $LLM_REVIEW_AGENT_POLICY_FILE and $LLM_REVIEW_AGENT_GATE_TEXT.
+  # policy is in $OUTRIDER_POLICY_FILE and $OUTRIDER_GATE_TEXT.
   # local:
   #   kind: command
   #   enabled: true

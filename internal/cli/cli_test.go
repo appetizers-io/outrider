@@ -15,9 +15,9 @@ import (
 	"github.com/stretchr/testify/require"
 	"go.yaml.in/yaml/v3"
 
-	"github.com/appetizers-io/llm-review-agent/internal/config"
-	"github.com/appetizers-io/llm-review-agent/internal/proc"
-	"github.com/appetizers-io/llm-review-agent/internal/watch"
+	"github.com/appetizers-io/outrider/internal/config"
+	"github.com/appetizers-io/outrider/internal/proc"
+	"github.com/appetizers-io/outrider/internal/watch"
 )
 
 // isolate keeps the developer's real config and Jev key away.
@@ -26,10 +26,21 @@ func isolate(t *testing.T) string {
 	dir := t.TempDir()
 	t.Setenv("XDG_CONFIG_HOME", filepath.Join(dir, "xdg"))
 	t.Setenv(config.EnvVar, "")
+	t.Setenv(config.LegacyEnvVar, "")
 	for _, k := range config.JevBackendEnv {
 		t.Setenv(k, "")
 	}
 	return dir
+}
+
+// sandbox is this machine with a temporary home: tests never touch the real one.
+func sandbox(t *testing.T) watch.Deps {
+	d := watch.Host()
+	d.Home = t.TempDir()
+	if os.Getenv("XDG_CONFIG_HOME") == "" || !strings.HasPrefix(os.Getenv("XDG_CONFIG_HOME"), os.TempDir()) {
+		t.Setenv("XDG_CONFIG_HOME", filepath.Join(d.Home, ".config"))
+	}
+	return d
 }
 
 type out struct {
@@ -48,11 +59,11 @@ func cli(t *testing.T, d watch.Deps, args ...string) out {
 
 func TestConfigSchema(t *testing.T) {
 	isolate(t)
-	o := cli(t, watch.Host(), "config", "schema")
+	o := cli(t, sandbox(t), "config", "schema")
 	require.Equal(t, 0, o.code)
 	var s map[string]any
 	require.NoError(t, json.Unmarshal([]byte(o.stdout), &s))
-	require.Equal(t, "llm-review-agent configuration", s["title"])
+	require.Equal(t, "outrider configuration", s["title"])
 }
 
 func TestConfigCheck(t *testing.T) {
@@ -61,16 +72,16 @@ func TestConfigCheck(t *testing.T) {
 	good, bad := filepath.Join(dir, "good.yaml"), filepath.Join(dir, "bad.yaml")
 	r.NoError(os.WriteFile(good, []byte("agent: claude\n"), 0o600))
 	r.NoError(os.WriteFile(bad, []byte("agent: gpt\n"), 0o600))
-	o := cli(t, watch.Host(), "config", "check", good)
+	o := cli(t, sandbox(t), "config", "check", good)
 	r.Equal(0, o.code)
 	r.Contains(o.stdout, "ok: "+good)
-	o = cli(t, watch.Host(), "config", "check", bad)
+	o = cli(t, sandbox(t), "config", "check", bad)
 	r.Equal(1, o.code)
 	r.Contains(o.stderr, "at '/agent': value must be one of")
-	o = cli(t, watch.Host(), "config", "check")
+	o = cli(t, sandbox(t), "config", "check")
 	r.Equal(0, o.code)
 	r.Contains(o.stdout, "built-in defaults")
-	o = cli(t, watch.Host(), "config", "check", filepath.Join(dir, "missing.yaml"))
+	o = cli(t, sandbox(t), "config", "check", filepath.Join(dir, "missing.yaml"))
 	r.Equal(1, o.code)
 	r.Contains(o.stderr, "cannot read config")
 }
@@ -79,7 +90,7 @@ func TestConfigShowFillsDefaults(t *testing.T) {
 	dir := isolate(t)
 	p := filepath.Join(dir, "c.yaml")
 	require.NoError(t, os.WriteFile(p, []byte("max_agents: 3\n"), 0o600))
-	o := cli(t, watch.Host(), "config", "show", p)
+	o := cli(t, sandbox(t), "config", "show", p)
 	require.Equal(t, 0, o.code)
 	var shown map[string]any
 	require.NoError(t, yaml.Unmarshal([]byte(o.stdout), &shown))
@@ -92,24 +103,24 @@ func TestConfigShowFillsDefaults(t *testing.T) {
 func TestConfigGenerate(t *testing.T) {
 	r := require.New(t)
 	dir := isolate(t)
-	o := cli(t, watch.Host(), "config", "generate")
+	o := cli(t, sandbox(t), "config", "generate")
 	r.Equal(0, o.code)
 	var data map[string]any
 	r.NoError(yaml.Unmarshal([]byte(o.stdout), &data))
 	r.Equal("supervised", data["mode"])
 
 	target := filepath.Join(dir, "c.yaml")
-	r.Equal(0, cli(t, watch.Host(), "config", "generate", "-o", target).code)
+	r.Equal(0, cli(t, sandbox(t), "config", "generate", "-o", target).code)
 	r.FileExists(filepath.Join(dir, "config.schema.json"))
-	o = cli(t, watch.Host(), "config", "generate", "-o", target)
+	o = cli(t, sandbox(t), "config", "generate", "-o", target)
 	r.Equal(1, o.code) // never overwrite silently
 	r.Contains(o.stderr, "use --force")
-	r.Equal(0, cli(t, watch.Host(), "config", "generate", "-o", target, "--force").code)
+	r.Equal(0, cli(t, sandbox(t), "config", "generate", "-o", target, "--force").code)
 
-	r.Equal(0, cli(t, watch.Host(), "config", "generate", "--write").code)
+	r.Equal(0, cli(t, sandbox(t), "config", "generate", "--write").code)
 	r.Equal(config.DefaultPath(), config.Find(""))
-	r.Equal(0, cli(t, watch.Host(), "config", "check").code)
-	r.NotEqual(0, cli(t, watch.Host(), "config", "generate", "--write", "-o", target).code)
+	r.Equal(0, cli(t, sandbox(t), "config", "check").code)
+	r.NotEqual(0, cli(t, sandbox(t), "config", "generate", "--write", "-o", target).code)
 }
 
 // --- flags over the config file ---------------------------------------------
@@ -214,7 +225,7 @@ func machine(t *testing.T, notifications func() (string, error)) watch.Deps {
 	}
 	return watch.Deps{
 		Run: run, LookPath: noTerminal,
-		Getenv: func(string) string { return "" }, GOOS: "linux", Home: home, Self: "/bin/llm-review-agent",
+		Getenv: func(string) string { return "" }, GOOS: "linux", Home: home, Self: "/bin/outrider",
 		Sleep: func(context.Context, time.Duration) error { return errors.New("stop") },
 	}
 }
@@ -337,4 +348,56 @@ func TestLocalCheckoutIsWatched(t *testing.T) {
 	require.Equal(t, 0, o.code, o.stderr)
 	require.Contains(t, o.stderr, "repos: o/r")
 	require.Contains(t, o.stderr, "local checkout for o/r: /src/r (remote upstream)")
+}
+
+func TestOldDirsAreMovedAndTheirConfigLoaded(t *testing.T) {
+	r := require.New(t)
+	d := machine(t, ok)
+	old := filepath.Join(d.Home, "xdg", "llm-review-agent", "config.yaml") // isolate's XDG_CONFIG_HOME
+	r.NoError(os.MkdirAll(filepath.Dir(old), 0o700))
+	r.NoError(os.WriteFile(old, []byte("owner_name: Matze\n"), 0o600))
+	o := cli(t, d, "--once", "--dry-run", "--launcher", "tmux", "--log-format", "json")
+	r.Equal(0, o.code, o.stderr)
+	moved := filepath.Join(d.Home, "xdg", "outrider")
+	msgs := messages(t, o.stderr)
+	r.Contains(msgs, "moved "+filepath.Dir(old)+" to "+moved+" (renamed to outrider)")
+	r.Contains(msgs, "config: "+filepath.Join(moved, "config.yaml"))
+	r.Contains(o.stderr, "prompts call you Matze")
+}
+
+func TestLegacyConfigEnvVarStillWorks(t *testing.T) {
+	r := require.New(t)
+	d := machine(t, ok)
+	p := filepath.Join(d.Home, "c.yaml")
+	r.NoError(os.WriteFile(p, []byte("owner_name: Matze\n"), 0o600))
+	t.Setenv(config.LegacyEnvVar, p)
+	o := cli(t, d, "--once", "--dry-run", "--launcher", "tmux", "--log-format", "json")
+	r.Equal(0, o.code, o.stderr)
+	msgs := messages(t, o.stderr)
+	r.Contains(msgs, "$LLM_REVIEW_AGENT_CONFIG is deprecated, use $OUTRIDER_CONFIG")
+	r.Contains(msgs, "config: "+p)
+	t.Setenv(config.EnvVar, filepath.Join(d.Home, "missing.yaml")) // the new one wins
+	r.Contains(cli(t, d, "--once", "--dry-run").stderr, "missing.yaml")
+}
+
+func TestSchemaAndSessionCommandsMoveNothing(t *testing.T) {
+	isolate(t)
+	d := sandbox(t)
+	old := filepath.Join(d.Home, ".cache", "llm-review-agent")
+	require.NoError(t, os.MkdirAll(old, 0o700))
+	require.Equal(t, 0, cli(t, d, "config", "schema").code)
+	require.DirExists(t, old)
+	require.NoDirExists(t, filepath.Join(d.Home, ".cache", "outrider"))
+}
+
+// messages are the msg fields of JSON log lines.
+func messages(t *testing.T, log string) []string {
+	t.Helper()
+	var out []string
+	for _, line := range strings.Split(strings.TrimSpace(log), "\n") {
+		var rec struct{ Msg string }
+		require.NoError(t, json.Unmarshal([]byte(line), &rec), line)
+		out = append(out, rec.Msg)
+	}
+	return out
 }

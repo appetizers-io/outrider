@@ -9,7 +9,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/appetizers-io/llm-review-agent/internal/proc"
+	"github.com/appetizers-io/outrider/internal/proc"
 )
 
 // LaunchGrace is how long a session's runner may take to stamp its pid.

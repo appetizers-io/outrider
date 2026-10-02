@@ -77,7 +77,7 @@ func TestWindowsUsesPowerShellMessageBox(t *testing.T) {
 	r.NoError(err)
 	r.Equal(ps, d.args[0])
 	r.NotContains(d.args[len(d.args)-1], "evil") // texts only through the environment
-	r.Contains(d.env, "LLM_REVIEW_AGENT_DIALOG_TITLE=t")
+	r.Contains(d.env, "OUTRIDER_DIALOG_TITLE=t")
 	r.True(d.ok("Yes\r\n"))
 	r.False(d.ok(""))
 }

@@ -16,21 +16,21 @@ import (
 
 	"github.com/cenkalti/backoff/v5"
 
-	"github.com/appetizers-io/llm-review-agent/internal/classifier"
-	"github.com/appetizers-io/llm-review-agent/internal/config"
-	"github.com/appetizers-io/llm-review-agent/internal/github"
-	"github.com/appetizers-io/llm-review-agent/internal/poll"
-	"github.com/appetizers-io/llm-review-agent/internal/proc"
-	"github.com/appetizers-io/llm-review-agent/internal/session"
+	"github.com/appetizers-io/outrider/internal/classifier"
+	"github.com/appetizers-io/outrider/internal/config"
+	"github.com/appetizers-io/outrider/internal/github"
+	"github.com/appetizers-io/outrider/internal/poll"
+	"github.com/appetizers-io/outrider/internal/proc"
+	"github.com/appetizers-io/outrider/internal/session"
 )
 
 // CacheRoot holds worktrees, sessions, locks and the guards.
-func CacheRoot(home string) string { return filepath.Join(home, ".cache", "llm-review-agent") }
+func CacheRoot(home string) string { return filepath.Join(home, ".cache", "outrider") }
 
 // StatePath is where the poll state is kept. Both paths are the same on every
 // OS, so state and locks carry over between versions.
 func StatePath(home string) string {
-	return filepath.Join(home, ".local", "state", "llm-review-agent", "state.json")
+	return filepath.Join(home, ".local", "state", "outrider", "state.json")
 }
 
 // localCheckout is the GitHub repo of the checkout we run in, if any.

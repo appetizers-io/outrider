@@ -1,4 +1,4 @@
-// Command llm-review-agent polls your GitHub notifications and opens a local
+// Command outrider polls your GitHub notifications and opens a local
 // interactive coding agent (Codex or Claude Code) for pull requests that need
 // your attention.
 //
@@ -12,8 +12,8 @@ import (
 	"os/signal"
 	"syscall"
 
-	"github.com/appetizers-io/llm-review-agent/internal/cli"
-	"github.com/appetizers-io/llm-review-agent/internal/guard"
+	"github.com/appetizers-io/outrider/internal/cli"
+	"github.com/appetizers-io/outrider/internal/guard"
 )
 
 func main() {

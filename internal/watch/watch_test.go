@@ -6,8 +6,8 @@ import (
 
 	"github.com/stretchr/testify/require"
 
-	"github.com/appetizers-io/llm-review-agent/internal/proc"
-	"github.com/appetizers-io/llm-review-agent/internal/session"
+	"github.com/appetizers-io/outrider/internal/proc"
+	"github.com/appetizers-io/outrider/internal/session"
 )
 
 func term(name string) session.Terminal { return session.Terminal{Name: name} }

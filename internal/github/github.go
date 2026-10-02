@@ -10,7 +10,7 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/appetizers-io/llm-review-agent/internal/proc"
+	"github.com/appetizers-io/outrider/internal/proc"
 )
 
 // Client runs gh.

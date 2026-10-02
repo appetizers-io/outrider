@@ -1,18 +1,18 @@
 # yaml-language-server: $schema=https://goreleaser.com/static/schema.json
 version: 2
 
-project_name: llm-review-agent
+project_name: outrider
 
 builds:
   - main: .
-    binary: llm-review-agent
+    binary: outrider
     env:
       - CGO_ENABLED=0
     goos: [darwin, linux, windows]
     goarch: [amd64, arm64]
     flags: [-trimpath]
     ldflags:
-      - -s -w -X github.com/appetizers-io/llm-review-agent/internal/cli.Version={{.Version}}
+      - -s -w -X github.com/appetizers-io/outrider/internal/cli.Version={{.Version}}
 
 archives:
   - formats: [tar.gz]

@@ -13,24 +13,24 @@ import (
 	"syscall"
 )
 
-// Run is `llm-review-agent session run <dir>`: it stamps its pid into the
+// Run is `outrider session run <dir>`: it stamps its pid into the
 // lock, runs the agent in the worktree with the guards first on PATH, prints
 // the exit status, waits for Enter and removes the lock.
 func Run(dir string, stdin io.Reader, stdout io.Writer) int {
 	raw, err := os.ReadFile(filepath.Join(dir, "session.json"))
 	if err != nil {
-		_, _ = fmt.Fprintf(stdout, "llm-review-agent: cannot read session: %v\n", err)
+		_, _ = fmt.Fprintf(stdout, "outrider: cannot read session: %v\n", err)
 		return 1
 	}
 	var spec Spec
 	if err := json.Unmarshal(raw, &spec); err != nil {
-		_, _ = fmt.Fprintf(stdout, "llm-review-agent: invalid session %s: %v\n", dir, err)
+		_, _ = fmt.Fprintf(stdout, "outrider: invalid session %s: %v\n", dir, err)
 		return 1
 	}
 	meta := spec.Meta
 	meta.PID = new(os.Getpid())
 	if err := writeJSON(spec.Lock, meta); err != nil {
-		_, _ = fmt.Fprintf(stdout, "llm-review-agent: %v\n", err)
+		_, _ = fmt.Fprintf(stdout, "outrider: %v\n", err)
 	}
 	defer func() { _ = os.Remove(spec.Lock) }()
 
@@ -49,7 +49,7 @@ func Run(dir string, stdin io.Reader, stdout io.Writer) int {
 
 	prompt, err := os.ReadFile(spec.PromptFile)
 	if err != nil {
-		_, _ = fmt.Fprintf(stdout, "llm-review-agent: cannot read prompt: %v\n", err)
+		_, _ = fmt.Fprintf(stdout, "outrider: cannot read prompt: %v\n", err)
 		return 1
 	}
 	env := os.Environ()
@@ -72,7 +72,7 @@ func Run(dir string, stdin io.Reader, stdout io.Writer) int {
 		if errors.As(err, &exitErr) {
 			status = exitErr.ExitCode()
 		} else {
-			_, _ = fmt.Fprintf(stdout, "llm-review-agent: cannot run %s: %v\n", spec.Agent[0], err)
+			_, _ = fmt.Fprintf(stdout, "outrider: cannot run %s: %v\n", spec.Agent[0], err)
 		}
 	}
 	_ = os.Remove(spec.Lock)

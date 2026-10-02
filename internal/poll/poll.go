@@ -14,9 +14,9 @@ import (
 	"strings"
 	"time"
 
-	"github.com/appetizers-io/llm-review-agent/internal/config"
-	"github.com/appetizers-io/llm-review-agent/internal/github"
-	"github.com/appetizers-io/llm-review-agent/internal/session"
+	"github.com/appetizers-io/outrider/internal/config"
+	"github.com/appetizers-io/outrider/internal/github"
+	"github.com/appetizers-io/outrider/internal/session"
 )
 
 // Poller decides which GitHub events start a session.

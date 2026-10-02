@@ -1,6 +1,6 @@
 // Package session starts agent sessions: a worktree per PR, the prompt, the
 // session policy, agent settings, the guards on PATH, and a terminal window
-// or tmux session running `llm-review-agent session run`.
+// or tmux session running `outrider session run`.
 package session
 
 import (
@@ -17,12 +17,12 @@ import (
 	"strings"
 	"time"
 
-	"github.com/appetizers-io/llm-review-agent/internal/classifier"
-	"github.com/appetizers-io/llm-review-agent/internal/config"
-	"github.com/appetizers-io/llm-review-agent/internal/github"
-	"github.com/appetizers-io/llm-review-agent/internal/guard"
-	"github.com/appetizers-io/llm-review-agent/internal/proc"
-	"github.com/appetizers-io/llm-review-agent/internal/shell"
+	"github.com/appetizers-io/outrider/internal/classifier"
+	"github.com/appetizers-io/outrider/internal/config"
+	"github.com/appetizers-io/outrider/internal/github"
+	"github.com/appetizers-io/outrider/internal/guard"
+	"github.com/appetizers-io/outrider/internal/proc"
+	"github.com/appetizers-io/outrider/internal/shell"
 )
 
 func itoa(n int) string { return strconv.Itoa(n) }
@@ -34,7 +34,7 @@ type Local struct {
 
 // Launcher starts agent sessions. Its fields are set once at startup.
 type Launcher struct {
-	Root         string // ~/.cache/llm-review-agent
+	Root         string // ~/.cache/outrider
 	Self         string // this binary: the guards and the session runner
 	Cfg          *config.Config
 	ConfigSource string // "": built-in defaults
@@ -109,7 +109,7 @@ func (l *Launcher) launch(ctx context.Context, r Request) (bool, error) {
 	return true, l.start(ctx, r, lock)
 }
 
-// Spec is everything `llm-review-agent session run` needs, saved as session.json.
+// Spec is everything `outrider session run` needs, saved as session.json.
 type Spec struct {
 	Lock       string            `json:"lock"`
 	Meta       LockMeta          `json:"meta"`
@@ -259,7 +259,7 @@ func (l *Launcher) Prepare(r Request, worktree, lock string) (Prepared, error) {
 		return Prepared{}, err
 	}
 
-	hookEnv := map[string]string{"LLM_REVIEW_AGENT_POLICY_FILE": policyFile}
+	hookEnv := map[string]string{"OUTRIDER_POLICY_FILE": policyFile}
 	if gated {
 		hookEnv = classifier.HookEnv(l.ToolGate, rules, l.Cfg.ToolGate.Threshold, policyFile)
 	}

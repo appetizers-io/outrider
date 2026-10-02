@@ -4,9 +4,9 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/appetizers-io/llm-review-agent/internal/classifier"
-	"github.com/appetizers-io/llm-review-agent/internal/config"
-	"github.com/appetizers-io/llm-review-agent/internal/shell"
+	"github.com/appetizers-io/outrider/internal/classifier"
+	"github.com/appetizers-io/outrider/internal/config"
+	"github.com/appetizers-io/outrider/internal/shell"
 )
 
 // dialogDenyRules keep the agent from clicking its own approval dialog.
@@ -53,7 +53,7 @@ func DenyRules(push, goos string) []string {
 var pushGateRules = map[string]string{
 	"ask": " Every git push must go through the plain `git push` command, which " +
 		"asks the owner in a dialog. Deny any push by another route: a git binary by " +
-		"absolute path, unsetting or changing GIT_CONFIG_* or LLM_REVIEW_AGENT_* " +
+		"absolute path, unsetting or changing GIT_CONFIG_* or OUTRIDER_* " +
 		"variables, git remote/config changes to push URLs, curl or API calls.",
 	"never": " Deny every git push, by any route.",
 }
@@ -62,7 +62,7 @@ var ghWriteGateRules = map[string]string{
 	"ask": " Posting a comment, review comment or reply, review or reaction on " +
 		"this PR with plain `gh` is fine; the gh guard asks the owner first. Deny " +
 		"GitHub writes by any other route (curl, tokens, graphql mutations, changed " +
-		"LLM_REVIEW_AGENT_* variables) and every other GitHub write (merge, close, " +
+		"OUTRIDER_* variables) and every other GitHub write (merge, close, " +
 		"labels, edits of the PR).",
 	"allow": " Posting a comment, review comment or reply, review or reaction on " +
 		"this PR with plain `gh` is fine. Deny every other GitHub write (merge, " +
@@ -92,7 +92,7 @@ func Rules(repo string, n int, author, owner string, own bool, push, ghWrites st
 	}
 	rules += pushGateRules[push] + ghWriteGateRules[ghWrites]
 	return fmt.Sprintf("Automated coding-agent session for GitHub PR %s#%d by %s, "+
-		"launched by llm-review-agent for %s. Nobody is watching live. ", repo, n, author, owner) + rules
+		"launched by outrider for %s. Nobody is watching live. ", repo, n, author, owner) + rules
 }
 
 // GateText is the session rules plus the user's own tool_gate rules.
@@ -142,7 +142,7 @@ var pushPrefixes = []string{"git@", "ssh://", "https://", "http://", "git://"}
 func PushTrap() map[string]string {
 	env := map[string]string{"GIT_CONFIG_COUNT": fmt.Sprint(len(pushPrefixes))}
 	for i, p := range pushPrefixes {
-		env[fmt.Sprintf("GIT_CONFIG_KEY_%d", i)] = "url.llm-review-agent-push-blocked://.pushInsteadOf"
+		env[fmt.Sprintf("GIT_CONFIG_KEY_%d", i)] = "url.outrider-push-blocked://.pushInsteadOf"
 		env[fmt.Sprintf("GIT_CONFIG_VALUE_%d", i)] = p
 	}
 	return env

@@ -1,0 +1,61 @@
+# Troubleshooting
+
+## Reading the startup log
+
+| Line | Means |
+|---|---|
+| `config: …` | the config file in use, or `no config file, built-in defaults` |
+| `GitHub user: <login> (prompts call you <name>)` | the `gh` login; `owner_name` changes the name |
+| `agent: …`, `launcher: …`, `terminal: …` | where sessions will run; see [Terminals](terminals.md) |
+| `launch check: on/off (…)` | the launch-check classifier, or why it is off |
+| `tool gate: on/off (…)` | the tool-gate classifier, or why it is off (`off (autonomous mode)` in autonomous mode) |
+| `repos: …` | the repos it watches; missing means every repo |
+| `local checkout for <repo>: <path> (remote <name>)` | worktrees branch off this checkout |
+| `moved <old> to <new> (renamed to outrider)` | a one-time move of an old `llm-review-agent` directory |
+
+Each poll then logs `fetched N notifications …` and a `summary:` line
+(`own_new`, `non_owned`, `watched`, `ignored`). `--log-level debug` and
+`--log-format json` help when you file an issue.
+
+## Common errors
+
+| Message | Fix |
+|---|---|
+| `missing required command: <tool>` | install it or put it on `PATH`: `gh`, `git`, the agent, `tmux` for the tmux launcher, the terminal's command |
+| `no terminal found: set terminal in the config, or use --launcher tmux` | Linux without `x-terminal-emulator` or `$TERMINAL`: set `terminal` or use tmux |
+| `tmux is not supported on Windows; use --launcher terminal` | use the terminal launcher on Windows |
+| `cannot determine GitHub user: …` | run `gh auth status`; without `--once` outrider retries every 30 seconds |
+| `--remote needs to run inside a git checkout` | `cd` into the checkout first |
+| `remote '<name>' is not a GitHub repo here` | `git remote -v`; the remote must point at github.com |
+| `<file> is invalid: - at '/<key>': …` | a wrong value or unknown key; see [Configuration](configuration.md); `outrider config check` |
+| `repos.exclude: bad glob "…"` | an unclosed `[` or `{` in a repo glob |
+| `$LLM_REVIEW_AGENT_CONFIG is deprecated, use $OUTRIDER_CONFIG` | rename the variable |
+
+## Why didn't it launch?
+
+| Log line | Reason |
+|---|---|
+| `<repo>#<n>: already running; keeping event pending` | a session for that PR is open; it is retried after it ends |
+| `<repo>#<n>: agent limit reached (N); keeping event pending` | `max_agents` sessions run; raise it or close one |
+| `<repo>#<n>: nothing actionable [<trigger>]; not launching` | the launch check said no; check its note in the line before |
+| `<repo>#<n>: only ignored authors; not launching` | all new activity is from `ignore_authors` |
+| `<repo>#<n>: nothing new from others; not launching` | a watched PR changed, but only by you or ignored authors |
+| `<repo>#<n>: launch failed; keeping event pending: …` | the worktree or the terminal failed; the error says which |
+| `summary: … (first run: existing own notifications recorded only)` | the first live run; use `--process-existing` |
+
+No `matched` line and none of these: the activity didn't match a
+[trigger](triggers.md), or the repo is filtered out (`repos`, `--repo`).
+
+## A session window closed right away
+
+The window shows `agent exited: <status>` and waits for Enter. If it closed
+without that, the runner couldn't start: run `outrider --dry-run --once`, check
+`claude`/`codex` start in that terminal, and look for `launch failed` in the
+log. A lock left behind by a session that died is removed on the next launch
+(`removing stale lock …`), at the latest after `stale_lock_hours`.
+
+## A push or post was denied
+
+In `ask` mode the agent gets `the owner did not approve …` when you clicked
+**Deny**, waited 5 minutes, or no dialog could be shown (Linux without a
+display or without `zenity`/`kdialog`). See [Safety](safety.md#approval-dialogs).

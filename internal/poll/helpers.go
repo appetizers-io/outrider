@@ -14,8 +14,8 @@ import (
 
 	"github.com/dlclark/regexp2"
 
-	"github.com/appetizers-io/llm-review-agent/internal/config"
-	"github.com/appetizers-io/llm-review-agent/internal/github"
+	"github.com/appetizers-io/outrider/internal/config"
+	"github.com/appetizers-io/outrider/internal/github"
 )
 
 // RepoName is an owner/repo without wildcards.

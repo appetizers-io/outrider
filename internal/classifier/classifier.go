@@ -10,8 +10,8 @@
 // optionally with "reason". Anything else, a timeout or a failure launches.
 //
 // The tool gate is a Claude Code / Codex PreToolUse hook. It gets the
-// session's rules in $LLM_REVIEW_AGENT_GATE_TEXT and the full session policy
-// as JSON in $LLM_REVIEW_AGENT_POLICY_FILE (Jev reads $JEV_GATE_STATE, set to
+// session's rules in $OUTRIDER_GATE_TEXT and the full session policy
+// as JSON in $OUTRIDER_POLICY_FILE (Jev reads $JEV_GATE_STATE, set to
 // the same text).
 package classifier
 
@@ -28,9 +28,9 @@ import (
 
 	"github.com/kballard/go-shellquote"
 
-	"github.com/appetizers-io/llm-review-agent/internal/config"
-	"github.com/appetizers-io/llm-review-agent/internal/proc"
-	"github.com/appetizers-io/llm-review-agent/internal/shell"
+	"github.com/appetizers-io/outrider/internal/config"
+	"github.com/appetizers-io/outrider/internal/proc"
+	"github.com/appetizers-io/outrider/internal/shell"
 )
 
 // Question is what the launch check asks about the new activity.
@@ -248,11 +248,11 @@ func PyFloat(f float64) string {
 // HookEnv is the environment the tool-gate hook runs with.
 func HookEnv(r *Resolved, gateText string, threshold *float64, policyFile string) map[string]string {
 	env := map[string]string{
-		"LLM_REVIEW_AGENT_POLICY_FILE": policyFile,
-		"LLM_REVIEW_AGENT_GATE_TEXT":   gateText,
+		"OUTRIDER_POLICY_FILE": policyFile,
+		"OUTRIDER_GATE_TEXT":   gateText,
 	}
 	if threshold != nil {
-		env["LLM_REVIEW_AGENT_GATE_THRESHOLD"] = PyFloat(*threshold)
+		env["OUTRIDER_GATE_THRESHOLD"] = PyFloat(*threshold)
 	}
 	if r.Kind == config.KindJev {
 		env["JEV_GATE_STATE"] = gateText

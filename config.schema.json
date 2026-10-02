@@ -1,6 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://github.com/appetizers-io/llm-review-agent/config.schema.json",
+  "$id": "https://github.com/appetizers-io/outrider/config.schema.json",
   "$defs": {
     "Classifier": {
       "oneOf": [
@@ -577,6 +577,6 @@
   },
   "additionalProperties": false,
   "type": "object",
-  "title": "llm-review-agent configuration",
+  "title": "outrider configuration",
   "description": "Every key is optional; command-line flags override this file."
 }
