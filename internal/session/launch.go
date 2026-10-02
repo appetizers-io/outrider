@@ -464,7 +464,7 @@ func (l *Launcher) open(ctx context.Context, r Request, p Prepared) error {
 		l.Log.Info(fmt.Sprintf("%s#%d: attach with: tmux attach -t %s", r.Repo, r.N, *t))
 		return nil
 	}
-	script, err := writeScript(p.Dir, l.GOOS, runner)
+	script, err := writeScript(p.Dir, l.GOOS, os.Getenv("PATH"), runner)
 	if err != nil {
 		return err
 	}
@@ -479,8 +479,9 @@ func (l *Launcher) open(ctx context.Context, r Request, p Prepared) error {
 }
 
 // writeScript writes run-agent.command (run-agent.cmd on Windows), which
-// starts the session runner; terminal apps that open files run it.
-func writeScript(dir, goos string, runner []string) (string, error) {
+// starts the session runner; terminal apps that open files run it. It sets
+// outrider's PATH: iTerm2 runs it without a shell, with its own bare PATH.
+func writeScript(dir, goos, path string, runner []string) (string, error) {
 	if goos == "windows" {
 		p := filepath.Join(dir, "run-agent.cmd")
 		quoted := make([]string, len(runner))
@@ -490,7 +491,11 @@ func writeScript(dir, goos string, runner []string) (string, error) {
 		return p, writeExec(p, "@echo off\r\n"+strings.Join(quoted, " ")+"\r\n")
 	}
 	p := filepath.Join(dir, "run-agent.command")
-	return p, writeExec(p, "#!/bin/sh\nexec "+shell.Join(runner...)+"\n")
+	text := "#!/bin/sh\n"
+	if path != "" {
+		text += "PATH=" + shell.Join(path) + "; export PATH\n"
+	}
+	return p, writeExec(p, text+"exec "+shell.Join(runner...)+"\n")
 }
 
 func writeExec(p, text string) error {

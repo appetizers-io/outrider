@@ -31,7 +31,7 @@ To pick one yourself, name it:
 | Name | Opens |
 |---|---|
 | `terminal-app` | macOS Terminal (`open -g -a Terminal`, no focus steal) |
-| `iterm` | iTerm2 (`open -g -a iTerm`, no focus steal) |
+| `iterm` | iTerm2 (a new tab in the current window via AppleScript, no focus steal) |
 | `ghostty` | Ghostty |
 | `wezterm` | WezTerm |
 | `kitty` | kitty |
@@ -72,6 +72,15 @@ PR replaces it.
 
 - **macOS**: only Terminal.app and iTerm2 are verified. Ghostty, WezTerm and
   kitty are opened with `open -n -a <app> --args …`.
+- **iTerm2** runs `run-agent.command` as the tab's process, without a shell,
+  so the session gets iTerm2's environment plus outrider's `$PATH` (written
+  into the script), not variables your shell init exports. With no iTerm2
+  window open it opens a window, which may bring iTerm2 to the front. macOS
+  may ask once to let your terminal control iTerm2 (Automation).
+- **Terminal.app** opens `run-agent.command` by typing it into a new login
+  shell; shell init that reads ahead (e.g. the Kiro CLI or Fig integration)
+  can swallow it, and the window is left at a prompt. Terminal.app can't run
+  a command without a shell; use iTerm2, another terminal or tmux there.
 - **Linux**: without a display (SSH, a server) `auto` uses tmux. Approval
   dialogs need `zenity` or `kdialog` and a display; without one, pushes and
   posts in `ask` mode are denied.

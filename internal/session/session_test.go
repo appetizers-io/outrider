@@ -19,6 +19,7 @@ import (
 	"github.com/appetizers-io/outrider/internal/config"
 	"github.com/appetizers-io/outrider/internal/github"
 	"github.com/appetizers-io/outrider/internal/proc"
+	"github.com/appetizers-io/outrider/internal/shell"
 )
 
 // As the agent of a session the test binary reports what it sees.
@@ -412,10 +413,11 @@ func TestSessionOpensInTheTerminal(t *testing.T) {
 	l.launched(t, "bob")
 	dir := filepath.Join(l.Root, "sessions", "o__r", "pr-1")
 	script := filepath.Join(dir, "run-agent.command")
-	r.Equal([]string{"open", "-g", "-a", "iTerm", script}, c.args[len(c.args)-1])
+	r.Equal([]string{"osascript", "-e", itermScript, "--", script, "PR o/r#1"}, c.args[len(c.args)-1])
 	text, err := os.ReadFile(script)
 	r.NoError(err)
 	r.Contains(string(text), "session run")
+	r.Contains(string(text), "PATH="+shell.Join(os.Getenv("PATH"))+"; export PATH\n") // iTerm2 runs it with a bare PATH
 }
 
 func TestOthersPRsAreReviewOnlyOwnAsk(t *testing.T) {
@@ -555,7 +557,7 @@ func TestOpenCommands(t *testing.T) {
 		want       []string
 	}{
 		{"terminal-app", "darwin", []string{"open", "-g", "-a", "Terminal", "/s/run-agent.command"}},
-		{"iterm", "darwin", []string{"open", "-g", "-a", "iTerm", "/s/run-agent.command"}},
+		{"iterm", "darwin", []string{"osascript", "-e", itermScript, "--", "/s/run-agent.command", "PR o/r#1"}},
 		{"ghostty", "linux", append([]string{"ghostty", "-e"}, cmd...)},
 		{"wezterm", "darwin", append([]string{"open", "-g", "-n", "-a", "WezTerm", "--args", "start", "--"}, cmd...)},
 		{"windows-terminal", "windows", append([]string{"wt.exe", "-w", "new", "new-tab", "--title", "PR o/r#1"}, cmd...)},
