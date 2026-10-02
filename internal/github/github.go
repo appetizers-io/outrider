@@ -82,6 +82,9 @@ type Check struct {
 	Conclusion string `json:"conclusion,omitempty"`
 	State      string `json:"state,omitempty"`
 	Status     string `json:"status,omitempty"`
+	Workflow   string `json:"workflowName,omitempty"`
+	DetailsURL string `json:"detailsUrl,omitempty"`
+	TargetURL  string `json:"targetUrl,omitempty"`
 }
 
 // PR is what `gh pr view --json` tells about a pull request.
@@ -130,24 +133,26 @@ var badConclusions = []string{"FAILURE", "TIMED_OUT", "CANCELLED", "ACTION_REQUI
 func FailingChecks(p PR) []string {
 	out := []string{}
 	for _, c := range p.StatusCheckRollup {
-		state := c.Conclusion
-		if state == "" {
-			state = c.State
-		}
-		for _, bad := range badConclusions {
-			if state == bad {
-				name := c.Name
-				if name == "" {
-					name = c.Context
-				}
-				if name == "" {
-					name = "?"
-				}
-				out = append(out, name)
+		if failed(c) {
+			name := c.Name
+			if name == "" {
+				name = c.Context
 			}
+			if name == "" {
+				name = "?"
+			}
+			out = append(out, name)
 		}
 	}
 	return out
+}
+
+func failed(c Check) bool {
+	state := c.Conclusion
+	if state == "" {
+		state = c.State
+	}
+	return slices.Contains(badConclusions, state)
 }
 
 // Comment is a review, an inline review comment or a conversation comment as

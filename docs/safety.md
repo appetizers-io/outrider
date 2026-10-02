@@ -6,9 +6,8 @@ This page describes the guardrails around that, and their limits.
 > **The guardrails catch an agent's mistakes. They are not a sandbox.** The
 > agent runs as you, with your files, credentials and network. A determined or
 > prompt-injected agent can get around every guard listed here. For PRs from
-> people you don't trust, keep the tool gate on (supervised mode) or run the
-> agent in a sandbox: the Claude Code sandbox, a container or a VM, without
-> write access to `~/.cache/outrider` and without your push credentials.
+> people you don't trust, use the [read-only sandbox](#read-only-sandbox), or
+> run the agent in a container or a VM.
 
 ## Modes
 
@@ -19,6 +18,62 @@ This page describes the guardrails around that, and their limits.
 | `github_writes` default | `ask` | `allow` |
 | Claude deny rules | yes | no |
 | Tool gate (PreToolUse hook) | yes, when its classifier is available | no |
+
+## Read-only sandbox
+
+`sandbox: read-only` (flag `--sandbox read-only`) runs every session in the
+agent's own OS sandbox: Seatbelt on macOS, bubblewrap on Linux. The agent can
+read and run code, but can't write files, commit, push, post to GitHub or
+reach the network. `others_prs.sandbox: read-only` does this only for PRs
+someone else authored. The default is `off`.
+
+Before the agent starts, outrider fetches the PR context into
+`<session>/pr-context/`: `pr.json` (metadata, reviews, conversation comments,
+checks), `pr.diff`, `review-comments.json` (inline threads) and
+`failing-checks.json`. The prompt points the agent there, since `gh` can't
+reach GitHub from inside the sandbox.
+
+`read-only` means `push: never` and `github_writes: never`. A config that sets
+either to something else, or `others_prs.allow_push: true` together with a
+read-only sandbox for others' PRs, is refused at startup.
+
+| | Claude Code | Codex |
+|---|---|---|
+| Shell commands | `sandbox.enabled`, `failIfUnavailable`, `allowUnsandboxedCommands: false` (no unsandboxed retry) | `--sandbox read-only` |
+| Writes | none in the worktree and its git dir (`filesystem.denyWrite`); the sandbox already blocks the rest, except the per-user temp dir | none |
+| Network | none (`network.allowedDomains: []`, `strictAllowlist`) | none |
+| Escalation | `--permission-mode manual`, `disableBypassPermissionsMode`; deny rules for `Edit`, `Write`, `NotebookEdit`, `WebFetch`, `WebSearch` and the review-only git commands | `--ask-for-approval never`: a blocked command fails, nothing asks to leave the sandbox |
+| Tools | only `Bash`, `Read`, `Glob`, `Grep` (`--tools`) | apps, plugins, browser and computer use and web search off |
+| What the checkout can configure | nothing: `--setting-sources user` skips its `.claude/settings*.json` (hooks), `--strict-mcp-config` its `.mcp.json` | nothing: the worktree and its checkout are untrusted, so its `.codex/` config and rules aren't loaded |
+| Your own setup | your user settings and hooks still load | a private `CODEX_HOME` in the session dir that holds only a link to your `auth.json`: your rules (an `allow` rule runs a command outside the sandbox), MCP servers and plugins aren't loaded |
+
+Plan mode (`--permission-mode plan`) isn't used: it doesn't add a boundary the
+sandbox and deny rules don't already enforce, it makes every sandboxed command
+ask, and leaving it is one click.
+
+**Fail closed.** At startup outrider checks the platform and the agent
+version and logs the mode, e.g.
+`sandbox: read-only (claude: native sandbox + deny rules)`. When the sandbox
+isn't available, it logs `UNAVAILABLE` with the reason and refuses every
+session that would need it (`refusing session: read-only sandbox
+unavailable`); it never runs one unsandboxed. Claude Code's
+`failIfUnavailable` is a second check.
+
+| | Claude Code | Codex |
+|---|---|---|
+| macOS | yes | yes |
+| Linux | needs `bwrap` and `socat` | needs `bwrap` |
+| Windows | no (refused) | no (refused) |
+| Oldest version | 2.1.285 | 0.156.0 |
+| Login | any | file-based (`$CODEX_HOME/auth.json`) |
+
+**What the sandbox doesn't cover.** The agent still reads everything you can
+read (your files and credentials) and sends what it reads to its model
+provider. Claude's `Read`, `Glob` and `Grep` run outside the sandbox (they
+only read). Your own user-level Claude hooks and settings still run. The
+agent's process (Claude Code or Codex itself) runs outside the sandbox and
+writes its own state, e.g. `.claude/` in the worktree. A sandboxed session
+can't fetch CI logs; it gets the failed checks and their links.
 
 ## Review only
 
@@ -97,8 +152,9 @@ hook isn't wired: Codex hooks need a one-time trust (`/hooks`).
 ## policy.json
 
 Every session writes `policy.json` next to its prompt: repo, PR, whether it is
-your PR, review only, the push and post modes, the scope, the deny rules and
-the tool-gate rules. The prompt points the agent to it, and the tool-gate hook
+your PR, review only, the push and post modes, the sandbox (`off` or
+`read-only`) and the PR context dir, the scope, the deny rules and the
+tool-gate rules. The prompt points the agent to it, and the tool-gate hook
 gets its path in `$OUTRIDER_POLICY_FILE`.
 
 ## What is not enforced
@@ -117,6 +173,11 @@ From two security reviews of the Go rewrite. The open items are tracked in
 | The push dialog shows the session's checkout | A push with `-C`, `--git-dir` or `GIT_DIR` can target something else. |
 | `gh api -X PATCH …/issues/comments/<id>` | In `ask` or `allow` mode it can edit any comment in the session's repo, not only yours. |
 | The guard links are shared | All sessions use `~/.cache/outrider/bin`, which one session could replace. |
+
+In a [read-only sandbox](#read-only-sandbox) the gaps above that need a write
+or the network (changing the guards' environment to push or post, the real
+`gh` or `git`, `curl` with your token, a `pushurl`, a shared guard link) are
+closed by the OS sandbox instead.
 
 ## Data that leaves your machine
 

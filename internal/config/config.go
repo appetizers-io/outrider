@@ -26,6 +26,9 @@ const (
 	SchemaID = "https://github.com/appetizers-io/outrider/config.schema.json"
 )
 
+// ReadOnly is the sandbox in which a session can't change anything.
+const ReadOnly = "read-only"
+
 // JevBackendEnv are the variables that give jev-use a backend.
 var JevBackendEnv = []string{"TYPESAFE_API_KEY", "OPENROUTER_API_KEY", "AI_GATEWAY_API_KEY", "JEV_BACKEND"}
 
@@ -36,6 +39,7 @@ type Config struct {
 	Mode            string      `yaml:"mode" jsonschema:"enum=supervised,enum=autonomous,default=supervised" jsonschema_description:"supervised: Claude sessions get deny rules for risky tools and, when its classifier is available, the tool_gate on every call; other people's PRs are review only. autonomous: no tool gating, and pushing to other people's PRs follows others_prs.allow_push (default: allowed)."`
 	Push            *string     `yaml:"push" jsonschema:"enum=ask,enum=never,enum=allow,nullable" jsonschema_description:"Pushes in sessions that may push (your own PRs, others' PRs with others_prs.allow_push). ask: every git push opens a dialog and runs only after you click Push (without a dialog it is refused). never: commits stay local. allow: no question. null: ask in supervised mode, allow in autonomous mode."`
 	GitHubWrites    *string     `yaml:"github_writes" jsonschema:"enum=ask,enum=never,enum=allow,nullable" jsonschema_description:"Comments, review comments and replies, reviews and reactions the agent posts with gh on the session's PR. ask: each one opens a dialog showing the text and runs only after you click Post (without a dialog it is refused). never: GitHub stays read-only. allow: no question. null: ask in supervised mode, allow in autonomous mode."`
+	Sandbox         string      `yaml:"sandbox" jsonschema:"enum=off,enum=read-only,default=off" jsonschema_description:"read-only: every session runs in the agent's own OS sandbox (Claude Code: sandbox settings and deny rules; Codex: --sandbox read-only, approvals never): no file writes, no commits, no pushes, no GitHub posts, no network. The PR context is fetched into the session dir first. push and github_writes must be never or unset. Where the sandbox is unavailable, sessions are refused. off: no sandbox."`
 	Agent           string      `yaml:"agent" jsonschema:"enum=codex,enum=claude,default=codex" jsonschema_description:"Coding agent CLI to launch."`
 	Launcher        string      `yaml:"launcher" jsonschema:"enum=auto,enum=terminal,enum=tmux,default=auto" jsonschema_description:"auto: macOS: the terminal in a desktop (Aqua) session, else tmux. Linux: the terminal when a display is present and a terminal resolves, else tmux. Windows: always the terminal."`
 	Terminal        Terminal    `yaml:"terminal" jsonschema_description:"Terminal app for launcher: terminal. auto: detected once at startup. A name forces that app. A command list with a {cmd} placeholder runs anything else, e.g. [alacritty, -e, '{cmd}']."`
@@ -124,7 +128,8 @@ type ToolGate struct {
 
 // OthersPRs are sessions on PRs someone else authored.
 type OthersPRs struct {
-	AllowPush *bool `yaml:"allow_push" jsonschema:"nullable" jsonschema_description:"false: review only. The agent must not edit, commit or push, and git push is blocked in the session. true: it may push fixes to the PR branch (fast-forward only). null: false in supervised mode, true in autonomous mode."`
+	AllowPush *bool   `yaml:"allow_push" jsonschema:"nullable" jsonschema_description:"false: review only. The agent must not edit, commit or push, and git push is blocked in the session. true: it may push fixes to the PR branch (fast-forward only). null: false in supervised mode, true in autonomous mode."`
+	Sandbox   *string `yaml:"sandbox" jsonschema:"enum=off,enum=read-only,nullable" jsonschema_description:"sandbox for sessions on PRs someone else authored, e.g. read-only while your own PRs run unsandboxed. read-only needs allow_push false or unset. null: sandbox."`
 }
 
 // Prompts adds to every agent prompt.
@@ -136,6 +141,7 @@ type Prompts struct {
 func Default() Config {
 	return Config{
 		Mode:            "supervised",
+		Sandbox:         "off",
 		Agent:           "codex",
 		Launcher:        "auto",
 		Terminal:        Terminal{Name: "auto"},
@@ -175,10 +181,21 @@ func (c *Config) AllowPushToOthers() bool {
 	return c.Mode == "autonomous"
 }
 
+// SandboxFor is the sandbox of a session on your own PR or someone else's.
+func (c *Config) SandboxFor(own bool) string {
+	if !own && c.OthersPRs.Sandbox != nil {
+		return *c.OthersPRs.Sandbox
+	}
+	return c.Sandbox
+}
+
 // PushMode is push with its mode-dependent default.
 func (c *Config) PushMode() string {
 	if c.Push != nil {
 		return *c.Push
+	}
+	if c.Sandbox == ReadOnly {
+		return "never"
 	}
 	if c.Mode == "supervised" {
 		return "ask"
@@ -190,6 +207,9 @@ func (c *Config) PushMode() string {
 func (c *Config) GitHubWritesMode() string {
 	if c.GitHubWrites != nil {
 		return *c.GitHubWrites
+	}
+	if c.Sandbox == ReadOnly {
+		return "never"
 	}
 	if c.Mode == "supervised" {
 		return "ask"
@@ -281,6 +301,17 @@ func (c *Config) crossCheck() []string {
 		if _, err := globs.compile(globs.patterns); err != nil {
 			errs = append(errs, globs.key+": "+err.Error())
 		}
+	}
+	for _, key := range []struct {
+		name  string
+		value *string
+	}{{"push", c.Push}, {"github_writes", c.GitHubWrites}} {
+		if c.Sandbox == ReadOnly && key.value != nil && *key.value != "never" {
+			errs = append(errs, fmt.Sprintf("%s: '%s' conflicts with sandbox: read-only, which never pushes or posts (set never or remove it)", key.name, *key.value))
+		}
+	}
+	if c.SandboxFor(false) == ReadOnly && c.OthersPRs.AllowPush != nil && *c.OthersPRs.AllowPush {
+		errs = append(errs, "others_prs.allow_push: true conflicts with a read-only sandbox for others' PRs (set false or remove it)")
 	}
 	for _, role := range []struct {
 		name, needs string

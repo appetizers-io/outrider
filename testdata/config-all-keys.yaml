@@ -5,6 +5,7 @@ owner_name: Matthias          # default: first name from your GitHub profile
 mode: supervised              # autonomous: no tool gating, may push to others' PRs
 push: ask                     # every git push waits for your click; never | allow
 github_writes: ask            # every gh comment/review waits for your click; never | allow
+sandbox: off                  # read-only: the agent's OS sandbox, no writes or network
 agent: claude
 launcher: auto                # terminal window on a desktop, else tmux
 terminal: [alacritty, -e, "{cmd}"]
@@ -45,6 +46,7 @@ triggers:
 
 others_prs:
   allow_push: false           # review only (default in supervised mode)
+  sandbox: read-only          # others' PRs in the read-only sandbox; null: as sandbox
 
 # decision backends: jev is built in; local ones use kind: command
 classifiers:
