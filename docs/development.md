@@ -13,6 +13,7 @@ Needs Go 1.27, [Task](https://taskfile.dev) and
 | `task install` | build into `~/.local/bin` (`INSTALL_DIR=…` to change) |
 | `task schema` | regenerate `config.schema.json` after changing `internal/config` |
 | `task schema:check` | fail if `config.schema.json` is out of date |
+| `task golden` | rewrite `testdata/golden` after an intended change to the prompt, the gate rules or the launch-check request; review the diff |
 | `task changelog` | preview the next version and its release notes (needs git-cliff, gh) |
 | `task release:snapshot` | local GoReleaser build of all archives into `dist/` |
 
@@ -32,7 +33,8 @@ Needs Go 1.27, [Task](https://taskfile.dev) and
 | `internal/classifier` | launch check and tool-gate classifiers |
 | `internal/migrate` | the one-time move from the llm-review-agent directories |
 | `prompts/` | the prompt template |
-| `testdata/python-parity.json` | prompts, gate rules, launch-check requests and fingerprints the former Python version produced |
+| `testdata/golden/` | golden files: the prompts, tool-gate rules, launch-check requests and the activity fingerprint |
+| `testdata/config-all-keys.yaml` | a config that sets every key; it must keep loading |
 
 ## Config changes
 
@@ -50,3 +52,12 @@ the Conventional Commit titles since the last tag (`feat:` minor, `fix:`
 patch, or the bump you choose: `patch`, `minor`, `major`) and writes the
 release notes. GoReleaser creates the tag and the release with the archives.
 The run needs a maintainer's approval (the `release` environment).
+
+## Golden files
+
+`testdata/golden/` pins what agents and classifiers get: the prompt for each
+kind of session, the tool-gate rules, the launch-check requests, and the
+activity fingerprint. A test fails when the output changes. After an intended
+change run `task golden` (`go test <package> -run Golden -update`) and review
+the diff. The fingerprint must not change: it is stored in `state.json`, and a
+different value relaunches every watched PR once.

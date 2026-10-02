@@ -2,8 +2,6 @@ package classifier
 
 import (
 	"context"
-	"crypto/sha256"
-	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -18,6 +16,7 @@ import (
 
 	"github.com/appetizers-io/outrider/internal/config"
 	"github.com/appetizers-io/outrider/internal/github"
+	"github.com/appetizers-io/outrider/internal/golden"
 	"github.com/appetizers-io/outrider/internal/proc"
 )
 
@@ -175,11 +174,11 @@ func TestJevLaunchDecisions(t *testing.T) {
 	}{
 		{`{"verdicts": [{"id": "act", "escalate": false, "answer": 0.04, "confidence": 0.92}]}`, false, "jev p=0.04 conf=0.92"},
 		{`{"verdicts": [{"id": "act", "escalate": false, "answer": 0.89, "confidence": 0.78}]}`, true, "jev p=0.89 conf=0.78"},
-		{`{"verdicts": [{"id": "act", "escalate": true, "answer": 0.1, "reason": "unsure"}]}`, true, "jev p=0.1 conf=None unsure (unsure), launching anyway"},
+		{`{"verdicts": [{"id": "act", "escalate": true, "answer": 0.1, "reason": "unsure"}]}`, true, "jev p=0.1 conf=unknown unsure (unsure), launching anyway"},
 		{`{}`, true, "jev: unexpected answer, launching anyway"},
 		{`{"verdicts": []}`, true, "jev: unexpected answer, launching anyway"},
-		{`{"verdicts": [{"answer": "yes"}]}`, true, "jev p=yes conf=None unexpected answer, launching anyway"},
-		{`{"verdicts": [{"answer": true}]}`, true, "jev p=True conf=None unexpected answer, launching anyway"},
+		{`{"verdicts": [{"answer": "yes"}]}`, true, "jev p=yes conf=unknown unexpected answer, launching anyway"},
+		{`{"verdicts": [{"answer": true}]}`, true, "jev p=true conf=unknown unexpected answer, launching anyway"},
 		{`[1]`, true, "jev: unexpected answer, launching anyway"},
 		{`not json`, true, "jev unavailable, launching anyway"},
 	} {
@@ -264,7 +263,7 @@ func TestLocalClassifierProtocol(t *testing.T) {
 		require.Contains(t, sent, "question")
 		if strings.Contains(tc.answer, "reason") {
 			require.Contains(t, note, "only a bot")
-			require.Equal(t, "local: launch=False (only a bot)", note)
+			require.Equal(t, "local: launch=false (only a bot)", note)
 		}
 	}
 }
@@ -281,21 +280,13 @@ func TestHookEnvGenericAndJev(t *testing.T) {
 	env := HookEnv(jevR, "rules", nil, "/p.json")
 	require.Equal(t, "rules", env["JEV_GATE_STATE"])
 	require.NotContains(t, env, "JEV_GATE_THRESHOLD")
-	require.Equal(t, "1.0", HookEnv(jevR, "r", new(1.0), "/p")["JEV_GATE_THRESHOLD"])
+	require.Equal(t, "1", HookEnv(jevR, "r", new(1.0), "/p")["JEV_GATE_THRESHOLD"])
 }
 
-// --- parity with the Python version ----------------------------------------
+// --- golden launch-check requests -----------------------------------------
 
-func TestRequestsMatchThePythonVersion(t *testing.T) {
-	raw, err := os.ReadFile("../../testdata/python-parity.json")
-	require.NoError(t, err)
-	var golden struct {
-		Requests []struct {
-			Args map[string]any `json:"args"`
-			Req  map[string]any `json:"req"`
-		} `json:"requests"`
-	}
-	require.NoError(t, json.Unmarshal(raw, &golden))
+// The requests classifiers get are a public protocol: testdata/golden pins them.
+func TestLaunchRequestsGolden(t *testing.T) {
 	items := []github.Activity{
 		{Kind: "comment", ID: new(int64(1)), User: new("alice"), At: "2026-01-01T00:00:00Z", Body: "  hello\nworld  "},
 		{Kind: "review", ID: new(int64(2)), State: new("APPROVED"), User: new("bob"), At: "2026-01-02T00:00:00Z"},
@@ -303,32 +294,25 @@ func TestRequestsMatchThePythonVersion(t *testing.T) {
 			Body: "fix this ünïcode 🚀 <&>", URL: new("https://x/c3")},
 	}
 	checks := []github.Check{{Name: "unit", Conclusion: "FAILURE"}, {Context: "ci/x", State: "ERROR"}, {Name: "ok", Conclusion: "SUCCESS"}}
-	for _, g := range golden.Requests {
-		var req Request
-		if g.Args["big"] == true {
-			var big []github.Activity
-			for i := range 40 {
-				big = append(big, github.Activity{Kind: "comment", ID: new(int64(i)), User: new("u"),
-					At: fmt.Sprintf("2026-01-01T00:00:%02dZ", i), Body: fmt.Sprintf("old %d ", i) + strings.Repeat("x", 1400)})
-			}
-			big = append(big, github.Activity{Kind: "comment", ID: new(int64(99)), User: new("u"), At: "2026-02-01T00:00:00Z", Body: "NEWEST"})
-			bob := github.PR{Title: "T", URL: "https://github.com/o/r/pull/1", Author: &github.User{Login: "bob"}}
-			req = NewRequest("o/r", 1, bob, "t", big, "Matthias", "me")
-			sum := sha256.Sum256([]byte(req.StateText))
-			require.Equal(t, g.Req["head"], req.StateText[:300])
-			require.Equal(t, g.Req["state_text_sha256"], hex.EncodeToString(sum[:]))
-			continue
-		}
-		p := github.PR{Title: "T", URL: "https://github.com/o/r/pull/1", Author: &github.User{Login: g.Args["author"].(string)}, StatusCheckRollup: checks}
-		var use []github.Activity
-		if g.Args["n"].(float64) > 0 {
-			use = items
-		}
-		req = NewRequest("o/r", 1, p, "my PR notification (comment)", use, "Matthias", "me")
-		b, err := json.Marshal(req)
+	check := func(name string, req Request) {
+		t.Helper()
+		b, err := json.MarshalIndent(req, "", "  ")
 		require.NoError(t, err)
-		var got map[string]any
-		require.NoError(t, json.Unmarshal(b, &got))
-		require.Equal(t, g.Req, got, g.Args)
+		golden.Check(t, "launch-requests/"+name+".json", string(b)+"\n")
 	}
+	for _, author := range []string{"ME", "bob"} {
+		p := github.PR{Title: "T", URL: "https://github.com/o/r/pull/1", Author: &github.User{Login: author}, StatusCheckRollup: checks}
+		own := map[string]string{"ME": "own", "bob": "others"}[author]
+		check(own+"-activity", NewRequest("o/r", 1, p, "my PR notification (comment)", items, "Matthias", "me"))
+		check(own+"-no-activity", NewRequest("o/r", 1, p, "my PR notification (comment)", nil, "Matthias", "me"))
+	}
+	// more activity than the 40000-character state_text budget: the newest is kept
+	var big []github.Activity
+	for i := range 40 {
+		big = append(big, github.Activity{Kind: "comment", ID: new(int64(i)), User: new("u"),
+			At: fmt.Sprintf("2026-01-01T00:00:%02dZ", i), Body: fmt.Sprintf("old %d ", i) + strings.Repeat("x", 1400)})
+	}
+	big = append(big, github.Activity{Kind: "comment", ID: new(int64(99)), User: new("u"), At: "2026-02-01T00:00:00Z", Body: "NEWEST"})
+	bob := github.PR{Title: "T", URL: "https://github.com/o/r/pull/1", Author: &github.User{Login: "bob"}}
+	golden.Check(t, "launch-requests/trimmed-state-text.txt", NewRequest("o/r", 1, bob, "t", big, "Matthias", "me").StateText+"\n")
 }

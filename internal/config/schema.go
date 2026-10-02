@@ -54,22 +54,6 @@ var compiled = sync.OnceValue(func() *validator.Schema {
 	return c.MustCompile(SchemaID)
 })
 
-// yaml11Bools are booleans in YAML 1.1, which the Python version (PyYAML) read
-// as such; yaml.v3 reads them as strings.
-var yaml11Bools = map[string]string{
-	"yes": "true", "Yes": "true", "YES": "true", "on": "true", "On": "true", "ON": "true",
-	"no": "false", "No": "false", "NO": "false", "off": "false", "Off": "false", "OFF": "false",
-}
-
-func markYAML11Bools(n *yaml.Node) {
-	if v, ok := yaml11Bools[n.Value]; ok && n.Kind == yaml.ScalarNode && n.Style == 0 && n.Tag == "!!str" {
-		n.Tag, n.Value = "!!bool", v
-	}
-	for _, c := range n.Content {
-		markYAML11Bools(c)
-	}
-}
-
 // Parse validates YAML config data against the schema and decodes it onto
 // the defaults; source names it in errors.
 func Parse(data []byte, source string) (Config, error) {
@@ -81,7 +65,6 @@ func Parse(data []byte, source string) (Config, error) {
 	if len(doc.Content) == 0 || doc.Content[0].Tag == "!!null" {
 		return Default(), nil // empty file: the defaults
 	}
-	markYAML11Bools(&doc)
 
 	var data0 any
 	if err := doc.Decode(&data0); err != nil {

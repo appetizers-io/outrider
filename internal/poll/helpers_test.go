@@ -1,7 +1,6 @@
 package poll
 
 import (
-	"encoding/json"
 	"os"
 	"path/filepath"
 	"testing"
@@ -9,6 +8,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/appetizers-io/outrider/internal/github"
+	"github.com/appetizers-io/outrider/internal/golden"
 )
 
 func at(at string, mod ...func(*github.Activity)) github.Activity {
@@ -48,38 +48,22 @@ func TestFingerprintIsStable(t *testing.T) {
 		}),
 		at("2026-01-02", func(a *github.Activity) { a.ID = new(int64(8)); a.UpdatedAt = nil; a.SubmittedAt = new("2026-01-02") }),
 	}
-	golden := "bebc3e735402918524528a5a887b2147e7259d21d7519cb431f4bf244ff1e953" // from the Python version
+	golden := "bebc3e735402918524528a5a887b2147e7259d21d7519cb431f4bf244ff1e953" // what state files hold today
 	require.Equal(t, golden, Fingerprint(items))
 	items[0].Body = "edited body, same updated_at"
 	require.Equal(t, golden, Fingerprint(items))
 }
 
-func TestFingerprintMatchesThePythonVersion(t *testing.T) {
-	raw, err := os.ReadFile("../../testdata/python-parity.json")
-	require.NoError(t, err)
-	var golden struct {
-		Fingerprints []struct {
-			Items []struct {
-				Kind        string  `json:"kind"`
-				ID          *int64  `json:"id"`
-				State       *string `json:"state"`
-				UpdatedAt   *string `json:"updated_at"`
-				SubmittedAt *string `json:"submitted_at"`
-				User        *string `json:"user"`
-			} `json:"items"`
-			FP string `json:"fp"`
-		} `json:"fingerprints"`
+func TestFingerprintGolden(t *testing.T) {
+	// fingerprints are kept in state.json: a different value relaunches every
+	// watched PR once, so this one must not change
+	items := []github.Activity{
+		{Kind: "comment", ID: new(int64(1)), UpdatedAt: new("2026-01-01T00:00:00Z"), User: new("alice")},
+		{Kind: "review", ID: new(int64(2)), State: new("APPROVED"), UpdatedAt: new("2026-01-02T00:00:00Z"), User: new("bob")},
+		{Kind: "inline comment", ID: new(int64(3)), UpdatedAt: new("2026-01-03T00:00:00Z"), User: new("carol")},
 	}
-	require.NoError(t, json.Unmarshal(raw, &golden))
-	require.NotEmpty(t, golden.Fingerprints)
-	for _, g := range golden.Fingerprints {
-		var items []github.Activity
-		for _, x := range g.Items {
-			items = append(items, github.Activity{Kind: x.Kind, ID: x.ID, State: x.State, UpdatedAt: x.UpdatedAt, SubmittedAt: x.SubmittedAt, User: x.User})
-		}
-		require.Equal(t, g.FP, Fingerprint(items))
-	}
-	// non-ASCII and HTML characters are escaped like Python's json.dumps
+	golden.Check(t, "fingerprint.txt", Fingerprint(items)+"\n")
+	// non-ASCII characters are escaped as \uXXXX, HTML characters are not
 	got, err := asciiJSON("ü🚀 <&>\n\x7f\u2028")
 	require.NoError(t, err)
 	require.Equal(t, "\"\\u00fc\\ud83d\\ude80 <&>\\n\x7f\\u2028\"", got)
@@ -126,11 +110,11 @@ func TestLoadStateDefaultsAndMigration(t *testing.T) {
 	r.Equal(map[string]string{"9": "t"}, s.Seen)
 }
 
-func TestStateRoundtripAndPythonFormat(t *testing.T) {
+func TestStateRoundtripAndOlderFiles(t *testing.T) {
 	r := require.New(t)
 	p := filepath.Join(t.TempDir(), "state.json")
-	// written by the Python version
-	python := `{
+	// an older state file: a candidate without seen_at, an unknown key
+	older := `{
   "candidates": {"o/r#5": {"pr": 5, "repo": "o/r", "seen_at": 1790000000.5}, "o/r#6": {"pr": 6, "repo": "o/r"}},
   "handled": {"o/r#1": "2026-01-01T00:00:00Z"},
   "initialized": true,
@@ -140,7 +124,7 @@ func TestStateRoundtripAndPythonFormat(t *testing.T) {
   "watched": {"o/r#8": {"fingerprint": null, "pr": 8, "repo": "o/r"}},
   "unknown_future_key": 1
 }`
-	r.NoError(os.WriteFile(p, []byte(python), 0o600))
+	r.NoError(os.WriteFile(p, []byte(older), 0o600))
 	s, err := LoadState(p)
 	r.NoError(err)
 	r.InDelta(1790000000.5, s.Candidates["o/r#5"].SeenAt, 0)

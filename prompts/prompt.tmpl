@@ -1,6 +1,6 @@
 {{- /*
-The prompt an agent session starts with. Ported verbatim from the Python
-version; testdata/python-parity.json pins the exact text.
+The prompt an agent session starts with. testdata/golden/prompts pins the
+text for each kind of session; `task golden` rewrites it after a change.
 */ -}}
 Babysit this GitHub PR locally.
 
@@ -105,7 +105,7 @@ changed on this branch; if something needs fixing, say so here.
 {{- end}}
 
 {{- define "github" -}}
-{{- if not .Writable}}STRICT TEST PHASE:
+{{- if not .Writable}}GITHUB: read-only in this session.
 - keep ALL review summaries/questions in this local session
 - do NOT post comments or review replies
 - do NOT add/remove reactions

@@ -1,0 +1,41 @@
+Babysit this GitHub PR locally.
+
+Trigger: trigger x
+Repository: o/r
+PR: #1
+URL: https://github.com/o/r/pull/1
+Title: T
+Author: bob
+Head: bob/r:feat/x (local branch review/pr-1)
+Maintainer can modify: false
+Base branch: main
+
+REVIEW ONLY: this PR belongs to bob, not Matthias.
+- do NOT edit files, commit or push, not even trivial fixes (lint,
+  formatting, typos, failing CI); `git push` is blocked in this session
+- put findings and suggested changes (explanation or diff) in this
+  session; Matthias decides what to raise with bob
+
+SCOPE: this session is ONLY about the comment(s) below, where someone replied to Matthias's review comment:
+- https://x/c1
+- https://x/c2
+Read them (`gh pr view 1 --repo o/r --comments`, or
+`gh api repos/o/r/pulls/1/comments` for review threads; match the ids in
+the URLs) and handle only them. Do NOT review, summarize or act on anything
+else in this PR.
+
+Summarize for Matthias what is new and what needs their attention:
+open questions, requested changes, disagreements, CI state. Nothing is
+changed on this branch; if something needs fixing, say so here.
+
+GITHUB: read-only in this session.
+- keep ALL review summaries/questions in this local session
+- do NOT post comments or review replies
+- do NOT add/remove reactions
+- do NOT submit/approve/reject reviews
+The `gh` on PATH is read-only and will refuse GitHub writes; do not try to
+work around it (no curl/API tokens).
+- do NOT resolve threads
+- do NOT change GitHub notification state
+- do NOT merge/close the PR
+- do NOT commit or push anything

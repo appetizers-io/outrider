@@ -1,11 +1,5 @@
-# yaml-language-server: $schema=./config.schema.json
-#
-# llm-review-agent configuration. Every key is optional; the values below are
-# examples, `llm-review-agent config show` prints the effective config with all
-# defaults. Command-line flags override this file.
-#
-# Location: --config, $LLM_REVIEW_AGENT_CONFIG, or
-# ~/.config/llm-review-agent/config.yaml
+# A config that sets every key, written the way users write them (comments,
+# flow and block style). TestConfigWithAllKeysLoads keeps it loading.
 
 owner_name: Matthias          # default: first name from your GitHub profile
 mode: supervised              # autonomous: no tool gating, may push to others' PRs
@@ -13,9 +7,12 @@ push: ask                     # every git push waits for your click; never | all
 github_writes: ask            # every gh comment/review waits for your click; never | allow
 agent: claude
 launcher: auto                # terminal window on a desktop, else tmux
-terminal: auto                # detected; or iterm, ghostty, ... or [alacritty, -e, "{cmd}"]
-max_agents: 3
+terminal: [alacritty, -e, "{cmd}"]
+interval_seconds: 120
 lookback_hours: 2
+max_agents: 3
+candidate_limit: 20
+stale_lock_hours: 6.5
 
 repos:
   include: ["open-component-model/*"]
@@ -29,35 +26,48 @@ triggers:
     enabled: true
     check: true               # run launch_check first
   opt_in:
+    enabled: true
     reaction: eyes
     where: [description, comment, review, review_comment]
     on_change:
       check: true
       ignore_own_activity: true
   review_replies:
+    enabled: true
+    check: false
     scope: thread             # only the replied threads, not the whole PR
     fresh_within_hours: 2
   mentions:                   # @you on a PR that is neither yours nor opted in
+    enabled: true
+    check: true
     scope: comment
+    fresh_within_hours: 4
 
 others_prs:
   allow_push: false           # review only (default in supervised mode)
 
-# decision backends: jev is built in; add local ones with `kind: command`
+# decision backends: jev is built in; local ones use kind: command
 classifiers:
   jev:
+    kind: jev
     enabled: auto             # on when jev-use/npx and a backend key exist
-  # local:
-  #   kind: command
-  #   launch_command: ~/bin/pr-classifier launch   # stdin JSON -> {"launch": bool}
-  #   hook_command: ~/bin/pr-classifier hook       # a PreToolUse hook
+    command: null
+    confidence_threshold: 0.6
+    timeout_seconds: 45
+  local:
+    kind: command
+    enabled: true
+    launch_command: ~/bin/pr-classifier launch   # stdin JSON -> {"launch": bool}
+    hook_command: ~/bin/pr-classifier hook       # a PreToolUse hook
+    timeout_seconds: 20
 
 launch_check:                 # should an agent start at all?
   classifier: jev             # null: always launch
   skip_below: 0.5
 
 tool_gate:                    # every tool call in supervised sessions
-  classifier: jev             # null: deny rules only
+  classifier: local           # null: deny rules only
+  matcher: Bash|Write|Edit
   threshold: null
   rules:
     - never modify generated/ or vendor/
