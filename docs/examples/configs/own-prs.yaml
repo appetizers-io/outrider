@@ -1,0 +1,28 @@
+# Own PRs: fix CI and answer review feedback on your own pull requests.
+#
+# For: authors who want failing checks and review comments handled while they
+# do something else.
+# Does: starts a session on activity on your own PRs and on replies in review
+# threads you took part in. The agent may commit; every push and post asks
+# first, and replies only look at the threads that changed.
+# Use: outrider --config docs/examples/configs/own-prs.yaml
+#      or copy it to ~/.config/outrider/config.yaml
+
+agent: claude
+push: ask                      # each git push opens a dialog
+github_writes: ask             # each comment or reply opens a dialog
+
+repos:
+  include: ["my-org/*"]
+ignore_authors: ["*[bot]"]
+
+triggers:
+  own_prs:
+    enabled: true
+  review_replies:
+    enabled: true
+    scope: thread              # only the threads someone replied in
+  opt_in:
+    enabled: false
+  mentions:
+    enabled: false

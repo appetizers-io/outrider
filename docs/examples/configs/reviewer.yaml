@@ -1,0 +1,30 @@
+# Reviewer: you mostly review other people's PRs.
+#
+# For: maintainers and reviewers who want help reading PRs, not writing them.
+# Does: starts a session when you react 👀 on a PR or someone @mentions you.
+# Sessions are review only; every comment or review waits for your click.
+# Bot activity never starts a session.
+# Use: outrider --config docs/examples/configs/reviewer.yaml
+#      or copy it to ~/.config/outrider/config.yaml
+
+agent: claude
+mode: supervised
+github_writes: ask             # each post opens a dialog
+others_prs:
+  allow_push: false            # review only: no edits, commits or pushes
+
+repos:
+  include: ["my-org/*"]
+ignore_authors: ["*[bot]", "renovate"]
+
+triggers:
+  own_prs:
+    enabled: false             # this setup is about others' PRs
+  opt_in:
+    enabled: true
+    reaction: eyes             # react 👀 on a PR to opt it in
+  mentions:
+    enabled: true
+    scope: pr                  # read the whole PR, not just the mention
+  review_replies:
+    enabled: true

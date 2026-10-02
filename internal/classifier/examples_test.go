@@ -15,7 +15,7 @@ import (
 	"github.com/appetizers-io/outrider/internal/proc"
 )
 
-// The example scripts in docs/examples must work as documented.
+// The example scripts in docs/examples/classifiers must work as documented.
 
 func skipWithoutSh(t *testing.T) {
 	t.Helper()
@@ -26,7 +26,7 @@ func skipWithoutSh(t *testing.T) {
 
 func TestDocsExampleLaunchCheck(t *testing.T) {
 	skipWithoutSh(t)
-	r := &Resolved{Name: "local", Kind: "command", LaunchCmd: []string{"sh", "../../docs/examples/launch-check.sh"}, Timeout: 10 * time.Second}
+	r := &Resolved{Name: "local", Kind: "command", LaunchCmd: []string{"sh", "../../docs/examples/classifiers/launch-check.sh"}, Timeout: 10 * time.Second}
 	act := func(user string) github.Activity {
 		return github.Activity{Kind: "comment", User: &user, At: "2026-01-01T00:00:00Z", Body: "hi"}
 	}
@@ -62,7 +62,7 @@ func TestDocsExampleGateHook(t *testing.T) {
 			raw, err = json.MarshalIndent(v, "", "  ")
 		}
 		require.NoError(t, err)
-		cmd := exec.Command("sh", "../../docs/examples/gate-hook.sh")
+		cmd := exec.Command("sh", "../../docs/examples/classifiers/gate-hook.sh")
 		cmd.Stdin = strings.NewReader(string(raw))
 		cmd.Env = append(cmd.Environ(), "OUTRIDER_GATE_TEXT=review only")
 		var exitErr *exec.ExitError

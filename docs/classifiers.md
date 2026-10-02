@@ -53,7 +53,7 @@ stdin and prints an answer on stdout.
 classifiers:
   local:
     kind: command
-    launch_command: sh ~/outrider/launch-check.sh
+    launch_command: ~/outrider/launch-check.sh   # executable; ~ expands only in the first word
     timeout_seconds: 30
 launch_check:
   classifier: local
@@ -86,8 +86,9 @@ The answer:
 | `{"probability": 0.2}` | skip when below `launch_check.skip_below` |
 | anything else, an error, a timeout | launch |
 
-[`examples/launch-check.sh`](examples/launch-check.sh) is a complete one: it
-skips when all new activity comes from `[bot]` logins and no check fails.
+[`examples/classifiers/launch-check.sh`](examples/classifiers/launch-check.sh)
+is a complete one: it skips when all new activity comes from `[bot]` logins
+and no check fails.
 
 ## Your own tool gate
 
@@ -101,7 +102,7 @@ the call and shows stderr to the agent, or it prints a `permissionDecision`.
 classifiers:
   local:
     kind: command
-    hook_command: sh ~/outrider/gate-hook.sh
+    hook_command: ~/outrider/gate-hook.sh
 tool_gate:
   classifier: local
   matcher: Bash|Write|Edit|NotebookEdit
@@ -119,13 +120,16 @@ The hook's environment:
 | `OUTRIDER_POLICY_FILE` | the session's `policy.json` |
 | `OUTRIDER_GATE_THRESHOLD` | `tool_gate.threshold`, when set |
 
-[`examples/gate-hook.sh`](examples/gate-hook.sh) blocks force pushes, `rm -rf`
-and edits under `generated/`. A real gate would judge the call against
-`OUTRIDER_GATE_TEXT`.
+[`examples/classifiers/gate-hook.sh`](examples/classifiers/gate-hook.sh)
+blocks force pushes, `rm -rf` and edits under `generated/`. A real gate would
+judge the call against `OUTRIDER_GATE_TEXT`.
 
 One classifier can have both commands. A `kind: command` classifier used as the
 launch check needs a `launch_command`, one used as the tool gate a
 `hook_command`; `config check` says when one is missing.
+
+[`custom-classifier.yaml`](examples/configs/custom-classifier.yaml) wires
+both scripts up.
 
 ## Testing the examples
 
@@ -134,6 +138,6 @@ The examples run in the test suite (`TestDocsExample*` in
 same code path outrider uses. To try one by hand:
 
 ```sh
-echo '{"activity":[{"user":"netlify[bot]"}],"failing_checks":[]}' | sh docs/examples/launch-check.sh
-echo '{"tool_name":"Bash","tool_input":{"command":"git push --force"}}' | sh docs/examples/gate-hook.sh; echo "exit $?"
+echo '{"activity":[{"user":"netlify[bot]"}],"failing_checks":[]}' | sh docs/examples/classifiers/launch-check.sh
+echo '{"tool_name":"Bash","tool_input":{"command":"git push --force"}}' | sh docs/examples/classifiers/gate-hook.sh; echo "exit $?"
 ```

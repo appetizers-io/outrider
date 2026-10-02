@@ -10,6 +10,7 @@
 | [Classifiers](classifiers.md) | set up Jev or plug in your own launch check and tool gate |
 | [Terminals](terminals.md) | pick where sessions open: a terminal app or tmux |
 | [Recipes](recipes.md) | forks, bots, Codex, running as a service, many repos |
+| [Examples](examples/README.md) | start from a ready-made config, classifier script or service file |
 | [Troubleshooting](troubleshooting.md) | fix an error or read the startup log |
 | [Development](development.md) | build, test and release outrider |
 

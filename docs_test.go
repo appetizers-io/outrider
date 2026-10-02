@@ -20,6 +20,11 @@ func docFiles(t *testing.T) []string {
 	t.Helper()
 	files, err := filepath.Glob("docs/*.md")
 	require.NoError(t, err)
+	examples, err := filepath.Glob("docs/examples/*.md")
+	require.NoError(t, err)
+	nested, err := filepath.Glob("docs/examples/*/*.md")
+	require.NoError(t, err)
+	files = append(append(files, examples...), nested...)
 	return append(files, "README.md", "CONTRIBUTING.md", "MAINTAINERS.md")
 }
 
@@ -87,5 +92,15 @@ func TestDocsConfigSnippetsAreValid(t *testing.T) {
 			_, err := config.Parse([]byte(m[1]), file)
 			require.NoError(t, err, "%s:\n%s", file, m[1])
 		}
+	}
+}
+
+func TestDocsExampleConfigsAreValid(t *testing.T) {
+	files, err := filepath.Glob("docs/examples/configs/*.yaml")
+	require.NoError(t, err)
+	require.NotEmpty(t, files)
+	for _, file := range files {
+		_, err := config.Load(file)
+		require.NoError(t, err, file)
 	}
 }
