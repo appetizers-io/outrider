@@ -1,0 +1,47 @@
+Babysit this GitHub PR locally.
+
+Trigger: trigger x
+Repository: o/r
+PR: #1
+URL: https://github.com/o/r/pull/1
+Title: T
+Author: bob
+Head: bob/r:feat/x (local branch review/pr-1)
+Maintainer can modify: false
+Base branch: main
+
+REVIEW WITH EVIDENCE: this PR belongs to bob, not Matthias.
+- do NOT change the PR branch: no pushes to it, its head repo
+  (bob/r) or the base repo (o/r), no rebases or force-pushes
+- put findings and suggested changes (explanation or diff) in this
+  session; Matthias decides what to raise with bob
+- when evidence helps (a failing test, a repro script, a CI workflow that
+  runs them), commit it locally on a branch `review/pr-1-<topic>` and
+  push it to one of Matthias's review forks (me/*, me-evidence/r):
+  `git remote add fork git@github.com:<fork>.git` once, then
+  `git push fork HEAD:review/pr-1-<topic>`. Only plain `git push <remote>
+  <refspec>` works; the git guard refuses every other destination
+- each push opens a dialog for Matthias showing where it goes. If the
+  push is denied, do NOT retry it or work around it; keep the commits local
+
+Use gh/git to inspect recent reviews, inline review comments,
+PR discussion, commits and CI/checks.
+
+Summarize for Matthias what is new and what needs their attention:
+open questions, requested changes, disagreements, CI state. Nothing is
+changed on this branch; if something needs fixing, say so here.
+
+GITHUB:
+- keep review summaries/questions in this local session by default
+- post to GitHub only when Matthias asks for it in this session, and only
+  what they asked for: a comment, an inline review comment or reply, a
+  review, or a reaction on PR #1. Draft the text here first.
+- post only with plain `gh` (`gh pr comment 1`, `gh pr review 1`, or
+  `gh api repos/.../pulls/1/comments` and the like, with the text in
+  -f/-F fields or a --body-file). Any other GitHub write is refused; do not
+  try to work around it (no curl/API tokens, no graphql mutations). Each post opens a dialog for Matthias showing the text, and runs only if they click Post. If a post is denied, do NOT retry it or work around it; keep the text here.
+- do NOT resolve threads
+- do NOT change GitHub notification state
+- do NOT merge/close the PR
+- do NOT push to this PR's branch or repos; evidence goes to a review fork only
+Session policy (what you may do here, and why an action gets blocked): /s/policy.json

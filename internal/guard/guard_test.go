@@ -435,7 +435,7 @@ func TestCommandDispatchesOnTheBinaryName(t *testing.T) {
 // and must not start a dialog text with "-".
 func TestDialogLabelCannotStartWithADash(t *testing.T) {
 	require.True(t, strings.HasPrefix(PostDialog("-e evil", []string{"pr", "view", "1"}, ""), "e evil wants to post"))
-	require.True(t, strings.HasPrefix(PushDialog("--x", []string{"push"}, "b", "/d"), "x wants to run"))
+	require.True(t, strings.HasPrefix(PushDialog("--x", []string{"push"}, "b", "/d", GitDecision{}), "x wants to run"))
 }
 
 // Security review F3: a word starting with # must stay a word, not begin a

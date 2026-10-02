@@ -66,10 +66,16 @@ matter for its case.
 | `others_prs.allow_push` | `false` in supervised, `true` in autonomous | `true`, `false` |
 | `sandbox` | `off` | `off`, `read-only` |
 | `others_prs.sandbox` | `null`: as `sandbox` | `off`, `read-only` |
+| `others_prs.review_forks` | `[]`: no evidence pushes | owner/repo globs of your own forks, e.g. `["me/*"]` |
 
 `sandbox: read-only` makes `push` and `github_writes` default to `never`;
 setting either to anything else with it is an error at startup, and so is
-`others_prs.allow_push: true` with a read-only sandbox for others' PRs.
+`others_prs.allow_push: true` or `others_prs.review_forks` with a read-only
+sandbox for others' PRs.
+
+`others_prs.review_forks` lets review-only sessions commit locally and push
+evidence (failing tests, repro scripts, a CI workflow) to your own forks; each
+push follows `push`. See [Review forks](safety.md#review-forks).
 
 What each value does is on the [Safety](safety.md) page.
 

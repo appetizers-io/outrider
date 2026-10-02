@@ -172,6 +172,17 @@ func TestCheckGitHub(t *testing.T) {
 			status: Fail, detail: "missing repo", fix: "gh auth refresh --hostname github.com --scopes repo",
 		},
 		{
+			name: "review forks without workflow scope", setup: func(m *machine) { m.cfg = "others_prs: {review_forks: [me/*]}" },
+			status: Warn, detail: "missing workflow", fix: "gh auth refresh --hostname github.com --scopes workflow",
+		},
+		{
+			name: "review forks with workflow scope", setup: func(m *machine) {
+				m.cfg = "others_prs: {review_forks: [me/*]}"
+				m.outputs["gh auth status --active --hostname github.com --json hosts"] = strings.ReplaceAll(loggedIn, ", repo", ", repo, workflow")
+			},
+			status: OK, detail: "scopes gist, read:org, repo, workflow",
+		},
+		{
 			name: "fine-grained token", setup: func(m *machine) {
 				m.outputs["gh auth status --active --hostname github.com --json hosts"] = strings.ReplaceAll(loggedIn, "gist, read:org, repo", "")
 			},

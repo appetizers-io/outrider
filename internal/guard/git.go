@@ -11,6 +11,9 @@ import (
 //	ask:   a native dialog asks the owner; only a click on "Push" lets it through
 //	allow: passes
 //
+// In a review-forks session (forks.go) a push goes only to the owner's review
+// forks, never to the PR's repos, and then follows the same modes.
+//
 // The runner also sets pushInsteadOf through GIT_CONFIG_* so a push that goes
 // around this guard (the real git binary) hits a dead URL; an approved push
 // drops those entries before running the real git.
@@ -44,10 +47,18 @@ func AliasPushes(alias string) bool {
 	return alias != "" && slices.ContainsFunc(strings.Fields(strings.TrimLeft(alias, "!")), isPush)
 }
 
+// Pushes tells whether a git invocation pushes, directly or through an alias.
+func Pushes(args []string, alias func(global []string, name string) string) bool {
+	sub, i := Subcommand(args)
+	return isPush(sub) || sub != "" && AliasPushes(alias(args[:i], sub))
+}
+
 // GitDecision is what to do with a git invocation.
 type GitDecision struct {
-	Deny string // non-empty: refuse with this message
-	Ask  bool   // a push that needs the owner's approval
+	Deny string   // non-empty: refuse with this message
+	Ask  bool     // a push that needs the owner's approval
+	Dest string   // review forks: where the push goes, github.com/owner/repo
+	Refs []string // review forks: the refspecs pushed there
 }
 
 const deniedNotApproved = "The owner did not approve this push. Do not retry or work around " +
@@ -67,8 +78,7 @@ func DecideGit(args []string, mode string, alias func(global []string, name stri
 	if mode == "allow" {
 		return GitDecision{}
 	}
-	sub, i := Subcommand(args)
-	if !isPush(sub) && (sub == "" || !AliasPushes(alias(args[:i], sub))) {
+	if !Pushes(args, alias) {
 		return GitDecision{}
 	}
 	switch mode {
@@ -82,8 +92,9 @@ func DecideGit(args []string, mode string, alias func(global []string, name stri
 		"and tell the owner what is ready to push.")}
 }
 
-// PushDialog is the approval dialog's text for a push.
-func PushDialog(session string, args []string, branch, dir string) string {
+// PushDialog is the approval dialog's text for a push; d.Dest and d.Refs
+// show where a review-fork push goes.
+func PushDialog(session string, args []string, branch, dir string, d GitDecision) string {
 	session = strings.TrimLeft(session, "-") // from the agent's environment; must not read as an option
 	if session == "" {
 		session = "agent session"
@@ -91,7 +102,11 @@ func PushDialog(session string, args []string, branch, dir string) string {
 	if branch == "" {
 		branch = "?"
 	}
-	return session + " wants to run:\n\ngit " + strings.Join(args, " ") + "\n\nbranch: " + branch + "\nin: " + dir
+	text := session + " wants to run:\n\ngit " + strings.Join(args, " ") + "\n\n"
+	if d.Dest != "" {
+		text += "to: " + d.Dest + "\nrefs: " + strings.Join(d.Refs, " ") + "\n"
+	}
+	return text + "branch: " + branch + "\nin: " + dir
 }
 
 // approvedPushEnv drops the push trap (GIT_CONFIG_*) and marks this one push

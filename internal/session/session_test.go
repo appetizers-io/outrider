@@ -80,7 +80,12 @@ func newLauncher(t *testing.T, cfgText string) (*Launcher, *calls) {
 }
 
 func pr(author string) github.PR {
-	return github.PR{Title: "T", Author: &github.User{Login: author}, URL: "https://github.com/o/r/pull/1"}
+	return github.PR{
+		Title: "T", Author: &github.User{Login: author}, URL: "https://github.com/o/r/pull/1",
+		HeadRepositoryOwner: &github.User{Login: author}, HeadRepository: &struct {
+			Name string `json:"name"`
+		}{Name: "r"},
+	}
 }
 
 type launched struct {
@@ -288,6 +293,43 @@ func TestGitHubWritesFollowsMode(t *testing.T) {
 	got := l.launched(t, "me")
 	require.Equal(t, "allow", got.policy["github_writes"])
 	require.NotContains(t, got.prompt, "opens a dialog for Matthias showing")
+}
+
+func TestReviewForksSessionMayCommitAndPushToForks(t *testing.T) {
+	r := require.New(t)
+	l, _ := newLauncher(t, "others_prs: {review_forks: [me/*]}\n")
+	got := l.launched(t, "bob")
+	env := got.spec.Env
+	r.Equal("ask", env["OUTRIDER_PUSH"]) // each push follows push
+	r.Equal("me/*", env["OUTRIDER_REVIEW_FORKS"])
+	r.Equal("bob/r", env["OUTRIDER_HEAD_REPO"])
+	r.Equal("o/r", env["OUTRIDER_REPO"])
+	r.Equal("url.outrider-push-blocked://.pushInsteadOf", env["GIT_CONFIG_KEY_0"]) // the trap stays
+	r.Equal(true, got.policy["review_only"])
+	r.Equal("ask", got.policy["push"])
+	r.Equal([]any{"me/*"}, got.policy["review_forks"])
+	deny := got.deny()
+	r.NotContains(deny, "Edit")
+	r.NotContains(deny, "Bash(git commit:*)")
+	r.NotContains(deny, "Bash(git push:*)")
+	r.Contains(deny, "Bash(git push --force:*)")
+	r.Contains(deny, "Bash(git rebase:*)")
+	r.Contains(got.prompt, "REVIEW WITH EVIDENCE")
+	r.Contains(got.prompt, "review forks (me/*)")
+	r.Contains(got.spec.Header[1], "git push only to your review forks (ask)")
+
+	// allow drops neither the trap nor the fork check
+	l, _ = newLauncher(t, "push: allow\nothers_prs: {review_forks: [me/*]}\n")
+	got = l.launched(t, "bob")
+	r.Equal("allow", got.spec.Env["OUTRIDER_PUSH"])
+	r.Equal("me/*", got.spec.Env["OUTRIDER_REVIEW_FORKS"])
+	r.Contains(got.spec.Env, "GIT_CONFIG_COUNT")
+
+	// your own PRs are unaffected
+	l, _ = newLauncher(t, "others_prs: {review_forks: [me/*]}\n")
+	got = l.launched(t, "me")
+	r.NotContains(got.spec.Env, "OUTRIDER_REVIEW_FORKS")
+	r.Nil(got.policy["review_forks"])
 }
 
 func TestGateTextAllowsPostsOnlyThroughGH(t *testing.T) {

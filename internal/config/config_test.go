@@ -358,6 +358,9 @@ func TestReadOnlySandboxRefusesConflictingKeys(t *testing.T) {
 		{"sandbox: read-only\npush: ask", "push: 'ask' conflicts"},
 		{"sandbox: read-only\ngithub_writes: ask", "github_writes: 'ask' conflicts"},
 		{"others_prs: {sandbox: read-only, allow_push: true}", "others_prs.allow_push: true conflicts"},
+		{"others_prs: {sandbox: read-only, review_forks: [me/*]}", "others_prs.review_forks conflicts"},
+		{"sandbox: read-only\nothers_prs: {review_forks: [me/*]}", "others_prs.review_forks conflicts"},
+		{"others_prs: {review_forks: ['me/[x']}", "others_prs.review_forks: bad glob"},
 		{"sandbox: read-only\nothers_prs: {allow_push: true}", "others_prs.allow_push: true conflicts"},
 		{"sandbox: on", "sandbox"},
 	} {
