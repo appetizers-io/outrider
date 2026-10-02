@@ -1,5 +1,24 @@
 # Troubleshooting
 
+Run `outrider doctor` first. It checks the config, `gh` and its login, `git`,
+the agent and its version, the launcher and terminal, the approval dialogs,
+the classifiers, the sandbox and outrider's files, and prints the fix for
+everything that is not ok. It changes nothing and exits 1 when a check
+failed.
+
+| Check | Fails or warns when |
+|---|---|
+| `config` | the config file is unreadable or invalid (fail) |
+| `github` | `gh` is missing, not logged in, the token lacks the `repo` scope, or `gh api user` fails (fail); a token without OAuth scopes (warn) |
+| `git`, `agent` | not on `PATH` or `--version` fails (fail); `other agent` is only info |
+| `launcher` | the resolved launcher can't work: no terminal, `tmux` missing, tmux on Windows (fail) |
+| `dialogs` | `push` or `github_writes` is `ask` but no dialog can be shown, so `ask` denies (warn) |
+| `launch check`, `tool gate` | the classifier can't run: `jev-use`/`npx` or a backend key missing, a command not executable (warn: the role is off) |
+| `sandbox` | `sandbox: read-only` but the platform sandbox, `bwrap`/`socat`, the agent version or the Codex file login is missing (fail) |
+| `checkout` | `--remote` outside a checkout or not on GitHub (fail); otherwise info |
+| `files` | a config, cache or state dir can't be created, or the state file is unreadable (warn) |
+| `llm-review-agent` | old directories next to the new ones, the old binary on `PATH`, `$LLM_REVIEW_AGENT_CONFIG` (warn) |
+
 ## Reading the startup log
 
 | Line | Means |

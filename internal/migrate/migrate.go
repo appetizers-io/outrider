@@ -13,12 +13,24 @@ import (
 
 const oldName, newName = "llm-review-agent", "outrider"
 
-// Dirs moves the config dir (under configBase: $XDG_CONFIG_HOME or
-// ~/.config), ~/.cache and ~/.local/state from llm-review-agent to outrider,
-// each only when the new one doesn't exist yet and the old one does.
-func Dirs(home, configBase string, log *slog.Logger) {
+// Move is an old llm-review-agent directory and its outrider name.
+type Move struct{ Old, New string }
+
+// Moves are the config dir (under configBase: $XDG_CONFIG_HOME or
+// ~/.config), ~/.cache and ~/.local/state, old and new.
+func Moves(home, configBase string) []Move {
+	var out []Move
 	for _, base := range []string{configBase, filepath.Join(home, ".cache"), filepath.Join(home, ".local", "state")} {
-		old, cur := filepath.Join(base, oldName), filepath.Join(base, newName)
+		out = append(out, Move{filepath.Join(base, oldName), filepath.Join(base, newName)})
+	}
+	return out
+}
+
+// Dirs moves the Moves, each only when the new one doesn't exist yet and the
+// old one does.
+func Dirs(home, configBase string, log *slog.Logger) {
+	for _, m := range Moves(home, configBase) {
+		old, cur := m.Old, m.New
 		if _, err := os.Stat(cur); err == nil {
 			continue
 		}

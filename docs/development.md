@@ -24,6 +24,7 @@ Needs Go 1.27, [Task](https://taskfile.dev) and
 | `main.go` | multi-call dispatch: run as `gh`/`git` it is a guard, else the CLI |
 | `internal/cli` | cobra commands and flags |
 | `internal/watch` | startup checks and the poll loop |
+| `internal/doctor` | `outrider doctor`: setup checks, using the startup resolution from `watch` |
 | `internal/config` | config structs, schema generation, loading, `config.example.yaml` |
 | `internal/github` | a thin `gh` wrapper |
 | `internal/poll` | triggers and launch decisions |

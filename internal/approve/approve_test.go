@@ -81,3 +81,15 @@ func TestWindowsUsesPowerShellMessageBox(t *testing.T) {
 	r.True(d.ok("Yes\r\n"))
 	r.False(d.ok(""))
 }
+
+func TestBackend(t *testing.T) {
+	r := require.New(t)
+	got, err := platform("darwin", nil, "/usr/bin/osascript").Backend()
+	r.NoError(err)
+	r.Equal("/usr/bin/osascript", got)
+	got, err = platform("linux", map[string]string{"DISPLAY": ":0"}, "/usr/bin/kdialog").Backend()
+	r.NoError(err)
+	r.Equal("/usr/bin/kdialog", got)
+	_, err = platform("linux", nil, "/usr/bin/zenity").Backend()
+	r.ErrorIs(err, ErrNoDialog)
+}

@@ -1,4 +1,4 @@
-// Package cli holds the cobra commands: the watcher (root), `config …` and
+// Package cli holds the cobra commands: the watcher (root), `config …`, `doctor` and
 // the hidden `session run`. It parses flags and hands over to the packages
 // that do the work.
 package cli
@@ -10,7 +10,6 @@ import (
 	"io"
 	"log/slog"
 	"os"
-	"path/filepath"
 
 	"github.com/spf13/cobra"
 
@@ -68,7 +67,7 @@ func newRoot(d watch.Deps, stdout, stderr io.Writer) *cobra.Command {
 	var log *slog.Logger
 	// only commands that read the config, state or cache move the old
 	// llm-review-agent dirs, before they look for them
-	migrateDirs := func() { migrate.Dirs(d.Home, filepath.Dir(filepath.Dir(config.DefaultPath())), log) }
+	migrateDirs := func() { migrate.Dirs(d.Home, config.BaseDir(), log) }
 	root := &cobra.Command{
 		Use:   "outrider",
 		Short: "Watch GitHub PR activity and hand actionable PRs to a local coding agent",
@@ -100,7 +99,7 @@ func newRoot(d watch.Deps, stdout, stderr io.Writer) *cobra.Command {
 	root.SetOut(stdout)
 	root.SetErr(stderr)
 	f.register(root)
-	root.AddCommand(configCmd(stdout, stderr, migrateDirs), sessionCmd(stdout))
+	root.AddCommand(configCmd(stdout, stderr, migrateDirs), doctorCmd(d, stdout), sessionCmd(stdout))
 	return root
 }
 

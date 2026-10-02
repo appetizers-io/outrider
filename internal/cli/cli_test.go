@@ -5,8 +5,10 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"maps"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -436,4 +438,98 @@ func messages(t *testing.T, log string) []string {
 		out = append(out, rec.Msg)
 	}
 	return out
+}
+
+// --- doctor ------------------------------------------------------------------
+
+// doctorMachine is machine with the commands doctor runs answered.
+func doctorMachine(t *testing.T) watch.Deps {
+	t.Helper()
+	d := machine(t, ok)
+	d.LookPath = func(f string) (string, error) {
+		if f == "llm-review-agent" {
+			return "", errors.New("not found")
+		}
+		return noTerminal(f)
+	}
+	inner := d.Run
+	d.Run = func(ctx context.Context, c proc.Cmd) (proc.Result, error) {
+		switch strings.Join(c.Args, " ") {
+		case "gh auth status --active --hostname github.com --json hosts":
+			return proc.Result{Stdout: `{"hosts": {"github.com": [{"state": "success", "active": true, "login": "me",
+				"tokenSource": "keyring", "scopes": "repo, notifications", "token": "gho_secret"}]}}`}, nil
+		case "git --version":
+			return proc.Result{Stdout: "git version 2.50.0\n"}, nil
+		case "codex --version":
+			return proc.Result{Stdout: "codex-cli 0.156.1\n"}, nil
+		case "claude --version":
+			return proc.Result{Stdout: "2.1.286 (Claude Code)\n"}, nil
+		}
+		return inner(ctx, c)
+	}
+	return d
+}
+
+func TestDoctor(t *testing.T) {
+	r := require.New(t)
+	d := doctorMachine(t)
+	old := filepath.Join(d.Home, "xdg", "llm-review-agent") // isolate's XDG_CONFIG_HOME
+	r.NoError(os.MkdirAll(old, 0o700))
+	o := cli(t, d, "doctor")
+	r.Equal(0, o.code, o.stdout+o.stderr) // warnings don't fail
+	for _, want := range []string{
+		"ok    config            no config file, built-in defaults (mode supervised, push ask, github_writes ask, sandbox: off)",
+		"ok    github            github.com as me (prompts call you Me), token from keyring, scopes repo, notifications",
+		"ok    git               git version 2.50.0",
+		"ok    agent             codex codex-cli 0.156.1 (/bin/codex), the configured agent",
+		"ok    launcher          tmux (launcher: auto), terminal none (none found)",
+		"warn  dialogs           no approval dialog here: ask will deny (push ask, github_writes ask)",
+		"warn  launch check      off (jev: no backend key",
+		"info  llm-review-agent  " + old + " (moved to " + filepath.Join(d.Home, "xdg", "outrider") + " on the next start)",
+		"                        fix: install jev-use (or npx) and export a backend key",
+	} {
+		r.Contains(o.stdout, want)
+	}
+	r.NotContains(o.stdout, "gho_secret")
+	r.DirExists(old) // doctor never migrates
+	r.NoDirExists(filepath.Join(d.Home, "xdg", "outrider"))
+	r.NoDirExists(watch.CacheRoot(d.Home))
+}
+
+func TestDoctorJSON(t *testing.T) {
+	r := require.New(t)
+	o := cli(t, doctorMachine(t), "doctor", "--json")
+	r.Equal(0, o.code, o.stdout+o.stderr)
+	var results []map[string]string
+	r.NoError(json.Unmarshal([]byte(o.stdout), &results))
+	r.Len(results, 13)
+	for _, res := range results {
+		r.ElementsMatch([]string{"name", "status", "detail", "fix"}, slices.Collect(maps.Keys(res)))
+	}
+	r.Equal(map[string]string{"name": "git", "status": "ok", "detail": "git version 2.50.0", "fix": ""}, results[2])
+}
+
+func TestDoctorFails(t *testing.T) {
+	r := require.New(t)
+	d := doctorMachine(t)
+	bad := filepath.Join(d.Home, "bad.yaml")
+	r.NoError(os.WriteFile(bad, []byte("agent: gpt\n"), 0o600))
+	o := cli(t, d, "doctor", "--config", bad)
+	r.Equal(1, o.code)
+	r.Contains(o.stdout, "fail  config")
+	r.Contains(o.stdout, "at '/agent': value must be one of")
+	r.Contains(o.stdout, "(the checks below use the built-in defaults)")
+	r.Contains(o.stdout, "ok    git") // the other checks still run
+
+	lookPath := d.LookPath
+	d.LookPath = func(f string) (string, error) {
+		if f == "gh" {
+			return "", errors.New("not found")
+		}
+		return lookPath(f)
+	}
+	o = cli(t, d, "doctor", "--json", "--remote", "upstream")
+	r.Equal(1, o.code)
+	r.Contains(o.stdout, `"detail": "gh not found on PATH"`)
+	r.Contains(o.stdout, `"detail": "--remote needs to run inside a git checkout"`)
 }

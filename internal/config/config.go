@@ -222,15 +222,17 @@ type Error struct{ msg string }
 
 func (e *Error) Error() string { return e.msg }
 
-// DefaultPath is where the config is found without --config or $OUTRIDER_CONFIG.
-func DefaultPath() string {
-	base := os.Getenv("XDG_CONFIG_HOME")
-	if base == "" {
-		home, _ := os.UserHomeDir()
-		base = filepath.Join(home, ".config")
+// BaseDir is $XDG_CONFIG_HOME, else ~/.config.
+func BaseDir() string {
+	if base := os.Getenv("XDG_CONFIG_HOME"); base != "" {
+		return base
 	}
-	return filepath.Join(base, "outrider", "config.yaml")
+	home, _ := os.UserHomeDir()
+	return filepath.Join(home, ".config")
 }
+
+// DefaultPath is where the config is found without --config or $OUTRIDER_CONFIG.
+func DefaultPath() string { return filepath.Join(BaseDir(), "outrider", "config.yaml") }
 
 // Find returns --config, then $OUTRIDER_CONFIG (or the old
 // $LLM_REVIEW_AGENT_CONFIG), then the default path
