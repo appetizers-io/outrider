@@ -132,6 +132,30 @@ func (c *Config) Applied(repo string, own bool) []string {
 	return names
 }
 
+// SandboxedBy names the overrides that set a read-only sandbox, for your own
+// PRs (sandbox) or others' (others_prs.sandbox).
+func (c *Config) SandboxedBy() []string {
+	var names []string
+	for i, o := range c.Overrides {
+		var keys struct {
+			Sandbox   *string `yaml:"sandbox"`
+			OthersPRs struct {
+				Sandbox *string `yaml:"sandbox"`
+			} `yaml:"others_prs"`
+		}
+		if err := o.keys().Decode(&keys); err != nil {
+			panic(err) // overrides were decoded when the config was loaded
+		}
+		for _, s := range []*string{keys.Sandbox, keys.OthersPRs.Sandbox} {
+			if s != nil && *s == ReadOnly {
+				names = append(names, o.name(i))
+				break
+			}
+		}
+	}
+	return names
+}
+
 // Names names every override.
 func (c *Config) Names() []string {
 	names := make([]string, len(c.Overrides))

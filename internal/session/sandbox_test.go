@@ -144,18 +144,25 @@ func TestOthersPRsSandboxLeavesOwnPRsAlone(t *testing.T) {
 }
 
 func TestUnavailableSandboxRefusesTheSession(t *testing.T) {
-	r := require.New(t)
-	l, c := newLauncher(t, "sandbox: read-only")
-	l.SandboxErr = errors.New("no claude sandbox on windows")
-	r.True(l.Launch(t.Context(), Request{Repo: "o/r", N: 1, PR: pr("bob"), Trigger: "t"})) // handled: not retried
-	r.Empty(c.args)                                                                        // no worktree, no agent
-	r.NoFileExists(filepath.Join(l.Root, "sessions", "o__r", "pr-1", "session.json"))
-
-	// sessions that aren't sandboxed still start
-	l, c = newLauncher(t, "others_prs: {sandbox: read-only}")
-	l.SandboxErr = errors.New("no claude sandbox on windows")
-	r.True(l.Launch(t.Context(), Request{Repo: "o/r", N: 1, PR: pr("me"), Trigger: "t"}))
-	r.NotEmpty(c.args)
+	for _, tc := range []struct {
+		name    string
+		config  string
+		author  string
+		refused bool
+	}{
+		{name: "sandboxed", config: "sandbox: read-only", author: "bob", refused: true},
+		{name: "not sandboxed", config: "others_prs: {sandbox: read-only}", author: "me"},
+		{name: "an override picks an agent whose sandbox works", author: "bob",
+			config: "sandbox: read-only\noverrides: [{match: [{prs: others}], agent: codex}]"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			r := require.New(t)
+			l, c := newLauncher(t, tc.config)
+			l.SandboxErrs = map[string]error{"claude": errors.New("the claude sandbox on Linux needs socat")}
+			r.True(l.Launch(t.Context(), Request{Repo: "o/r", N: 1, PR: pr(tc.author), Trigger: "t"})) // handled: not retried
+			r.Equal(tc.refused, len(c.args) == 0)                                                      // refused: no worktree, no agent
+		})
+	}
 }
 
 func TestFailedPrefetchKeepsTheEventPending(t *testing.T) {

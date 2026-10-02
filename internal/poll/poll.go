@@ -47,6 +47,29 @@ func (p *Poller) scoped(repo string, own bool) (config.Config, config.Globs) {
 	return cfg, ignore
 }
 
+// scope is a PR's repo and whether it is yours.
+type scope struct {
+	repo string
+	own  bool
+}
+
+// resolved is the config of a scope.
+type resolved struct {
+	cfg    config.Config
+	ignore config.Globs
+}
+
+// scoped is Poller.scoped, resolved once per pass.
+func (ps *pass) scoped(repo string, own bool) (config.Config, config.Globs) {
+	k := scope{repo, own}
+	r, ok := ps.scopes[k]
+	if !ok {
+		r.cfg, r.ignore = ps.Poller.scoped(repo, own)
+		ps.scopes[k] = r
+	}
+	return r.cfg, r.ignore
+}
+
 // repoOK tells whether a repo passes the include and exclude globs.
 func repoOK(repo string, include, exclude config.Globs) bool {
 	return (len(include) == 0 || include.Match(repo)) && !exclude.Match(repo)
@@ -67,6 +90,7 @@ type pass struct {
 	now            time.Time
 	baseline       bool   // first live run: record existing events, launch nothing
 	windowStart    string // lookback_hours ago
+	scopes         map[scope]resolved
 	mine, cand, ig int
 }
 
@@ -82,7 +106,7 @@ func (p *Poller) Poll(ctx context.Context, s *State) error {
 	if p.mentioned == nil {
 		p.mentioned = Mentions(p.Login)
 	}
-	ps := &pass{Poller: p, s: s, now: now, windowStart: windowStart}
+	ps := &pass{Poller: p, s: s, now: now, windowStart: windowStart, scopes: map[scope]resolved{}}
 
 	ns, err := p.GH.Notifications(ctx, windowStart)
 	if err != nil {
@@ -154,7 +178,7 @@ func (p *Poller) Poll(ctx context.Context, s *State) error {
 			continue
 		}
 		ps.mine++
-		own, ignore := p.scoped(repo, true)
+		own, ignore := ps.scoped(repo, true)
 		if (firstLive && !p.ProcessExisting) || !own.Triggers.OwnPRs.Enabled {
 			s.Seen[nid] = updated
 			continue
@@ -200,7 +224,8 @@ func (p *Poller) Poll(ctx context.Context, s *State) error {
 
 // optInOn is the opt-in trigger of someone else's PR in repo, nil when it is off there.
 func (ps *pass) optInOn(repo string) *config.OptIn {
-	if o := ps.Cfg.For(repo, false).Triggers.OptIn; o.Enabled {
+	if cfg, _ := ps.scoped(repo, false); cfg.Triggers.OptIn.Enabled {
+		o := cfg.Triggers.OptIn
 		return &o
 	}
 	return nil

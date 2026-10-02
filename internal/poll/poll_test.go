@@ -541,6 +541,23 @@ func TestOverridesScopeIgnoreAuthorsToOthersPRs(t *testing.T) {
 	require.Empty(t, h.launches) // someone else's: ignored
 }
 
+func TestPassResolvesEachScopeOnce(t *testing.T) {
+	ps := &pass{Poller: newHub(t).poller(`overrides: [{match: [{prs: others}], ignore_authors: ["*[bot]"]}]`), scopes: map[scope]resolved{}}
+	for _, tc := range []struct {
+		repo   string
+		own    bool
+		ignore bool
+	}{
+		{repo: "o/r", own: false, ignore: true},
+		{repo: "o/r", own: false, ignore: true},
+		{repo: "o/r", own: true},
+	} {
+		_, ignore := ps.scoped(tc.repo, tc.own)
+		require.Equal(t, tc.ignore, ignore.MatchLogin("x[bot]"))
+	}
+	require.Len(t, ps.scopes, 2)
+}
+
 func TestOverridesScopeTheOptInTrigger(t *testing.T) {
 	for _, tc := range []struct {
 		name   string

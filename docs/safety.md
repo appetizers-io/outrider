@@ -54,8 +54,8 @@ ask, and leaving it is one click.
 **Fail closed.** At startup outrider checks the platform and the agent
 version and logs the mode, e.g.
 `sandbox: read-only (claude: native sandbox + deny rules, no user or project settings)`. When the sandbox
-isn't available, it logs `UNAVAILABLE` with the reason and refuses every
-session that would need it (`refusing session: read-only sandbox
+isn't available, it logs `UNAVAILABLE` with the agent and the reason and
+refuses every session of that agent that would need it (`refusing session: read-only sandbox
 unavailable`); it never runs one unsandboxed. Claude Code's
 `failIfUnavailable` is a second check.
 

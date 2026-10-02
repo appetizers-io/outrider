@@ -45,8 +45,8 @@ type Launcher struct {
 	ToolGate     *classifier.Resolved
 	Local        map[string]Local // owner/repo -> checkout
 	DryRun       bool
-	SandboxErr   error  // why read-only sessions can't run here; nil: they can
-	CodexHome    string // the user's CODEX_HOME
+	SandboxErrs  map[string]error // by agent: why its read-only sessions can't run here; missing: they can
+	CodexHome    string           // the user's CODEX_HOME
 	GOOS         string
 	Run          proc.Runner
 	LookPath     func(string) (string, error)
@@ -90,12 +90,12 @@ func (l *Launcher) launch(ctx context.Context, r Request) (bool, error) {
 		l.Log.Info(fmt.Sprintf("%s: agent limit reached (%d); keeping event pending", key, l.Cfg.MaxAgents))
 		return false, nil
 	}
-	if l.sandboxed(r) && l.SandboxErr != nil {
+	cfg, _ := l.scoped(r)
+	if err := l.SandboxErrs[cfg.Agent]; l.sandboxed(r) && err != nil {
 		// fail closed: never run a read-only session unsandboxed
-		l.Log.Error(fmt.Sprintf("%s: refusing session: read-only sandbox unavailable: %v", key, l.SandboxErr))
+		l.Log.Error(fmt.Sprintf("%s: refusing session: read-only sandbox unavailable: %v", key, err))
 		return true, nil //nolint:nilerr // refused for good: handled, not retried
 	}
-	cfg, _ := l.scoped(r)
 	if check, _ := l.classifiers(&cfg); r.Gate != nil && check != nil {
 		items, err := r.Gate(ctx)
 		if err != nil {

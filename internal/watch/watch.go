@@ -186,15 +186,16 @@ func SandboxAgents(cfg *config.Config) []string {
 	return agents
 }
 
-// SandboxSupport is why read-only sessions can't run here for one of the
-// agents that run them, nil when they can.
-func SandboxSupport(ctx context.Context, cfg *config.Config, codexHome string, d Deps) error {
+// SandboxSupport is why read-only sessions can't run here, by agent; an
+// agent whose sandbox works is missing.
+func SandboxSupport(ctx context.Context, cfg *config.Config, codexHome string, d Deps) map[string]error {
+	errs := map[string]error{}
 	for _, agent := range SandboxAgents(cfg) {
 		if err := session.SandboxSupport(ctx, agent, d.GOOS, codexHome, d.LookPath, d.Run); err != nil {
-			return err
+			errs[agent] = err
 		}
 	}
-	return nil
+	return errs
 }
 
 // githubUser is the gh user, retried until GitHub answers (unless once).
@@ -225,20 +226,23 @@ func onOff(r *classifier.Resolved) string {
 }
 
 // logSandbox logs the sandbox mode and returns why read-only sessions can't
-// run here, if they can't; those sessions are then refused.
-func logSandbox(ctx context.Context, cfg *config.Config, codexHome string, d Deps, log *slog.Logger) error {
+// run here, by agent; those agents' sandboxed sessions are then refused.
+func logSandbox(ctx context.Context, cfg *config.Config, codexHome string, d Deps, log *slog.Logger) map[string]error {
 	mode, on := SandboxMode(cfg)
 	if !on {
 		log.Info(mode)
 		return nil
 	}
-	err := SandboxSupport(ctx, cfg, codexHome, d)
-	if err != nil {
-		log.Error(fmt.Sprintf("%s UNAVAILABLE (%v); sandboxed sessions are refused", mode, err))
-		return err
+	errs := SandboxSupport(ctx, cfg, codexHome, d)
+	for _, agent := range SandboxAgents(cfg) {
+		if err := errs[agent]; err != nil {
+			log.Error(fmt.Sprintf("%s UNAVAILABLE for %s (%v); its sandboxed sessions are refused", mode, agent, err))
+		}
 	}
-	log.Info(fmt.Sprintf("%s (%s)", mode, session.SandboxNote(cfg.Agent)))
-	return nil
+	if len(errs) == 0 {
+		log.Info(fmt.Sprintf("%s (%s)", mode, session.SandboxNote(cfg.Agent)))
+	}
+	return errs
 }
 
 // Settings are the effective settings: the config file, overridden by flags.
@@ -362,7 +366,7 @@ func Run(ctx context.Context, s Settings, d Deps, log *slog.Logger) error {
 	log.Info(fmt.Sprintf("launch check: %s (%s)", onOff(launchCheck), checkNote))
 	log.Info(fmt.Sprintf("tool gate: %s (%s)", onOff(toolGate), gateNote))
 	codexHome := CodexHome(d)
-	sandboxErr := logSandbox(ctx, cfg, codexHome, d, log)
+	sandboxErrs := logSandbox(ctx, cfg, codexHome, d, log)
 	if forks.Failed {
 		log.Warn("review forks: " + forks.String())
 	} else {
@@ -380,7 +384,7 @@ func Run(ctx context.Context, s Settings, d Deps, log *slog.Logger) error {
 	launch := &session.Launcher{
 		Root: root, Self: d.Self, Cfg: cfg, ConfigSource: s.ConfigSource, Login: user.Login, Owner: owner,
 		Launcher: launcher, Terminal: terminal, LaunchCheck: launchCheck, ToolGate: toolGate,
-		Local: local, DryRun: s.DryRun, SandboxErr: sandboxErr, CodexHome: codexHome, GOOS: d.GOOS, Run: d.Run, LookPath: d.LookPath, Log: log,
+		Local: local, DryRun: s.DryRun, SandboxErrs: sandboxErrs, CodexHome: codexHome, GOOS: d.GOOS, Run: d.Run, LookPath: d.LookPath, Log: log,
 	}
 	p := &poll.Poller{
 		GH: gh, Cfg: cfg, Login: user.Login, Include: include, Exclude: exclude,

@@ -389,6 +389,7 @@ func TestCheckSandbox(t *testing.T) {
 				m.tools = without(m.tools, "socat")
 			},
 			status: Fail, detail: "off; overrides: read-only: the claude sandbox on Linux needs socat",
+			fix: "or change overrides[0] (repo: o/*)",
 		},
 		{
 			name: "old claude", setup: func(m *machine) {

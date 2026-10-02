@@ -359,7 +359,7 @@ func TestStartupReportsTheSandbox(t *testing.T) {
 	d.GOOS = "windows"
 	o = cli(t, d, "--once", "--launcher", "terminal", "--terminal", "cmd", "--no-jev", "--agent", "claude", "--sandbox", "read-only")
 	require.Equal(t, 0, o.code, o.stderr)
-	require.Contains(t, o.stderr, "sandbox: read-only UNAVAILABLE (outrider supports no claude sandbox on windows); sandboxed sessions are refused")
+	require.Contains(t, o.stderr, "sandbox: read-only UNAVAILABLE for claude (outrider supports no claude sandbox on windows); its sandboxed sessions are refused")
 }
 
 func TestOwnerNameFromTheConfig(t *testing.T) {

@@ -371,10 +371,17 @@ func checkSandbox(ctx context.Context, in *Input) Result {
 		return Result{Name: "sandbox", Status: Info, Detail: strings.TrimPrefix(mode, "sandbox: ")}
 	}
 	mode = strings.TrimPrefix(mode, "sandbox: ")
-	if err := watch.SandboxSupport(ctx, cfg, watch.CodexHome(d), d); err != nil {
-		return Result{
-			Name: "sandbox", Status: Fail, Detail: mode + ": " + err.Error() + "; sandboxed sessions are refused",
-			Fix: "install or update what is named above, or set sandbox and others_prs.sandbox to off (see docs/safety.md)",
+	errs := watch.SandboxSupport(ctx, cfg, watch.CodexHome(d), d)
+	for _, agent := range watch.SandboxAgents(cfg) {
+		if err := errs[agent]; err != nil {
+			fix := "install or update what is named above, or set sandbox and others_prs.sandbox to off"
+			if names := cfg.SandboxedBy(); len(names) > 0 {
+				fix += ", or change " + strings.Join(names, ", ")
+			}
+			return Result{
+				Name: "sandbox", Status: Fail, Detail: mode + ": " + err.Error() + "; sandboxed sessions are refused",
+				Fix: fix + " (see docs/safety.md)",
+			}
 		}
 	}
 	return Result{Name: "sandbox", Status: OK, Detail: mode + " (" + session.SandboxNote(cfg.Agent) + ")"}
