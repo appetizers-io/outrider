@@ -71,6 +71,7 @@ people you don't trust, keep the tool gate on or run the agent in a sandbox.
 | [Classifiers](docs/classifiers.md) | Jev, your own launch check and tool gate |
 | [Terminals](docs/terminals.md) | Terminal detection, tmux, Windows |
 | [Recipes](docs/recipes.md) | Forks, bots, Codex, background service, many repos |
+| [Examples](docs/examples/README.md) | Example configs, classifier scripts, service files |
 | [Troubleshooting](docs/troubleshooting.md) | Common errors, reading the startup log |
 | [Development](docs/development.md) | Tasks, code layout, releases |
 

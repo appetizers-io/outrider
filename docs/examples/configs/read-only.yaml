@@ -1,0 +1,21 @@
+# Read-only: nothing leaves your machine.
+#
+# For: trying outrider out, or untrusted code you want an agent to look at.
+# Does: sessions still run, but git push is refused (commits stay local) and
+# GitHub stays read-only: no comments, reviews or reactions. You read the
+# agent's findings in its terminal.
+# Use: outrider --config docs/examples/configs/read-only.yaml
+#
+# The guards catch mistakes; they are not a sandbox. See docs/safety.md.
+
+agent: claude
+mode: supervised
+push: never
+github_writes: never
+others_prs:
+  allow_push: false
+
+# TODO(#25): add `sandbox: read-only` once the sandbox option lands.
+
+repos:
+  include: ["my-org/*"]

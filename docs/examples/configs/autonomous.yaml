@@ -1,0 +1,25 @@
+# Autonomous: no questions asked, for a repo and team you trust.
+#
+# For: a private repo where every author is trusted and you review the
+# result afterwards.
+# Does: sessions run without the tool gate or Claude deny rules, push and post
+# without a dialog, and may push fixes to teammates' PRs (fast-forward only).
+#
+# WARNING: the agent runs as you, with your credentials. A prompt-injected PR
+# description or comment can make it push or post anything your login can.
+# Don't use this on repos that take PRs from people you don't trust, and don't
+# combine it with repos.include globs that match public repos.
+#
+# Use: outrider --config docs/examples/configs/autonomous.yaml
+
+agent: claude
+mode: autonomous
+push: allow
+github_writes: allow
+others_prs:
+  allow_push: true
+
+repos:
+  include: ["my-org/internal-tool"]
+ignore_authors: ["*[bot]"]
+max_agents: 2

@@ -1,0 +1,12 @@
+# Codex: use OpenAI Codex instead of Claude Code.
+#
+# For: Codex users.
+# Does: the same triggers and guards as with Claude. Codex sessions get the
+# push and post guards and the prompt; the tool-gate hook isn't wired for
+# Codex (see docs/safety.md).
+# Use: outrider --config docs/examples/configs/codex.yaml
+#      or: outrider --agent codex
+
+agent: codex
+repos:
+  include: ["my-org/*"]

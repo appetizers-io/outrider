@@ -1,0 +1,29 @@
+# Custom classifier: your own launch check and tool gate instead of Jev.
+#
+# For: people who want to decide themselves which activity starts a session
+# and which tool calls are allowed, without a model or API key.
+# Does: wires the example scripts from docs/examples/classifiers as a
+# kind: command classifier. launch-check.sh skips bot-only activity with green
+# CI; gate-hook.sh blocks force pushes, rm -rf and edits under generated/.
+# Use: copy the scripts first, then run with this config:
+#   mkdir -p ~/.config/outrider
+#   cp docs/examples/classifiers/*.sh ~/.config/outrider/
+#   outrider --config docs/examples/configs/custom-classifier.yaml
+
+agent: claude                  # the tool gate is a Claude Code hook
+mode: supervised               # the tool gate only runs in supervised mode
+
+classifiers:
+  local:
+    kind: command
+    launch_command: sh ~/.config/outrider/launch-check.sh
+    hook_command: sh ~/.config/outrider/gate-hook.sh
+    timeout_seconds: 30
+
+launch_check:
+  classifier: local
+tool_gate:
+  classifier: local
+  matcher: Bash|Write|Edit|NotebookEdit
+  rules:
+    - never modify generated/

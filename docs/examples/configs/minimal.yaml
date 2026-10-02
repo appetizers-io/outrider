@@ -1,0 +1,11 @@
+# Minimal: the smallest useful config.
+#
+# For: a first config that works anywhere, not only inside a checkout.
+# Does: watches your org's repos with Claude Code; everything else stays at the
+# safe defaults (supervised, pushes and posts ask first).
+# Use: outrider --config docs/examples/configs/minimal.yaml
+#      or copy it to ~/.config/outrider/config.yaml
+
+agent: claude
+repos:
+  include: ["my-org/*"]

@@ -1,0 +1,19 @@
+# Many repos: watch several orgs and a fork, ignore the noise.
+#
+# For: running outrider outside a checkout across many repos.
+# Does: watches every repo in my-org plus one outside tool, skips repos that
+# never need an agent, and ignores activity from bots and release automation.
+# Repos without a local checkout are cloned once into ~/.cache/outrider/repos/.
+# Use: outrider --config docs/examples/configs/many-repos.yaml
+#      For a fork checkout, run it there with --remote upstream instead.
+
+agent: claude
+repos:
+  include:
+    - "my-org/*"
+    - "https://github.com/other-org/tool"
+  exclude:
+    - "my-org/{website,sandbox}"
+    - "my-org/*-archive"
+ignore_authors: ["*[bot]", "renovate", "release-bot"]
+max_agents: 3

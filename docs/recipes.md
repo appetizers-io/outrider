@@ -57,23 +57,23 @@ Start one instance per user, in the checkout it should watch (or with
 `repos.include`). Logs go to stderr; `--log-format json` makes them easy to
 filter.
 
-**macOS (launchd)**: [`examples/io.appetizers.outrider.plist`](examples/io.appetizers.outrider.plist)
+**macOS (launchd)**: [`examples/service/io.appetizers.outrider.plist`](examples/service/io.appetizers.outrider.plist)
 is a user agent. A user agent runs in your desktop session, so sessions open in
 your terminal and approval dialogs show up.
 
 ```sh
-cp docs/examples/io.appetizers.outrider.plist ~/Library/LaunchAgents/
+cp docs/examples/service/io.appetizers.outrider.plist ~/Library/LaunchAgents/
 # edit the paths, then
 launchctl load ~/Library/LaunchAgents/io.appetizers.outrider.plist
 tail -f ~/Library/Logs/outrider.log
 ```
 
-**Linux (systemd)**: [`examples/outrider.service`](examples/outrider.service)
+**Linux (systemd)**: [`examples/service/outrider.service`](examples/service/outrider.service)
 is a user service. It has no display, so sessions open in tmux, and approval
 dialogs can't show: pushes and posts in `ask` mode are denied.
 
 ```sh
-cp docs/examples/outrider.service ~/.config/systemd/user/
+cp docs/examples/service/outrider.service ~/.config/systemd/user/
 systemctl --user daemon-reload
 systemctl --user enable --now outrider
 journalctl --user -u outrider -f
