@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"log/slog"
 	"os"
 	"path/filepath"
@@ -19,7 +20,6 @@ import (
 	"github.com/appetizers-io/outrider/internal/config"
 	"github.com/appetizers-io/outrider/internal/github"
 	"github.com/appetizers-io/outrider/internal/proc"
-	"github.com/appetizers-io/outrider/internal/shell"
 )
 
 // As the agent of a session the test binary reports what it sees.
@@ -28,7 +28,7 @@ func TestMain(m *testing.M) {
 		lock, _ := os.ReadFile(os.Getenv("FAKE_AGENT_LOCK"))
 		path := strings.Split(os.Getenv("PATH"), string(os.PathListSeparator))[0]
 		wd, _ := os.Getwd()
-		report := fmt.Sprintf("args=%q\nlock=%s\npush=%s\npath=%s\nwd=%s\n", os.Args[1:], lock, os.Getenv("OUTRIDER_PUSH"), path, wd)
+		report := fmt.Sprintf("args=%q\nlock=%s\npush=%s\npath=%s\nwd=%s\ntypesafe=%s\n", os.Args[1:], lock, os.Getenv("OUTRIDER_PUSH"), path, wd, os.Getenv("TYPESAFE_API_KEY"))
 		_ = os.WriteFile(os.Getenv("FAKE_AGENT_OUT"), []byte(report), 0o600)
 		os.Exit(3)
 	}
@@ -417,7 +417,6 @@ func TestSessionOpensInTheTerminal(t *testing.T) {
 	text, err := os.ReadFile(script)
 	r.NoError(err)
 	r.Contains(string(text), "session run")
-	r.Contains(string(text), "PATH="+shell.Join(os.Getenv("PATH"))+"; export PATH\n") // iTerm2 runs it with a bare PATH
 }
 
 func TestOthersPRsAreReviewOnlyOwnAsk(t *testing.T) {
@@ -568,4 +567,62 @@ func TestOpenCommands(t *testing.T) {
 	}
 	quoted := Terminal{Command: []string{"sh", "-c", "exec {cmd}"}}.OpenCommand("linux", "", "", cmd)
 	require.Equal(t, []string{"sh", "-c", "exec /bin/lra session run '/s dir'"}, quoted)
+}
+
+// A terminal app starts the runner with its own environment: the watcher's
+// (an API key the tool gate needs) reaches the agent, without overriding the
+// session's variables and the guards on PATH.
+func TestTerminalSessionGetsTheWatchersEnvironment(t *testing.T) {
+	r := require.New(t)
+	l, _ := newLauncher(t, "")
+	l.Launcher, l.GOOS, l.Terminal = "terminal", "darwin", Terminal{Name: "iterm"}
+	l.LookPath = func(f string) (string, error) {
+		if f == "claude" {
+			return os.Args[0], nil
+		}
+		return "/bin/" + f, nil
+	}
+	t.Setenv("TYPESAFE_API_KEY", "from-the-shell")
+	t.Setenv("OUTRIDER_PUSH", "allow")
+	t.Setenv("PATH", "/watcher/bin"+string(os.PathListSeparator)+os.Getenv("PATH"))
+	got := l.launched(t, "bob")
+	dir := filepath.Join(l.Root, "sessions", "o__r", "pr-1")
+	envFile := filepath.Join(dir, watcherEnvFile)
+	if runtime.GOOS != "windows" {
+		st, err := os.Stat(envFile)
+		r.NoError(err)
+		r.Equal(os.FileMode(0o600), st.Mode().Perm())
+	}
+	got.spec.Dir = t.TempDir()
+	r.NoError(writeJSON(filepath.Join(dir, "session.json"), got.spec))
+
+	// the terminal's environment: without the shell's exports
+	r.NoError(os.Unsetenv("TYPESAFE_API_KEY"))
+	r.NoError(os.Unsetenv("OUTRIDER_PUSH"))
+	t.Setenv("FAKE_AGENT", "1")
+	t.Setenv("FAKE_AGENT_LOCK", got.spec.Lock)
+	report := filepath.Join(t.TempDir(), "report")
+	t.Setenv("FAKE_AGENT_OUT", report)
+	r.Equal(3, Run(dir, strings.NewReader("\n"), io.Discard))
+
+	raw, err := os.ReadFile(report)
+	r.NoError(err)
+	text := string(raw)
+	r.Contains(text, "typesafe=from-the-shell\n")
+	r.Contains(text, "push=review-only\n")
+	r.Contains(text, "path="+filepath.Join(l.Root, "bin")+"\n")
+	_, err = os.Stat(envFile)
+	r.ErrorIs(err, os.ErrNotExist)
+}
+
+func TestWatcherEnvDropsTerminalAndOutriderVariables(t *testing.T) {
+	dir := t.TempDir()
+	require.NoError(t, writeJSON(filepath.Join(dir, watcherEnvFile), []string{"A=1", "TERM=tmux-256color", "TMUX=/s,1,0", "OUTRIDER_PUSH=allow", "B=x=y"}))
+	env, err := watcherEnv(dir)
+	require.NoError(t, err)
+	require.Equal(t, []string{"A=1", "B=x=y"}, env)
+	env, err = watcherEnv(dir) // deleted once read
+	require.NoError(t, err)
+	require.Nil(t, env)
+	require.Equal(t, "2", lookup([]string{"P=1", "Q=0", "P=2"}, "P"))
 }

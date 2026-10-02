@@ -464,8 +464,15 @@ func (l *Launcher) open(ctx context.Context, r Request, p Prepared) error {
 		l.Log.Info(fmt.Sprintf("%s#%d: attach with: tmux attach -t %s", r.Repo, r.N, *t))
 		return nil
 	}
-	script, err := writeScript(p.Dir, l.GOOS, os.Getenv("PATH"), runner)
+	script, err := writeScript(p.Dir, l.GOOS, runner)
 	if err != nil {
+		return err
+	}
+	// the terminal app starts the runner with its own environment; tmux
+	// sessions inherit the watcher's
+	envFile := filepath.Join(p.Dir, watcherEnvFile)
+	_ = os.Remove(envFile) // WriteFile keeps an existing file's mode
+	if err := writeJSON(envFile, os.Environ()); err != nil {
 		return err
 	}
 	args := l.Terminal.OpenCommand(l.GOOS, script, fmt.Sprintf("PR %s#%d", r.Repo, r.N), runner)
@@ -473,15 +480,15 @@ func (l *Launcher) open(ctx context.Context, r Request, p Prepared) error {
 		return errors.New("no terminal to open the session in")
 	}
 	if _, err := l.Run(ctx, proc.Cmd{Args: args}); err != nil {
+		_ = os.Remove(envFile)
 		return fmt.Errorf("open terminal: %w", err)
 	}
 	return nil
 }
 
 // writeScript writes run-agent.command (run-agent.cmd on Windows), which
-// starts the session runner; terminal apps that open files run it. It sets
-// outrider's PATH: iTerm2 runs it without a shell, with its own bare PATH.
-func writeScript(dir, goos, path string, runner []string) (string, error) {
+// starts the session runner; terminal apps that open files run it.
+func writeScript(dir, goos string, runner []string) (string, error) {
 	if goos == "windows" {
 		p := filepath.Join(dir, "run-agent.cmd")
 		quoted := make([]string, len(runner))
@@ -491,11 +498,7 @@ func writeScript(dir, goos, path string, runner []string) (string, error) {
 		return p, writeExec(p, "@echo off\r\n"+strings.Join(quoted, " ")+"\r\n")
 	}
 	p := filepath.Join(dir, "run-agent.command")
-	text := "#!/bin/sh\n"
-	if path != "" {
-		text += "PATH=" + shell.Join(path) + "; export PATH\n"
-	}
-	return p, writeExec(p, text+"exec "+shell.Join(runner...)+"\n")
+	return p, writeExec(p, "#!/bin/sh\nexec "+shell.Join(runner...)+"\n")
 }
 
 func writeExec(p, text string) error {

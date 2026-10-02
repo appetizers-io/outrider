@@ -68,15 +68,25 @@ level=INFO msg="octo-org/app#42: attach with: tmux attach -t pr-octo-org-app-42"
 A finished session waits for Enter before it closes; a new launch for the same
 PR replaces it.
 
+## Environment
+
+A session gets the environment outrider runs with, whatever the launcher:
+what your shell init exports (API keys such as `TYPESAFE_API_KEY` for the
+tool gate, proxies) reaches the agent. tmux sessions inherit it. A terminal
+app starts the session with its own environment, so outrider writes its
+environment to `watcher-env.json` (mode 0600) in the session directory, and
+the session reads and deletes it on start. Variables that describe the
+terminal (`TERM`, `TMUX`, `ITERM_SESSION_ID`, …) stay the terminal's; the
+session's `OUTRIDER_*` variables and the guards first on `PATH` win over
+yours.
+
 ## Platform notes
 
 - **macOS**: only Terminal.app and iTerm2 are verified. Ghostty, WezTerm and
   kitty are opened with `open -n -a <app> --args …`.
-- **iTerm2** runs `run-agent.command` as the tab's process, without a shell,
-  so the session gets iTerm2's environment plus outrider's `$PATH` (written
-  into the script), not variables your shell init exports. With no iTerm2
-  window open it opens a window, which may bring iTerm2 to the front. macOS
-  may ask once to let your terminal control iTerm2 (Automation).
+- **iTerm2** runs `run-agent.command` as the tab's process, without a shell.
+  With no iTerm2 window open it opens a window, which may bring iTerm2 to the
+  front. macOS may ask once to let your terminal control iTerm2 (Automation).
 - **Terminal.app** opens `run-agent.command` by typing it into a new login
   shell; shell init that reads ahead (e.g. the Kiro CLI or Fig integration)
   can swallow it, and the window is left at a prompt. Terminal.app can't run
