@@ -45,7 +45,7 @@ tasks:
       - go run . config schema > config.schema.json
 
   golden:
-    desc: Rewrite testdata/golden after an intended change to prompts, gate rules, requests or fingerprints; review the diff
+    desc: Rewrite the golden files (gotest.tools/v3/golden, -update) after an intended change to prompts, gate rules, requests or fingerprints; review the diff
     cmds:
       - go test ./internal/session ./internal/classifier ./internal/poll -run Golden -update
 

@@ -14,9 +14,10 @@ import (
 
 	"github.com/stretchr/testify/require"
 
+	"gotest.tools/v3/golden"
+
 	"github.com/appetizers-io/outrider/internal/config"
 	"github.com/appetizers-io/outrider/internal/github"
-	"github.com/appetizers-io/outrider/internal/golden"
 	"github.com/appetizers-io/outrider/internal/proc"
 )
 
@@ -285,7 +286,7 @@ func TestHookEnvGenericAndJev(t *testing.T) {
 
 // --- golden launch-check requests -----------------------------------------
 
-// The requests classifiers get are a public protocol: testdata/golden pins them.
+// The requests classifiers get are a public protocol: testdata/launch-requests pins them.
 func TestLaunchRequestsGolden(t *testing.T) {
 	items := []github.Activity{
 		{Kind: "comment", ID: new(int64(1)), User: new("alice"), At: "2026-01-01T00:00:00Z", Body: "  hello\nworld  "},
@@ -298,7 +299,7 @@ func TestLaunchRequestsGolden(t *testing.T) {
 		t.Helper()
 		b, err := json.MarshalIndent(req, "", "  ")
 		require.NoError(t, err)
-		golden.Check(t, "launch-requests/"+name+".json", string(b)+"\n")
+		golden.Assert(t, string(b)+"\n", "launch-requests/"+name+".json")
 	}
 	for _, author := range []string{"ME", "bob"} {
 		p := github.PR{Title: "T", URL: "https://github.com/o/r/pull/1", Author: &github.User{Login: author}, StatusCheckRollup: checks}
@@ -314,5 +315,5 @@ func TestLaunchRequestsGolden(t *testing.T) {
 	}
 	big = append(big, github.Activity{Kind: "comment", ID: new(int64(99)), User: new("u"), At: "2026-02-01T00:00:00Z", Body: "NEWEST"})
 	bob := github.PR{Title: "T", URL: "https://github.com/o/r/pull/1", Author: &github.User{Login: "bob"}}
-	golden.Check(t, "launch-requests/trimmed-state-text.txt", NewRequest("o/r", 1, bob, "t", big, "Matthias", "me").StateText+"\n")
+	golden.Assert(t, NewRequest("o/r", 1, bob, "t", big, "Matthias", "me").StateText+"\n", "launch-requests/trimmed-state-text.txt")
 }

@@ -7,8 +7,9 @@ import (
 
 	"github.com/stretchr/testify/require"
 
+	"gotest.tools/v3/golden"
+
 	"github.com/appetizers-io/outrider/internal/github"
-	"github.com/appetizers-io/outrider/internal/golden"
 )
 
 func at(at string, mod ...func(*github.Activity)) github.Activity {
@@ -62,7 +63,7 @@ func TestFingerprintGolden(t *testing.T) {
 		{Kind: "review", ID: new(int64(2)), State: new("APPROVED"), UpdatedAt: new("2026-01-02T00:00:00Z"), User: new("bob")},
 		{Kind: "inline comment", ID: new(int64(3)), UpdatedAt: new("2026-01-03T00:00:00Z"), User: new("carol")},
 	}
-	golden.Check(t, "fingerprint.txt", Fingerprint(items)+"\n")
+	golden.Assert(t, Fingerprint(items)+"\n", "fingerprint.txt")
 	// non-ASCII characters are escaped as \uXXXX, HTML characters are not
 	got, err := asciiJSON("ü🚀 <&>\n\x7f\u2028")
 	require.NoError(t, err)

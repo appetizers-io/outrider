@@ -5,12 +5,13 @@ import (
 	"strings"
 	"testing"
 
+	"gotest.tools/v3/golden"
+
 	"github.com/appetizers-io/outrider/internal/config"
 	"github.com/appetizers-io/outrider/internal/github"
-	"github.com/appetizers-io/outrider/internal/golden"
 )
 
-// The prompts and tool-gate rules are pinned in testdata/golden: a change to
+// The prompts and tool-gate rules are pinned in testdata/: a change to
 // what agents are told shows up as a reviewed diff.
 
 func goldenPR(author string) github.PR {
@@ -94,7 +95,7 @@ func TestPromptsGolden(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		golden.Check(t, c.name(), got)
+		golden.Assert(t, got, c.name())
 	}
 }
 
@@ -115,7 +116,7 @@ func TestGateRulesGolden(t *testing.T) {
 				}
 			}
 		}
-		golden.Check(t, "gate-rules/"+cfgName+".txt", b.String())
+		golden.Assert(t, b.String(), "gate-rules/"+cfgName+".txt")
 	}
 }
 
