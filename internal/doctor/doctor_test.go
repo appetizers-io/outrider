@@ -480,6 +480,9 @@ func TestCheckReviewForks(t *testing.T) {
 			r.Equal(tc.status, got[0].Status, got[0].Detail)
 			r.Contains(got[0].Detail, tc.detail)
 			r.Contains(got[1].Detail, tc.github)
+			if !strings.Contains(tc.detail, "*") {
+				r.NotContains(got[0].Detail, "wildcard") // an exact or auto-resolved fork never warns
+			}
 		})
 	}
 }

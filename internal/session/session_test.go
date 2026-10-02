@@ -339,6 +339,20 @@ func TestReviewForksSessionMayCommitAndPushToForks(t *testing.T) {
 	r.Nil(got.policy["review_forks"])
 }
 
+// The auto-resolved origin fork (#40) reaches the guard the same way: startup
+// writes the resolved list into the config, and the session keeps
+// OUTRIDER_PUSH review-only with the forks in their own variables.
+func TestAutoReviewForkReachesTheGuard(t *testing.T) {
+	r := require.New(t)
+	l, _ := newLauncher(t, "") // review_forks unset: auto
+	r.Nil(l.Cfg.OthersPRs.ReviewForks)
+	l.Cfg.OthersPRs.ReviewForks = &[]string{"me/r"} // what watch.ResolveReviewForks resolved
+	env := l.launched(t, "bob").spec.Env
+	r.Equal("review-only", env["OUTRIDER_PUSH"])
+	r.Equal("me/r", env["OUTRIDER_REVIEW_FORKS"])
+	r.Equal("ask", env["OUTRIDER_REVIEW_FORKS_PUSH"])
+}
+
 func TestGateTextAllowsPostsOnlyThroughGH(t *testing.T) {
 	text := Rules("o/r", 7, "bob", "Matthias", false, "review-only", "ask")
 	require.Contains(t, text, "with plain `gh` is fine; the gh guard asks the owner")
