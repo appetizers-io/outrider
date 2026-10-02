@@ -206,7 +206,7 @@ func (l *Launcher) Prepare(r Request, worktree, lock string, sb *Sandbox) (Prepa
 	}
 	// review with evidence: local commits, pushes only to the owner's forks;
 	// forkPush is the push mode for those
-	forks, forkPush := l.Cfg.OthersPRs.ReviewForks, push
+	forks, forkPush := l.Cfg.OthersPRs.Forks(), push
 	if reviewOnly && sb == nil && len(forks) > 0 {
 		push, forkPush = "review-forks", l.Cfg.PushMode()
 	} else {

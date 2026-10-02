@@ -311,6 +311,9 @@ func Run(ctx context.Context, s Settings, d Deps, log *slog.Logger) error {
 		return err
 	}
 	owner := Owner(cfg, user)
+	// the effective review forks from here on
+	forks := ResolveReviewForks(ctx, cfg, repo, loc, user.Login, d)
+	cfg.OthersPRs.ReviewForks = &forks.Forks
 
 	log.Info("config: " + config.Describe(s.ConfigSource))
 	log.Info(fmt.Sprintf("GitHub user: %s (prompts call you %s)", user.Login, owner))
@@ -322,6 +325,11 @@ func Run(ctx context.Context, s Settings, d Deps, log *slog.Logger) error {
 	log.Info(fmt.Sprintf("tool gate: %s (%s)", onOff(toolGate), gateNote))
 	codexHome := CodexHome(d)
 	sandboxErr := logSandbox(ctx, cfg, codexHome, d, log)
+	if forks.Failed {
+		log.Warn("review forks: " + forks.String())
+	} else {
+		log.Info("review forks: " + forks.String())
+	}
 	log.Info("GitHub notifications: READ ONLY")
 	log.Info("review output: LOCAL SESSION ONLY")
 	if len(s.Include) > 0 {

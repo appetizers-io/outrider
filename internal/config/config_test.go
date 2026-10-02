@@ -370,3 +370,25 @@ func TestReadOnlySandboxRefusesConflictingKeys(t *testing.T) {
 	_, err := Parse([]byte("sandbox: read-only\npush: never\ngithub_writes: never\nothers_prs: {allow_push: false}"), "c.yaml")
 	require.NoError(t, err)
 }
+
+func TestReviewForksUnsetIsNotEmpty(t *testing.T) {
+	// unset or null is auto, [] is off: both survive the schema and a
+	// round trip through Validate (flags)
+	for _, tc := range []struct {
+		text string
+		want *[]string
+	}{
+		{"", nil},
+		{"others_prs: {review_forks: null}", nil},
+		{"others_prs: {review_forks: []}", &[]string{}},
+		{"others_prs: {review_forks: [me/*]}", &[]string{"me/*"}},
+	} {
+		r := require.New(t)
+		c, err := Parse([]byte(tc.text+"\n"), "c.yaml")
+		r.NoError(err, tc.text)
+		r.Equal(tc.want, c.OthersPRs.ReviewForks, tc.text)
+		c, err = Validate(c, "flags")
+		r.NoError(err, tc.text)
+		r.Equal(tc.want, c.OthersPRs.ReviewForks, tc.text)
+	}
+}

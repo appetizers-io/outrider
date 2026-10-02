@@ -128,9 +128,17 @@ type ToolGate struct {
 
 // OthersPRs are sessions on PRs someone else authored.
 type OthersPRs struct {
-	AllowPush   *bool    `yaml:"allow_push" jsonschema:"nullable" jsonschema_description:"false: review only. The agent must not edit, commit or push, and git push is blocked in the session. true: it may push fixes to the PR branch (fast-forward only). null: false in supervised mode, true in autonomous mode."`
-	Sandbox     *string  `yaml:"sandbox" jsonschema:"enum=off,enum=read-only,nullable" jsonschema_description:"sandbox for sessions on PRs someone else authored, e.g. read-only while your own PRs run unsandboxed. read-only needs allow_push false or unset. null: sandbox."`
-	ReviewForks []string `yaml:"review_forks" jsonschema:"minLength=1" jsonschema_description:"owner/repo globs of your own forks that review-only sessions may push evidence to (failing tests, repro scripts), e.g. me/*. Such sessions may edit and commit locally; git push goes only to a matching repo that is neither the PR's head nor its base repo, and follows push. Pushing workflow files needs the workflow token scope. Empty: review only, no pushes."`
+	AllowPush   *bool     `yaml:"allow_push" jsonschema:"nullable" jsonschema_description:"false: review only. The agent must not edit, commit or push, and git push is blocked in the session. true: it may push fixes to the PR branch (fast-forward only). null: false in supervised mode, true in autonomous mode."`
+	Sandbox     *string   `yaml:"sandbox" jsonschema:"enum=off,enum=read-only,nullable" jsonschema_description:"sandbox for sessions on PRs someone else authored, e.g. read-only while your own PRs run unsandboxed. read-only needs allow_push false or unset. null: sandbox."`
+	ReviewForks *[]string `yaml:"review_forks" jsonschema:"minLength=1,nullable" jsonschema_description:"owner/repo globs of your own forks that review-only sessions may push evidence to (failing tests, repro scripts), e.g. me/*. Such sessions may edit and commit locally; git push goes only to a matching repo that is neither the PR's head nor its base repo, and follows push. Pushing workflow files needs the workflow token scope. null: auto, the checkout's origin when --remote watches another remote and origin is your fork of the watched repo. []: review only, no pushes."`
+}
+
+// Forks is review_forks, nil when unset (auto) or empty.
+func (o OthersPRs) Forks() []string {
+	if o.ReviewForks == nil {
+		return nil
+	}
+	return *o.ReviewForks
 }
 
 // Prompts adds to every agent prompt.
@@ -153,7 +161,6 @@ func Default() Config {
 		StaleLockHours:  12,
 		Repos:           Repos{Include: []string{}, Exclude: []string{}},
 		IgnoreAuthors:   []string{},
-		OthersPRs:       OthersPRs{ReviewForks: []string{}},
 		Triggers: Triggers{
 			OwnPRs: OwnPRs{Enabled: true, Check: true},
 			OptIn: OptIn{
@@ -314,10 +321,10 @@ func (c *Config) crossCheck() []string {
 			errs = append(errs, fmt.Sprintf("%s: '%s' conflicts with sandbox: read-only, which never pushes or posts (set never or remove it)", key.name, *key.value))
 		}
 	}
-	if _, err := RepoGlobs(c.OthersPRs.ReviewForks); err != nil {
+	if _, err := RepoGlobs(c.OthersPRs.Forks()); err != nil {
 		errs = append(errs, "others_prs.review_forks: "+err.Error())
 	}
-	if c.SandboxFor(false) == ReadOnly && len(c.OthersPRs.ReviewForks) > 0 {
+	if c.SandboxFor(false) == ReadOnly && len(c.OthersPRs.Forks()) > 0 {
 		errs = append(errs, "others_prs.review_forks conflicts with a read-only sandbox for others' PRs, which can't push (remove one)")
 	}
 	if c.SandboxFor(false) == ReadOnly && c.OthersPRs.AllowPush != nil && *c.OthersPRs.AllowPush {

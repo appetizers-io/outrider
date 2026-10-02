@@ -129,7 +129,7 @@ func GateText(cfg *config.Config, repo string, n int, author, owner string, own 
 	}
 	text := Rules(repo, n, author, owner, own, push, ghWrites)
 	if push == "review-forks" {
-		text += " Review forks (owner/repo globs): " + strings.Join(cfg.OthersPRs.ReviewForks, ", ") + "."
+		text += " Review forks (owner/repo globs): " + strings.Join(cfg.OthersPRs.Forks(), ", ") + "."
 	}
 	if len(extra) > 0 {
 		numbered := make([]string, len(extra))
