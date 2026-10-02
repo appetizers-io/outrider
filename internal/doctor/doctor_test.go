@@ -358,7 +358,7 @@ func TestCheckSandbox(t *testing.T) {
 		{name: "off", status: Info, detail: "off"},
 		{
 			name: "claude on linux", setup: func(m *machine) { m.cfg = "sandbox: read-only\nagent: claude" },
-			status: OK, detail: "read-only (claude: native sandbox + deny rules)",
+			status: OK, detail: "read-only (claude: native sandbox + deny rules, no user or project settings)",
 		},
 		{
 			name: "others only, without socat", setup: func(m *machine) {
@@ -448,6 +448,10 @@ func TestCheckReviewForks(t *testing.T) {
 			status: Info, detail: "me/x (config)",
 		},
 		{
+			name: "wildcard", setup: func(m *machine) { forkCheckout(m); m.cfg = "others_prs: {review_forks: [me/x, me/*]}" },
+			status: Warn, detail: "me/* is a wildcard, which also matches repos that aren't forks",
+		},
+		{
 			name: "off", setup: func(m *machine) { forkCheckout(m); m.cfg = "others_prs: {review_forks: []}" },
 			status: Info, detail: "off (review_forks: [])", github: "scopes gist, read:org, repo",
 		},
@@ -466,6 +470,9 @@ func TestCheckReviewForks(t *testing.T) {
 			r.Equal(tc.status, got[0].Status, got[0].Detail)
 			r.Contains(got[0].Detail, tc.detail)
 			r.Contains(got[1].Detail, tc.github)
+			if !strings.Contains(tc.detail, "*") {
+				r.NotContains(got[0].Detail, "wildcard") // an exact or auto-resolved fork never warns
+			}
 		})
 	}
 }

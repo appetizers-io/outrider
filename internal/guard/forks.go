@@ -2,6 +2,7 @@ package guard
 
 import (
 	"fmt"
+	"os"
 	"regexp"
 	"slices"
 	"strings"
@@ -15,11 +16,21 @@ import (
 // (failing tests, repro scripts) to the owner's own forks. The guard resolves
 // where a push really goes, the way git does, and lets it through only to a
 // repo matching $OUTRIDER_REVIEW_FORKS that is neither the PR's head repo nor
-// its base repo. $OUTRIDER_PUSH (ask, never, allow) then decides as usual.
+// its base repo, and only to branches under review/. $OUTRIDER_REVIEW_FORKS_PUSH
+// (ask, never, allow) then decides as usual. $OUTRIDER_PUSH stays review-only,
+// so a session without $OUTRIDER_REVIEW_FORKS pushes nowhere.
+//
+// An allowed push runs against the resolved URL, not the remote name, with
+// the transport and hooks pinned: what git would read again at push time
+// (ssh command, remote helper, pre-push hook) can't send it elsewhere.
 const (
-	EnvReviewForks = "OUTRIDER_REVIEW_FORKS" // owner/repo globs, one per line
-	EnvHeadRepo    = "OUTRIDER_HEAD_REPO"    // the PR head's owner/repo
+	EnvReviewForks     = "OUTRIDER_REVIEW_FORKS"      // owner/repo globs, one per line
+	EnvReviewForksPush = "OUTRIDER_REVIEW_FORKS_PUSH" // ask | never | allow
+	EnvHeadRepo        = "OUTRIDER_HEAD_REPO"         // the PR head's owner/repo
 )
+
+// reviewRefs is where review-fork pushes may go.
+const reviewRefs = "refs/heads/review/"
 
 // ReviewForks is what the git guard knows about a review-forks session.
 type ReviewForks struct {
@@ -53,10 +64,11 @@ func ReviewForksFromEnv(getenv func(string) string) (*ReviewForks, error) {
 var forkPushFlags = []string{"-u", "--set-upstream", "-n", "--dry-run", "-q", "--quiet", "-v", "--verbose",
 	"--progress", "--no-progress", "--force-with-lease", "--force-if-includes", "--no-verify", "--atomic", "--porcelain"}
 
-// redirectEnv can point git at other config or another repository between
-// the guard's check and the push.
+// redirectEnv can point git at other config, another repository, another
+// transport or other programs between the guard's check and the push.
 var redirectEnv = []string{"GIT_CONFIG_PARAMETERS", "GIT_CONFIG", "GIT_CONFIG_GLOBAL", "GIT_CONFIG_SYSTEM",
-	"GIT_DIR", "GIT_COMMON_DIR", "GIT_WORK_TREE", "GIT_NAMESPACE"}
+	"GIT_DIR", "GIT_COMMON_DIR", "GIT_WORK_TREE", "GIT_NAMESPACE",
+	"GIT_SSH", "GIT_SSH_COMMAND", "GIT_SSH_VARIANT", "GIT_EXEC_PATH", "GIT_PROXY_COMMAND"}
 
 // trapKey is the only GIT_CONFIG_KEY_<n> the session itself sets (PushTrap).
 const trapKey = "url.outrider-push-blocked://.pushInsteadOf"
@@ -73,7 +85,7 @@ func GitHubRepo(raw string) (string, error) {
 	if (u.Scheme != "https" && u.Scheme != "ssh") || !strings.EqualFold(u.Hostname(), "github.com") {
 		return "", fmt.Errorf("%q is not a github.com https or ssh URL", raw)
 	}
-	repo := strings.ToLower(strings.TrimSuffix(strings.Trim(u.Path, "/"), ".git"))
+	repo := strings.TrimSuffix(strings.ToLower(strings.Trim(u.Path, "/")), ".git")
 	if !repoName.MatchString(repo) || strings.HasSuffix(repo, "/.") || strings.HasSuffix(repo, "/..") {
 		return "", fmt.Errorf("%q is not a github.com/owner/repo URL", raw)
 	}
@@ -84,8 +96,25 @@ func GitHubRepo(raw string) (string, error) {
 // or the URL itself.
 type Resolve func(repo string) ([]string, error)
 
-// Decide decides a push in a review-forks session. env is the environment
-// the push runs with (the trap already dropped).
+// reviewRef is the refspec src:refs/heads/review/<name> for a refspec whose
+// destination is review/<name> or refs/heads/review/<name>, or "".
+func reviewRef(ref string) string {
+	src, dst, ok := strings.Cut(ref, ":")
+	if !ok {
+		dst = src
+	}
+	if !strings.HasPrefix(dst, "refs/") {
+		dst = "refs/heads/" + dst
+	}
+	name := strings.TrimPrefix(dst, reviewRefs)
+	if src == "" || name == dst || name == "" || strings.ContainsAny(name, "*:^") || strings.Contains(name, "..") {
+		return ""
+	}
+	return src + ":" + dst
+}
+
+// Decide decides a push in a review-forks session; mode is
+// $OUTRIDER_REVIEW_FORKS_PUSH. env is the session's environment.
 func (rf *ReviewForks) Decide(args []string, mode string, env []string, resolve Resolve) GitDecision {
 	deny := func(why string) GitDecision {
 		return GitDecision{Deny: gitDeny(args, "Review session: you may push only to "+
@@ -94,13 +123,16 @@ func (rf *ReviewForks) Decide(args []string, mode string, env []string, resolve 
 	if len(args) == 0 || args[0] != "push" {
 		return deny("Use plain `git push` without global options (-c, -C, --git-dir, ...) or aliases.")
 	}
+	if mode == "" {
+		return deny("$" + EnvReviewForksPush + " is not set.")
+	}
 	for _, kv := range env {
 		k, v, _ := strings.Cut(kv, "=")
 		if slices.Contains(redirectEnv, k) || strings.HasPrefix(k, "GIT_CONFIG_KEY_") && v != trapKey {
 			return deny("Unset " + k + "; it can redirect the push.")
 		}
 	}
-	var pos []string
+	var pos, flags []string
 	opts := true
 	for _, a := range args[1:] {
 		switch {
@@ -111,6 +143,7 @@ func (rf *ReviewForks) Decide(args []string, mode string, env []string, resolve 
 			if !slices.Contains(forkPushFlags, name) || name != a && name != "--force-with-lease" {
 				return deny("`" + a + "` is not allowed (no --mirror, --all, --delete, --force, --prune, --repo).")
 			}
+			flags = append(flags, a)
 		default:
 			pos = append(pos, a)
 		}
@@ -118,10 +151,16 @@ func (rf *ReviewForks) Decide(args []string, mode string, env []string, resolve 
 	if len(pos) < 2 {
 		return deny("Name the remote or URL and the refspec, e.g. `git push fork HEAD:review/pr-5`.")
 	}
+	var refs []string
 	for _, ref := range pos[1:] {
 		if ref == "" || strings.HasPrefix(ref, ":") || strings.HasPrefix(ref, "+") || strings.HasPrefix(ref, "-") {
 			return deny("Refspec `" + ref + "` deletes or force-pushes.")
 		}
+		r := reviewRef(ref)
+		if r == "" {
+			return deny("Refspec `" + ref + "` must push to a branch under review/, e.g. HEAD:review/pr-5-<topic>.")
+		}
+		refs = append(refs, r)
 	}
 	if strings.HasPrefix(pos[0], "-") {
 		return deny("Remote `" + pos[0] + "` is not a remote or URL.")
@@ -145,7 +184,7 @@ func (rf *ReviewForks) Decide(args []string, mode string, env []string, resolve 
 	case !rf.Forks.Match(dest):
 		return deny("github.com/" + dest + " is not one of the review forks.")
 	}
-	d := GitDecision{Dest: "github.com/" + dest, Refs: pos[1:]}
+	d := GitDecision{Dest: "github.com/" + dest, Refs: refs, URL: urls[0], Flags: flags}
 	switch mode {
 	case "allow":
 	case "ask":
@@ -155,4 +194,14 @@ func (rf *ReviewForks) Decide(args []string, mode string, env []string, resolve 
 			"and tell the owner what is ready to push.")
 	}
 	return d
+}
+
+// PinnedPush is the real git invocation of an allowed review-fork push: to
+// the resolved URL, with the ssh command and hooks pinned, so nothing read at
+// push time (core.sshCommand, core.hooksPath, a pre-push hook, a remote's
+// vcs helper) can send it anywhere else.
+func PinnedPush(d GitDecision) []string {
+	args := []string{"-c", "core.hooksPath=" + os.DevNull, "-c", "core.sshCommand=ssh", "push", "--no-verify"}
+	args = append(append(args, d.Flags...), "--", d.URL)
+	return append(args, d.Refs...)
 }

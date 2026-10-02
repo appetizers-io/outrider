@@ -25,7 +25,7 @@ var minVersion = map[string]string{"claude": "v2.1.285", "codex": "v0.156.0"}
 // SandboxNote describes the read-only sandbox of an agent for the startup log.
 func SandboxNote(agent string) string {
 	if agent == "claude" {
-		return "claude: native sandbox + deny rules"
+		return "claude: native sandbox + deny rules, no user or project settings"
 	}
 	return "codex: --sandbox read-only, approvals never, private CODEX_HOME"
 }
@@ -139,10 +139,12 @@ func tomlString(s string) string {
 const readOnlyTools = "Bash,Read,Glob,Grep"
 
 // ClaudeSandboxArgs are the Claude Code flags of a read-only session, after
-// --settings: no project or local settings (a PR's checkout can't add hooks
-// or loosen anything), no MCP servers, no bypass mode, read-only tools.
+// --settings: no settings files at all (`--setting-sources ""`), so neither a
+// PR's checkout nor the user's own settings can add hooks or loosen the
+// sandbox (Claude Code adds their sandbox lists and WebFetch allow rules to
+// outrider's); no MCP servers, no bypass mode, read-only tools.
 func ClaudeSandboxArgs() []string {
-	return []string{"--setting-sources", "user", "--strict-mcp-config", "--permission-mode", "manual", "--tools", readOnlyTools}
+	return []string{"--setting-sources", "", "--strict-mcp-config", "--permission-mode", "manual", "--tools", readOnlyTools}
 }
 
 // ClaudeSandbox is the sandbox key of a read-only session's --settings: Bash

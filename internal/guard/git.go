@@ -55,10 +55,12 @@ func Pushes(args []string, alias func(global []string, name string) string) bool
 
 // GitDecision is what to do with a git invocation.
 type GitDecision struct {
-	Deny string   // non-empty: refuse with this message
-	Ask  bool     // a push that needs the owner's approval
-	Dest string   // review forks: where the push goes, github.com/owner/repo
-	Refs []string // review forks: the refspecs pushed there
+	Deny  string   // non-empty: refuse with this message
+	Ask   bool     // a push that needs the owner's approval
+	Dest  string   // review forks: where the push goes, github.com/owner/repo
+	Refs  []string // review forks: the refspecs pushed there, src:refs/heads/review/...
+	URL   string   // review forks: the resolved push URL
+	Flags []string // review forks: the allowed push options given
 }
 
 const deniedNotApproved = "The owner did not approve this push. Do not retry or work around " +

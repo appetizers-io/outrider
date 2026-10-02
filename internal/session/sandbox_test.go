@@ -49,7 +49,7 @@ func TestReadOnlyClaudeSessionRunsInTheNativeSandbox(t *testing.T) {
 
 				settings := filepath.Join(l.Root, "sessions", "o__r", "pr-1", "claude-settings.json")
 				r.Equal(append([]string{"/bin/claude", "--name", "PR o/r#1", "--remote-control", "PR o/r#1", "--settings", settings},
-					"--setting-sources", "user", "--strict-mcp-config", "--permission-mode", "manual", "--tools", "Bash,Read,Glob,Grep"),
+					"--setting-sources", "", "--strict-mcp-config", "--permission-mode", "manual", "--tools", "Bash,Read,Glob,Grep"),
 					got.spec.Agent)
 
 				// nothing is pushed or posted, on your own PR too

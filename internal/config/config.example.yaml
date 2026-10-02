@@ -116,11 +116,13 @@ others_prs:
   # Sandbox for these sessions, e.g. read-only while your own PRs run
   # unsandboxed. read-only needs allow_push false or null. null: sandbox.
   sandbox: null               # off | read-only | null
-  # owner/repo globs of your own forks that review-only sessions may push
-  # evidence to (failing tests, repro scripts), e.g. ["me/*"]. Such sessions
-  # may edit and commit locally; git push goes only to a matching repo that is
-  # neither the PR's head nor its base repo, and follows push. Pushing workflow
-  # files needs the workflow token scope. Not with sandbox: read-only.
+  # Your own forks that review-only sessions may push evidence to (failing
+  # tests, repro scripts), by exact name, e.g. ["me/repo"]; globs work, but a
+  # wildcard also matches repos that aren't forks. Such sessions may edit and
+  # commit locally; git push goes only to branches under review/ of a listed
+  # repo that is neither the PR's head nor its base repo, and follows push.
+  # Pushing workflow files needs the workflow token scope. Not with
+  # sandbox: read-only.
   # null: auto. With --remote set to another remote than origin (a fork
   # checkout), origin is the review fork when it is yours and GitHub says it
   # is a fork of the watched repo. []: off, no pushes.

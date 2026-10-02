@@ -291,7 +291,7 @@ func (l *Launcher) Prepare(r Request, worktree, lock string, sb *Sandbox) (Prepa
 		policy.Scope = nil
 	}
 	if (supervised || sb != nil) && l.Agent == "claude" {
-		policy.DenyRules = DenyRules(push, l.GOOS)
+		policy.DenyRules = DenyRules(push, l.GOOS, l.Root)
 		if sb != nil {
 			policy.DenyRules = append(policy.DenyRules, readOnlyDenyRules...)
 		}
@@ -316,7 +316,7 @@ func (l *Launcher) Prepare(r Request, worktree, lock string, sb *Sandbox) (Prepa
 		// Remote Control lists the session on claude.ai and in Claude Desktop
 		agent = append(agent, "--name", name, "--remote-control", name)
 		if supervised || sb != nil {
-			settings := ClaudeSettings(l.Cfg, push, l.GOOS, l.ToolGate, hookEnv)
+			settings := ClaudeSettings(l.Cfg, push, l.GOOS, l.Root, l.ToolGate, hookEnv)
 			if sb != nil {
 				settings["permissions"] = map[string]any{"deny": policy.DenyRules, "disableBypassPermissionsMode": "disable"}
 				settings["sandbox"] = ClaudeSandbox(sb.DenyWrite)
@@ -344,7 +344,10 @@ func (l *Launcher) Prepare(r Request, worktree, lock string, sb *Sandbox) (Prepa
 		guard.EnvSession:  name,
 	}
 	if forks != nil {
+		// the guard stays review-only without the forks variable
+		env[guard.EnvPush] = "review-only"
 		env[guard.EnvReviewForks] = strings.Join(forks, "\n")
+		env[guard.EnvReviewForksPush] = forkPush
 		env[guard.EnvHeadRepo] = headRepo(r.PR)
 	}
 	if forkPush != "allow" || forks != nil {

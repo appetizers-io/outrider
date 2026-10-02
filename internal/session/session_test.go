@@ -300,7 +300,8 @@ func TestReviewForksSessionMayCommitAndPushToForks(t *testing.T) {
 	l, _ := newLauncher(t, "others_prs: {review_forks: [me/*]}\n")
 	got := l.launched(t, "bob")
 	env := got.spec.Env
-	r.Equal("ask", env["OUTRIDER_PUSH"]) // each push follows push
+	r.Equal("review-only", env["OUTRIDER_PUSH"])      // security review B2: no forks variable, no push
+	r.Equal("ask", env["OUTRIDER_REVIEW_FORKS_PUSH"]) // each fork push follows push
 	r.Equal("me/*", env["OUTRIDER_REVIEW_FORKS"])
 	r.Equal("bob/r", env["OUTRIDER_HEAD_REPO"])
 	r.Equal("o/r", env["OUTRIDER_REPO"])
@@ -314,14 +315,20 @@ func TestReviewForksSessionMayCommitAndPushToForks(t *testing.T) {
 	r.NotContains(deny, "Bash(git push:*)")
 	r.Contains(deny, "Bash(git push --force:*)")
 	r.Contains(deny, "Bash(git rebase:*)")
+	for _, path := range []string{"//**/.git/**", "~/.claude/**", "/" + filepath.ToSlash(l.Root) + "/**"} {
+		r.Contains(deny, "Edit("+path+")") // security review B4
+		r.Contains(deny, "Write("+path+")")
+	}
 	r.Contains(got.prompt, "REVIEW WITH EVIDENCE")
+	r.Contains(got.prompt, "to a branch under `review/` works")
 	r.Contains(got.prompt, "review forks (me/*)")
 	r.Contains(got.spec.Header[1], "git push only to your review forks (ask)")
 
 	// allow drops neither the trap nor the fork check
 	l, _ = newLauncher(t, "push: allow\nothers_prs: {review_forks: [me/*]}\n")
 	got = l.launched(t, "bob")
-	r.Equal("allow", got.spec.Env["OUTRIDER_PUSH"])
+	r.Equal("review-only", got.spec.Env["OUTRIDER_PUSH"])
+	r.Equal("allow", got.spec.Env["OUTRIDER_REVIEW_FORKS_PUSH"])
 	r.Equal("me/*", got.spec.Env["OUTRIDER_REVIEW_FORKS"])
 	r.Contains(got.spec.Env, "GIT_CONFIG_COUNT")
 
@@ -330,6 +337,20 @@ func TestReviewForksSessionMayCommitAndPushToForks(t *testing.T) {
 	got = l.launched(t, "me")
 	r.NotContains(got.spec.Env, "OUTRIDER_REVIEW_FORKS")
 	r.Nil(got.policy["review_forks"])
+}
+
+// The auto-resolved origin fork (#40) reaches the guard the same way: startup
+// writes the resolved list into the config, and the session keeps
+// OUTRIDER_PUSH review-only with the forks in their own variables.
+func TestAutoReviewForkReachesTheGuard(t *testing.T) {
+	r := require.New(t)
+	l, _ := newLauncher(t, "") // review_forks unset: auto
+	r.Nil(l.Cfg.OthersPRs.ReviewForks)
+	l.Cfg.OthersPRs.ReviewForks = &[]string{"me/r"} // what watch.ResolveReviewForks resolved
+	env := l.launched(t, "bob").spec.Env
+	r.Equal("review-only", env["OUTRIDER_PUSH"])
+	r.Equal("me/r", env["OUTRIDER_REVIEW_FORKS"])
+	r.Equal("ask", env["OUTRIDER_REVIEW_FORKS_PUSH"])
 }
 
 func TestGateTextAllowsPostsOnlyThroughGH(t *testing.T) {

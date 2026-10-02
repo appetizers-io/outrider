@@ -16,8 +16,8 @@ others_prs:
   # repro scripts to your own forks (never to the PR's head or base repo).
   # Each push still follows `push` (ask: a dialog shows the destination).
   # Unset: in a fork checkout run with --remote upstream, your origin fork.
-  # A list: exactly these forks. []: off.
-  # review_forks: ["my-login/*"]
+  # A list: exactly these forks, by exact name. []: off.
+  # review_forks: ["my-login/my-fork"]
 
 repos:
   include: ["my-org/*"]

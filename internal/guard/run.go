@@ -58,16 +58,18 @@ func RunGit(args []string, getenv func(string) string, ask Ask, stderr io.Writer
 	var d GitDecision
 	if rf != nil && Pushes(args, alias) {
 		pushEnv := approvedPushEnv(env)
-		decide := func() GitDecision { return rf.Decide(args, getenv(EnvPush), env, resolvePush(real, pushEnv)) }
+		decide := func() GitDecision {
+			return rf.Decide(args, getenv(EnvReviewForksPush), env, resolvePush(real, pushEnv))
+		}
 		if d = decide(); d.Ask {
 			if !askPush(real, getenv, ask, args, d) {
 				d.Deny = gitDeny(args, deniedNotApproved)
-			} else if again := decide(); again.Deny != "" || again.Dest != d.Dest {
+			} else if again := decide(); again.Deny != "" || again.URL != d.URL {
 				// the remote's config changed while the dialog was open
 				d.Deny = gitDeny(args, "The push destination changed after approval; refused.")
 			}
 		}
-		env = pushEnv
+		env, args = pushEnv, PinnedPush(d)
 	} else {
 		d = DecideGit(args, getenv(EnvPush), alias)
 		if d.Ask {
@@ -92,9 +94,10 @@ func askPush(real string, getenv func(string) string, ask Ask, args []string, d 
 
 // resolvePush resolves like `git push <repo>` does: a remote configured in
 // this repository gives its push URLs (pushurl, pushInsteadOf and insteadOf
-// applied); anything else is a URL, used as is. A URL that a
-// url.*.insteadOf rule rewrites, or that names a remote in some other config
-// file, is ambiguous and refused.
+// applied); anything else is a URL, used as is. The guard then pushes to the
+// URL itself, so a URL that a url.*.insteadOf rule would rewrite again, or
+// that names a remote in some config file, is ambiguous and refused, and so
+// is a remote with a vcs helper.
 func resolvePush(real string, env []string) Resolve {
 	git := func(args ...string) (string, error) {
 		cmd := exec.Command(real, args...)
@@ -103,26 +106,46 @@ func resolvePush(real string, env []string) Resolve {
 		return string(out), err
 	}
 	return func(repo string) ([]string, error) {
-		out, err := git("remote", "get-url", "--push", "--all", "--", repo)
 		var ee *exec.ExitError
-		if err == nil {
-			return strings.Fields(out), nil
-		}
-		if !errors.As(err, &ee) || ee.ExitCode() != 2 { // 2: no such remote
-			return nil, fmt.Errorf("git remote get-url %s: %w", repo, err)
-		}
-		out, err = git("config", "--null", "--get-regexp", `^(url\..*\.(push)?insteadof|remote\..*)$`)
+		cfg, err := git("config", "--null", "--get-regexp", `^(url\..*\.(push)?insteadof|remote\..*)$`)
 		if err != nil && (!errors.As(err, &ee) || ee.ExitCode() != 1) { // 1: no such keys
 			return nil, fmt.Errorf("git config: %w", err)
 		}
-		for entry := range strings.SplitSeq(out, "\x00") {
+		var entries [][2]string
+		for entry := range strings.SplitSeq(cfg, "\x00") {
 			key, value, _ := strings.Cut(entry, "\n")
-			if strings.HasPrefix(key, "remote."+repo+".") ||
-				strings.HasPrefix(key, "url.") && value != "" && strings.HasPrefix(repo, value) {
-				return nil, fmt.Errorf("%s is changed by the git config %s; add it as a remote instead", repo, key)
+			entries = append(entries, [2]string{key, value})
+		}
+		// changedBy names the config that would change a push to url
+		changedBy := func(url string) string {
+			for _, e := range entries {
+				if strings.HasPrefix(e[0], "remote."+url+".") ||
+					strings.HasPrefix(e[0], "url.") && e[1] != "" && strings.HasPrefix(url, e[1]) {
+					return e[0]
+				}
+			}
+			return ""
+		}
+		out, err := git("remote", "get-url", "--push", "--all", "--", repo)
+		urls := strings.Fields(out)
+		switch {
+		case err == nil:
+			for _, e := range entries {
+				if strings.EqualFold(e[0], "remote."+repo+".vcs") && e[1] != "" {
+					return nil, fmt.Errorf("remote %s uses the remote helper %q", repo, e[1])
+				}
+			}
+		case errors.As(err, &ee) && ee.ExitCode() == 2: // no such remote: a URL
+			urls = []string{repo}
+		default:
+			return nil, fmt.Errorf("git remote get-url %s: %w", repo, err)
+		}
+		for _, u := range urls {
+			if key := changedBy(u); key != "" {
+				return nil, fmt.Errorf("%s is changed by the git config %s; push to a remote whose URL no rule rewrites", u, key)
 			}
 		}
-		return []string{repo}, nil
+		return urls, nil
 	}
 }
 
