@@ -35,3 +35,34 @@ release:
 
 changelog:
   disable: true # release notes come from git-cliff (cliff.toml)
+
+# brew install appetizers-io/tap/outrider. Publishing needs HOMEBREW_TAP_TOKEN
+# (contents:write on the tap only); without it the cask is only written to
+# dist/ and the release still succeeds. See docs/development.md#homebrew-tap.
+homebrew_casks:
+  - name: outrider
+    description: Watches your GitHub notifications and opens a local coding agent for the PRs that need you
+    homepage: https://github.com/appetizers-io/outrider
+    repository:
+      owner: appetizers-io
+      name: homebrew-tap
+      token: '{{ envOrDefault "HOMEBREW_TAP_TOKEN" "" }}'
+    skip_upload: '{{ if isEnvSet "HOMEBREW_TAP_TOKEN" }}false{{ else }}true{{ end }}'
+    commit_msg_template: "outrider {{ .Tag }}"
+    dependencies:
+      - formula: gh
+      - formula: git
+    hooks:
+      post:
+        # the binaries are not signed or notarized
+        install: |
+          if OS.mac?
+            system_command "/usr/bin/xattr", args: ["-dr", "com.apple.quarantine", "#{staged_path}/outrider"]
+          end
+    caveats: |
+      outrider also needs claude (Claude Code) or codex; tmux only for the tmux launcher.
+      Log in to gh first (gh auth login), then in a checkout:
+        outrider doctor
+        outrider --dry-run --once
+        outrider config generate --write
+      Docs: https://github.com/appetizers-io/outrider#readme

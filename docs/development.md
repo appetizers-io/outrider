@@ -53,6 +53,49 @@ the Conventional Commit titles since the last tag (`feat:` minor, `fix:`
 patch, or the bump you choose: `patch`, `minor`, `major`) and writes the
 release notes. GoReleaser creates the tag and the release with the archives.
 The run needs a maintainer's approval (the `release` environment).
+The same run publishes the Homebrew cask and attests the archives' build
+provenance.
+
+### Homebrew tap
+
+GoReleaser writes a cask (`homebrew_casks` in `.goreleaser.yaml`) and pushes
+it to [`appetizers-io/homebrew-tap`](https://github.com/appetizers-io/homebrew-tap),
+so `brew install appetizers-io/tap/outrider` works. `task release:snapshot`
+writes it to `dist/homebrew/Casks/outrider.rb` without publishing. The cask
+depends on `gh` and `git`; its post-install hook removes the
+`com.apple.quarantine` attribute, since the binaries are not signed or
+notarized. The cask also lists the Linux archives, but Homebrew's cask
+support on Linux is newer and not tested here; on Linux, use the release
+archive if `brew install` refuses the cask.
+
+The release skips the upload, and still succeeds, while the secret
+`HOMEBREW_TAP_TOKEN` is not set. One-time setup by a maintainer:
+
+1. Create the public repo `appetizers-io/homebrew-tap` (default branch `main`,
+   a short README). GoReleaser writes into `Casks/`.
+2. Create a token that can write to the tap and nothing else: a fine-grained
+   personal access token (resource owner `appetizers-io`, only the
+   `homebrew-tap` repository, permission Contents: read and write), or a
+   GitHub App installed on the tap only with Contents: write.
+3. Add it as a secret named `HOMEBREW_TAP_TOKEN` to this repo, or to the
+   `release` environment (`gh secret set HOMEBREW_TAP_TOKEN -R
+   appetizers-io/outrider --env release`). Only the GoReleaser step gets it.
+4. Run a release, then check `brew install appetizers-io/tap/outrider` and
+   `outrider --version`.
+
+### Build provenance
+
+The release attests the archives and `checksums.txt` with
+[`actions/attest-build-provenance`](https://github.com/actions/attest-build-provenance).
+To verify a download:
+
+```sh
+gh attestation verify outrider_0.2.0_darwin_arm64.tar.gz -R appetizers-io/outrider
+```
+
+Attestations need a public repo, or GitHub Enterprise Cloud for a private
+one. While the repo is private on another plan the step fails without
+failing the release (`continue-on-error`), and there is nothing to verify.
 
 ## Golden files
 
