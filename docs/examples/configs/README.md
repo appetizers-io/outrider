@@ -14,6 +14,7 @@ rest stay at their defaults. Replace `my-org/*` with your repos.
 | [`custom-classifier.yaml`](custom-classifier.yaml) | use your own launch check and tool gate instead of Jev |
 | [`many-repos.yaml`](many-repos.yaml) | watch many repos with include/exclude globs and ignore bots |
 | [`headless.yaml`](headless.yaml) | run as a background service (tmux, no dialogs) |
+| [`overrides.yaml`](overrides.yaml) | change settings per repo, or for your own vs. others' PRs |
 
 Try one without side effects, then make it yours:
 

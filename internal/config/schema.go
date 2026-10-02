@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"maps"
+	"reflect"
 	"strings"
 	"sync"
 
@@ -17,7 +18,12 @@ import (
 
 // Schema is the JSON Schema of the config file, generated from the structs.
 func Schema() *jsonschema.Schema {
-	r := &jsonschema.Reflector{FieldNameTag: "yaml", RequiredFromJSONSchemaTags: true, ExpandedStruct: true}
+	r := &jsonschema.Reflector{FieldNameTag: "yaml", RequiredFromJSONSchemaTags: true, ExpandedStruct: true, Namer: func(t reflect.Type) string {
+		if t == reflect.TypeFor[overrideKeys]() {
+			return "Override"
+		}
+		return t.Name()
+	}}
 	s := r.Reflect(&Config{})
 	s.ID = SchemaID
 	s.Title = "outrider configuration"
@@ -98,7 +104,11 @@ func Parse(data []byte, source string) (Config, error) {
 	if err := dec.Decode(&cfg); err != nil && !errors.Is(err, io.EOF) {
 		return Config{}, invalid(err.Error())
 	}
-	if errs := cfg.crossCheck(); len(errs) > 0 {
+	errs := cfg.crossCheck()
+	if len(errs) == 0 {
+		errs = cfg.checkOverrides()
+	}
+	if len(errs) > 0 {
 		return Config{}, invalid("- " + strings.Join(errs, "\n- "))
 	}
 	return cfg, nil

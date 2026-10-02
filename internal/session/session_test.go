@@ -70,10 +70,11 @@ func newLauncher(t *testing.T, cfgText string) (*Launcher, *calls) {
 	t.Helper()
 	cfg, err := config.Parse([]byte(cfgText), "c.yaml")
 	require.NoError(t, err)
+	cfg.Agent = "claude"
 	c := &calls{}
 	return &Launcher{
 		Root: t.TempDir(), Self: os.Args[0], Cfg: &cfg, Login: "me", Owner: "Matthias",
-		Agent: "claude", Launcher: "tmux", GOOS: runtime.GOOS, Run: c.run,
+		Launcher: "tmux", GOOS: runtime.GOOS, Run: c.run,
 		LookPath: func(f string) (string, error) { return "/bin/" + f, nil },
 		Log:      slog.New(slog.DiscardHandler),
 	}, c
@@ -264,6 +265,30 @@ func TestPolicyFileDescribesTheSession(t *testing.T) {
 	r.Contains(got.spec.Env, "OUTRIDER_POLICY_FILE")
 }
 
+func TestOverridesShapeTheSession(t *testing.T) {
+	r := require.New(t)
+	l, _ := newLauncher(t, `
+classifiers: {local: {kind: command, hook_command: cls hook}}
+overrides:
+  - match: [{prs: others}]
+    tool_gate: {classifier: local}
+    prompts: {extra: be brief}
+  - match: [{repo: o/*, prs: others}]
+    agent: codex
+`)
+	l.ToolGate = jevGate
+	got := l.launched(t, "bob")
+	r.Equal([]any{"overrides[0] (prs: others)", "overrides[1] (repo: o/*, prs: others)"}, got.policy["overrides"])
+	r.Equal([]string{"/bin/codex"}, got.spec.Agent)
+	r.Equal("local", got.policy["tool_gate"].(map[string]any)["classifier"])
+	r.Contains(got.prompt, "be brief")
+
+	l, _ = newLauncher(t, "overrides: [{match: [{prs: others}], agent: codex}]")
+	got = l.launched(t, "me")
+	r.NotContains(got.policy, "overrides")
+	r.Equal("/bin/claude", got.spec.Agent[0])
+}
+
 func TestGitHubWritesAskByDefaultInSupervisedMode(t *testing.T) {
 	r := require.New(t)
 	l, _ := newLauncher(t, "")
@@ -362,7 +387,7 @@ func TestGateTextAllowsPostsOnlyThroughGH(t *testing.T) {
 
 func TestCodexSessionHasNoSettings(t *testing.T) {
 	l, _ := newLauncher(t, "")
-	l.Agent = "codex"
+	l.Cfg.Agent = "codex"
 	l.ToolGate = jevGate
 	got := l.launched(t, "bob")
 	require.Equal(t, []string{"/bin/codex"}, got.spec.Agent)

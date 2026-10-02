@@ -63,10 +63,11 @@ func (f *flags) settings(cmd *cobra.Command) (watch.Settings, error) {
 			apply()
 		}
 	}
-	set("agent", func() { cfg.Agent = f.agent })
+	// per-PR keys: a flag beats the overrides too
+	set("agent", func() { cfg.Agent = f.agent; cfg.Pin("agent") })
 	set("launcher", func() { cfg.Launcher = f.launcher })
-	set("github-writes", func() { cfg.GitHubWrites = &f.githubWrites })
-	set("sandbox", func() { cfg.Sandbox = f.sandbox })
+	set("github-writes", func() { cfg.GitHubWrites = &f.githubWrites; cfg.Pin("github_writes") })
+	set("sandbox", func() { cfg.Sandbox = f.sandbox; cfg.Pin("sandbox") })
 	set("terminal", func() { cfg.Terminal = config.ParseTerminal(f.terminal) })
 	set("interval", func() { cfg.IntervalSeconds = f.interval })
 	set("lookback-hours", func() { cfg.LookbackHours = f.lookbackHours })

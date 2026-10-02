@@ -7,6 +7,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"strings"
 
 	"github.com/spf13/cobra"
 	"go.yaml.in/yaml/v3"
@@ -95,16 +96,31 @@ func configCmd(stdout, stderr io.Writer, migrateDirs func()) *cobra.Command {
 			return err
 		},
 	})
-	cmd.AddCommand(&cobra.Command{
+	var repo, prs string
+	show := &cobra.Command{
 		Use:   "show [PATH]",
 		Short: "Print the effective config, defaults filled in",
+		Long:  "Print the effective config, defaults filled in. With --repo: the config of a PR there, its overrides applied.",
 		Args:  cobra.MaximumNArgs(1),
 		RunE: func(_ *cobra.Command, args []string) error {
+			if prs != "own" && prs != "others" {
+				return fmt.Errorf("--prs: want own or others, got %q", prs)
+			}
 			cfg, _, err := load(args)
 			if err != nil {
 				return err
 			}
 			var b bytes.Buffer
+			if repo != "" {
+				repo = config.RepoPattern(repo)
+				applied := cfg.Applied(repo, prs == "own")
+				if len(applied) == 0 {
+					applied = []string{"none"}
+				}
+				whose := map[string]string{"own": "your own", "others": "others'"}[prs]
+				fmt.Fprintf(&b, "# %s, %s PRs; overrides applied: %s\n", repo, whose, strings.Join(applied, ", "))
+				cfg = cfg.For(repo, prs == "own")
+			}
 			enc := yaml.NewEncoder(&b)
 			enc.SetIndent(2)
 			if err := enc.Encode(cfg); err != nil {
@@ -113,6 +129,9 @@ func configCmd(stdout, stderr io.Writer, migrateDirs func()) *cobra.Command {
 			_, err = stdout.Write(b.Bytes())
 			return err
 		},
-	})
+	}
+	show.Flags().StringVar(&repo, "repo", "", "owner/repo or URL: show the config of a PR there")
+	show.Flags().StringVar(&prs, "prs", "own", "with --repo: own or others, whose PR")
+	cmd.AddCommand(show)
 	return cmd
 }

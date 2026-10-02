@@ -11,6 +11,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"runtime"
+	"slices"
 	"strings"
 	"time"
 
@@ -143,18 +144,57 @@ func CodexHome(d Deps) string {
 }
 
 // SandboxMode describes the sandbox of own and others' PRs; on tells
-// whether any session is sandboxed.
+// whether any session is sandboxed, overrides included.
 func SandboxMode(cfg *config.Config) (mode string, on bool) {
 	own, others := cfg.SandboxFor(true), cfg.SandboxFor(false)
+	mode = "sandbox: read-only"
 	switch {
 	case own != config.ReadOnly && others != config.ReadOnly:
-		return "sandbox: off", false
+		mode = "sandbox: off"
 	case own != config.ReadOnly:
-		return "sandbox: off; others' PRs: read-only", true
+		mode = "sandbox: off; others' PRs: read-only"
 	case others != config.ReadOnly:
-		return "sandbox: read-only; others' PRs: off", true
+		mode = "sandbox: read-only; others' PRs: off"
 	}
-	return "sandbox: read-only", true
+	on = len(SandboxAgents(cfg)) > 0
+	if on && mode == "sandbox: off" {
+		mode += "; overrides: read-only"
+	}
+	return mode, on
+}
+
+// Agents are the agents sessions can run, overrides included.
+func Agents(cfg *config.Config) []string {
+	var agents []string
+	for _, c := range cfg.Layers() {
+		if !slices.Contains(agents, c.Agent) {
+			agents = append(agents, c.Agent)
+		}
+	}
+	return agents
+}
+
+// SandboxAgents are the agents of sandboxed sessions, overrides included.
+func SandboxAgents(cfg *config.Config) []string {
+	var agents []string
+	for _, c := range cfg.Layers() {
+		sandboxed := c.SandboxFor(true) == config.ReadOnly || c.SandboxFor(false) == config.ReadOnly
+		if sandboxed && !slices.Contains(agents, c.Agent) {
+			agents = append(agents, c.Agent)
+		}
+	}
+	return agents
+}
+
+// SandboxSupport is why read-only sessions can't run here for one of the
+// agents that run them, nil when they can.
+func SandboxSupport(ctx context.Context, cfg *config.Config, codexHome string, d Deps) error {
+	for _, agent := range SandboxAgents(cfg) {
+		if err := session.SandboxSupport(ctx, agent, d.GOOS, codexHome, d.LookPath, d.Run); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 // githubUser is the gh user, retried until GitHub answers (unless once).
@@ -192,7 +232,7 @@ func logSandbox(ctx context.Context, cfg *config.Config, codexHome string, d Dep
 		log.Info(mode)
 		return nil
 	}
-	err := session.SandboxSupport(ctx, cfg.Agent, d.GOOS, codexHome, d.LookPath, d.Run)
+	err := SandboxSupport(ctx, cfg, codexHome, d)
 	if err != nil {
 		log.Error(fmt.Sprintf("%s UNAVAILABLE (%v); sandboxed sessions are refused", mode, err))
 		return err
@@ -275,18 +315,13 @@ func Run(ctx context.Context, s Settings, d Deps, log *slog.Logger) error {
 	if err != nil {
 		return fmt.Errorf("excluded repos: %w", err)
 	}
-	ignore, err := config.LoginGlobs(cfg.IgnoreAuthors)
-	if err != nil {
-		return fmt.Errorf("ignore_authors: %w", err)
-	}
-
 	launchCheck, checkNote, toolGate, gateNote := Classifiers(cfg, d.LookPath)
 	launcher, terminal := ResolveLauncher(ctx, cfg, d)
 	launcherTools, err := LauncherTools(launcher, terminal, d)
 	if err != nil {
 		return err
 	}
-	for _, tool := range append([]string{"gh", "git", cfg.Agent}, launcherTools...) {
+	for _, tool := range append(append([]string{"gh", "git"}, Agents(cfg)...), launcherTools...) {
 		if _, err := d.LookPath(tool); err != nil {
 			return fmt.Errorf("missing required command: %s", tool)
 		}
@@ -318,6 +353,9 @@ func Run(ctx context.Context, s Settings, d Deps, log *slog.Logger) error {
 	log.Info("config: " + config.Describe(s.ConfigSource))
 	log.Info(fmt.Sprintf("GitHub user: %s (prompts call you %s)", user.Login, owner))
 	log.Info(fmt.Sprintf("agent: %s (interactive)", cfg.Agent))
+	for _, name := range cfg.Names() {
+		log.Info("override: " + name)
+	}
 	log.Info("launcher: " + launcher)
 	log.Info("terminal: " + terminal.String())
 	log.Info(fmt.Sprintf("max active agents: %d", cfg.MaxAgents))
@@ -341,11 +379,11 @@ func Run(ctx context.Context, s Settings, d Deps, log *slog.Logger) error {
 
 	launch := &session.Launcher{
 		Root: root, Self: d.Self, Cfg: cfg, ConfigSource: s.ConfigSource, Login: user.Login, Owner: owner,
-		Agent: cfg.Agent, Launcher: launcher, Terminal: terminal, LaunchCheck: launchCheck, ToolGate: toolGate,
+		Launcher: launcher, Terminal: terminal, LaunchCheck: launchCheck, ToolGate: toolGate,
 		Local: local, DryRun: s.DryRun, SandboxErr: sandboxErr, CodexHome: codexHome, GOOS: d.GOOS, Run: d.Run, LookPath: d.LookPath, Log: log,
 	}
 	p := &poll.Poller{
-		GH: gh, Cfg: cfg, Login: user.Login, Include: include, Exclude: exclude, IgnoreAuthors: ignore,
+		GH: gh, Cfg: cfg, Login: user.Login, Include: include, Exclude: exclude,
 		ProcessExisting: s.ProcessExisting, DryRun: s.DryRun, StatePath: state,
 		Launch: launch.Launch, Log: log, Now: time.Now,
 	}

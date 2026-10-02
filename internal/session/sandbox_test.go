@@ -94,7 +94,7 @@ func TestReadOnlySessionGetsThePRContextAndSaysSo(t *testing.T) {
 func TestReadOnlyCodexSessionRunsInItsSandboxWithAPrivateHome(t *testing.T) {
 	r := require.New(t)
 	l, _ := newLauncher(t, "sandbox: read-only")
-	l.Agent = "codex"
+	l.Cfg.Agent = "codex"
 	l.CodexHome = "/home/me/.codex"
 	got := l.launched(t, "bob")
 	wt, checkout := tomlString(l.worktreeOf(1)), tomlString(filepath.Dir("/repo/.git"))
@@ -131,7 +131,7 @@ func TestSandboxOffChangesNothing(t *testing.T) {
 	r.NoDirExists(filepath.Join(l.Root, "sessions", "o__r", "pr-1", "pr-context"))
 
 	l, _ = newLauncher(t, "")
-	l.Agent = "codex"
+	l.Cfg.Agent = "codex"
 	r.Equal([]string{"/bin/codex"}, l.launched(t, "me").spec.Agent)
 }
 

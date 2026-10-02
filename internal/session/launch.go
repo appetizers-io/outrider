@@ -39,10 +39,9 @@ type Launcher struct {
 	Cfg          *config.Config
 	ConfigSource string // "": built-in defaults
 	Login, Owner string
-	Agent        string
 	Launcher     string // terminal | tmux
 	Terminal     Terminal
-	LaunchCheck  *classifier.Resolved
+	LaunchCheck  *classifier.Resolved // Cfg's; a PR whose overrides name another classifier resolves it
 	ToolGate     *classifier.Resolved
 	Local        map[string]Local // owner/repo -> checkout
 	DryRun       bool
@@ -96,13 +95,14 @@ func (l *Launcher) launch(ctx context.Context, r Request) (bool, error) {
 		l.Log.Error(fmt.Sprintf("%s: refusing session: read-only sandbox unavailable: %v", key, l.SandboxErr))
 		return true, nil //nolint:nilerr // refused for good: handled, not retried
 	}
-	if r.Gate != nil && l.LaunchCheck != nil {
+	cfg, _ := l.scoped(r)
+	if check, _ := l.classifiers(&cfg); r.Gate != nil && check != nil {
 		items, err := r.Gate(ctx)
 		if err != nil {
 			return false, err
 		}
 		req := classifier.NewRequest(r.Repo, r.N, r.PR, r.Trigger, items, l.Owner, l.Login)
-		launch, note := classifier.CheckLaunch(ctx, l.LaunchCheck, req, l.Cfg.LaunchCheck.SkipBelow, l.Run)
+		launch, note := classifier.CheckLaunch(ctx, check, req, cfg.LaunchCheck.SkipBelow, l.Run)
 		l.Log.Info(key + ": " + note)
 		if !launch {
 			l.Log.Info(fmt.Sprintf("%s: nothing actionable [%s]; not launching", key, r.Trigger))
@@ -160,6 +160,7 @@ type Policy struct {
 	PRContext    *string    `json:"pr_context"` // read-only: the prefetched PR context
 	ToolGate     PolicyGate `json:"tool_gate"`
 	Config       *string    `json:"config"`
+	Overrides    []string   `json:"overrides,omitempty"` // the config's overrides that apply, in order
 }
 
 // PolicyGate is the tool gate part of the policy.
@@ -180,9 +181,31 @@ func sessionDir(root, repo string, n int) string {
 	return filepath.Join(root, "sessions", strings.ReplaceAll(repo, "/", "__"), "pr-"+itoa(n))
 }
 
+// scoped is the config of r's PR, with the overrides that match it, and
+// whether it is your own PR.
+func (l *Launcher) scoped(r Request) (config.Config, bool) {
+	own := strings.EqualFold(r.PR.AuthorLogin(), l.Login)
+	return l.Cfg.For(r.Repo, own), own
+}
+
+// classifiers are the launch check and the tool gate of cfg: the ones
+// resolved at startup unless an override names other classifiers.
+func (l *Launcher) classifiers(cfg *config.Config) (launchCheck, toolGate *classifier.Resolved) {
+	same := func(a, b *string) bool { return (a == nil) == (b == nil) && (a == nil || *a == *b) }
+	launchCheck, toolGate = l.LaunchCheck, l.ToolGate
+	if !same(cfg.LaunchCheck.Classifier, l.Cfg.LaunchCheck.Classifier) {
+		launchCheck, _ = classifier.ResolveRole(cfg, cfg.LaunchCheck.Classifier, l.LookPath)
+	}
+	if cfg.Mode != "autonomous" && !same(cfg.ToolGate.Classifier, l.Cfg.ToolGate.Classifier) {
+		toolGate, _ = classifier.ResolveRole(cfg, cfg.ToolGate.Classifier, l.LookPath)
+	}
+	return launchCheck, toolGate
+}
+
 // sandboxed tells whether r's session runs in the read-only sandbox.
 func (l *Launcher) sandboxed(r Request) bool {
-	return l.Cfg.SandboxFor(strings.EqualFold(r.PR.AuthorLogin(), l.Login)) == config.ReadOnly
+	cfg, own := l.scoped(r)
+	return cfg.SandboxFor(own) == config.ReadOnly
 }
 
 // Prepare writes the session files for a PR checked out at worktree; sb is
@@ -193,11 +216,12 @@ func (l *Launcher) Prepare(r Request, worktree, lock string, sb *Sandbox) (Prepa
 		return Prepared{}, fmt.Errorf("session dir: %w", err)
 	}
 	author := r.PR.AuthorLogin()
-	own := strings.EqualFold(author, l.Login)
-	allowPush := l.Cfg.AllowPushToOthers()
+	cfg, own := l.scoped(r)
+	_, toolGate := l.classifiers(&cfg)
+	allowPush := cfg.AllowPushToOthers()
 	reviewOnly := !own && !allowPush
-	push := l.Cfg.PushMode()
-	ghWrites := l.Cfg.GitHubWritesMode()
+	push := cfg.PushMode()
+	ghWrites := cfg.GitHubWritesMode()
 	if sb != nil {
 		reviewOnly, ghWrites = true, "never"
 	}
@@ -206,14 +230,14 @@ func (l *Launcher) Prepare(r Request, worktree, lock string, sb *Sandbox) (Prepa
 	}
 	// review with evidence: local commits, pushes only to the owner's forks;
 	// forkPush is the push mode for those
-	forks, forkPush := l.Cfg.OthersPRs.Forks(), push
+	forks, forkPush := cfg.OthersPRs.Forks(), push
 	if reviewOnly && sb == nil && len(forks) > 0 {
-		push, forkPush = "review-forks", l.Cfg.PushMode()
+		push, forkPush = "review-forks", cfg.PushMode()
 	} else {
 		forks = nil
 	}
-	supervised := l.Cfg.Mode == "supervised"
-	gated := supervised && l.ToolGate != nil
+	supervised := cfg.Mode == "supervised"
+	gated := supervised && toolGate != nil
 	mode := map[string]string{
 		"review-only":  ", review only: git push blocked",
 		"review-forks": ", review only: git push only to your review forks (" + forkPush + ")",
@@ -233,7 +257,7 @@ func (l *Launcher) Prepare(r Request, worktree, lock string, sb *Sandbox) (Prepa
 	if supervised {
 		by := "deny rules"
 		if gated {
-			by = l.ToolGate.Name
+			by = toolGate.Name
 		}
 		mode += ", tools gated by " + by
 	}
@@ -248,7 +272,7 @@ func (l *Launcher) Prepare(r Request, worktree, lock string, sb *Sandbox) (Prepa
 	}
 	prompt, err := Prompt(PromptInput{
 		Repo: r.Repo, N: r.N, PR: r.PR, Trigger: r.Trigger, Owner: l.Owner, Login: l.Login,
-		Remote: remote, Scope: r.Scope, ScopeWhy: r.ScopeWhy, Extra: l.Cfg.Prompts.Extra,
+		Remote: remote, Scope: r.Scope, ScopeWhy: r.ScopeWhy, Extra: cfg.Prompts.Extra,
 		AllowPush: allowPush, PolicyFile: policyFile, Push: forkPush, GHWrites: ghWrites, ContextDir: contextDir,
 		ReviewForks: forks,
 	})
@@ -260,9 +284,9 @@ func (l *Launcher) Prepare(r Request, worktree, lock string, sb *Sandbox) (Prepa
 		return Prepared{}, fmt.Errorf("write prompt: %w", err)
 	}
 
-	agentPath, err := l.LookPath(l.Agent)
+	agentPath, err := l.LookPath(cfg.Agent)
 	if err != nil {
-		return Prepared{}, fmt.Errorf("%s is not installed", l.Agent)
+		return Prepared{}, fmt.Errorf("%s is not installed", cfg.Agent)
 	}
 	ghPath, err1 := l.LookPath("gh")
 	gitPath, err2 := l.LookPath("git")
@@ -274,7 +298,7 @@ func (l *Launcher) Prepare(r Request, worktree, lock string, sb *Sandbox) (Prepa
 		return Prepared{}, err
 	}
 
-	rules := GateText(l.Cfg, r.Repo, r.N, author, l.Owner, own, push, ghWrites)
+	rules := GateText(&cfg, r.Repo, r.N, author, l.Owner, own, push, ghWrites)
 	sandbox := "off"
 	if sb != nil {
 		rules += sandboxGateRule
@@ -282,41 +306,42 @@ func (l *Launcher) Prepare(r Request, worktree, lock string, sb *Sandbox) (Prepa
 	}
 	policy := Policy{
 		Repo: r.Repo, PR: r.N, URL: r.PR.URL, Author: author, OwnPR: own, Owner: l.Owner,
-		Trigger: r.Trigger, Mode: l.Cfg.Mode, ReviewOnly: reviewOnly,
+		Trigger: r.Trigger, Mode: cfg.Mode, ReviewOnly: reviewOnly,
 		PushAllowed: forkPush == "ask" || forkPush == "allow", Push: forkPush, ReviewForks: forks, GitHubWrites: ghWrites,
 		Scope: r.Scope, DenyRules: []string{}, Sandbox: sandbox, PRContext: contextDir,
-		ToolGate: PolicyGate{Matcher: l.Cfg.ToolGate.Matcher, Threshold: l.Cfg.ToolGate.Threshold, Rules: rules},
+		ToolGate: PolicyGate{Matcher: cfg.ToolGate.Matcher, Threshold: cfg.ToolGate.Threshold, Rules: rules},
 	}
 	if len(r.Scope) == 0 {
 		policy.Scope = nil
 	}
-	if (supervised || sb != nil) && l.Agent == "claude" {
+	if (supervised || sb != nil) && cfg.Agent == "claude" {
 		policy.DenyRules = DenyRules(push, l.GOOS, l.Root)
 		if sb != nil {
 			policy.DenyRules = append(policy.DenyRules, readOnlyDenyRules...)
 		}
 	}
 	if gated {
-		policy.ToolGate.Classifier = &l.ToolGate.Name
+		policy.ToolGate.Classifier = &toolGate.Name
 	}
 	if l.ConfigSource != "" {
 		policy.Config = &l.ConfigSource
 	}
+	policy.Overrides = l.Cfg.Applied(r.Repo, own)
 	if err := writeJSON(policyFile, policy); err != nil {
 		return Prepared{}, err
 	}
 
 	hookEnv := map[string]string{"OUTRIDER_POLICY_FILE": policyFile}
 	if gated {
-		hookEnv = classifier.HookEnv(l.ToolGate, rules, l.Cfg.ToolGate.Threshold, policyFile)
+		hookEnv = classifier.HookEnv(toolGate, rules, cfg.ToolGate.Threshold, policyFile)
 	}
 	name := fmt.Sprintf("PR %s#%d", r.Repo, r.N)
 	agent := []string{agentPath}
-	if l.Agent == "claude" {
+	if cfg.Agent == "claude" {
 		// Remote Control lists the session on claude.ai and in Claude Desktop
 		agent = append(agent, "--name", name, "--remote-control", name)
 		if supervised || sb != nil {
-			settings := ClaudeSettings(l.Cfg, push, l.GOOS, l.Root, l.ToolGate, hookEnv)
+			settings := ClaudeSettings(&cfg, push, l.GOOS, l.Root, toolGate, hookEnv)
 			if sb != nil {
 				settings["permissions"] = map[string]any{"deny": policy.DenyRules, "disableBypassPermissionsMode": "disable"}
 				settings["sandbox"] = ClaudeSandbox(sb.DenyWrite)
@@ -375,7 +400,7 @@ func (l *Launcher) Prepare(r Request, worktree, lock string, sb *Sandbox) (Prepa
 		PromptFile: promptFile,
 		Header: []string{
 			fmt.Sprintf("GitHub PR review agent: %s#%d", r.Repo, r.N),
-			fmt.Sprintf("agent: %s (%s%s)", l.Agent, ghNote, mode),
+			fmt.Sprintf("agent: %s (%s%s)", cfg.Agent, ghNote, mode),
 			"",
 		},
 	}

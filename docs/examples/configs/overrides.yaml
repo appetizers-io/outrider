@@ -1,0 +1,19 @@
+# Overrides: different settings per repo, and for your own vs. others' PRs.
+#
+# For: reviewers whose bots should count on their own PRs but not on PRs they
+# opted into with 👀.
+# Does: on others' PRs, bot activity alone never relaunches a session; on
+# others' PRs in my-org, the launch check is stricter and the agent gets
+# house rules.
+# Use: outrider --config docs/examples/configs/overrides.yaml --dry-run --once
+
+repos:
+  include: ["my-org/*", "other-org/*"]
+
+overrides:
+  - match: [{prs: others}]
+    ignore_authors: ["*[bot]"]
+  - match: [{repo: "my-org/*", prs: others}]
+    launch_check: {skip_below: 0.7}
+    prompts:
+      extra: "Name the test that proves each finding."
