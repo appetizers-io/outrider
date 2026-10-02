@@ -16,8 +16,8 @@ candidate_limit: 20
 stale_lock_hours: 6.5
 
 repos:
-  include: ["open-component-model/*"]
-  exclude: ["open-component-model/ocm-website"]
+  include: ["my-org/*"]
+  exclude: ["my-org/website"]
 
 # activity only by these never starts a session
 ignore_authors: ["netlify[bot]", "github-actions[bot]"]

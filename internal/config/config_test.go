@@ -213,7 +213,7 @@ func TestConfigWithAllKeysLoads(t *testing.T) {
 	c, err := Parse(text, "config-all-keys.yaml")
 	require.NoError(t, err)
 	require.Equal(t, "Matthias", *c.OwnerName)
-	require.Equal(t, []string{"open-component-model/*"}, c.Repos.Include)
+	require.Equal(t, []string{"my-org/*"}, c.Repos.Include)
 	require.Equal(t, []string{"never modify generated/ or vendor/"}, c.ToolGate.Rules)
 	require.Equal(t, []string{"alacritty", "-e", "{cmd}"}, c.Terminal.Command)
 	// it really sets every key
