@@ -48,6 +48,7 @@ type Launcher struct {
 	DryRun       bool
 	SandboxErr   error  // why read-only sessions can't run here; nil: they can
 	CodexHome    string // the user's CODEX_HOME
+	ClaudeUser   string // the user's Claude Code settings file (ClaudeUserSettings)
 	GOOS         string
 	Run          proc.Runner
 	LookPath     func(string) (string, error)
@@ -95,6 +96,13 @@ func (l *Launcher) launch(ctx context.Context, r Request) (bool, error) {
 		// fail closed: never run a read-only session unsandboxed
 		l.Log.Error(fmt.Sprintf("%s: refusing session: read-only sandbox unavailable: %v", key, l.SandboxErr))
 		return true, nil //nolint:nilerr // refused for good: handled, not retried
+	}
+	if l.sandboxed(r) && l.Agent == "claude" {
+		// read on every launch: fixing the file needs no restart
+		if err := UserSandboxLoosening(l.ClaudeUser); err != nil {
+			l.Log.Error(fmt.Sprintf("%s: refusing session: read-only sandbox not enforceable: %v", key, err))
+			return true, nil
+		}
 	}
 	if r.Gate != nil && l.LaunchCheck != nil {
 		items, err := r.Gate(ctx)
@@ -291,7 +299,7 @@ func (l *Launcher) Prepare(r Request, worktree, lock string, sb *Sandbox) (Prepa
 		policy.Scope = nil
 	}
 	if (supervised || sb != nil) && l.Agent == "claude" {
-		policy.DenyRules = DenyRules(push, l.GOOS)
+		policy.DenyRules = DenyRules(push, l.GOOS, l.Root)
 		if sb != nil {
 			policy.DenyRules = append(policy.DenyRules, readOnlyDenyRules...)
 		}
@@ -316,7 +324,7 @@ func (l *Launcher) Prepare(r Request, worktree, lock string, sb *Sandbox) (Prepa
 		// Remote Control lists the session on claude.ai and in Claude Desktop
 		agent = append(agent, "--name", name, "--remote-control", name)
 		if supervised || sb != nil {
-			settings := ClaudeSettings(l.Cfg, push, l.GOOS, l.ToolGate, hookEnv)
+			settings := ClaudeSettings(l.Cfg, push, l.GOOS, l.Root, l.ToolGate, hookEnv)
 			if sb != nil {
 				settings["permissions"] = map[string]any{"deny": policy.DenyRules, "disableBypassPermissionsMode": "disable"}
 				settings["sandbox"] = ClaudeSandbox(sb.DenyWrite)
@@ -344,7 +352,10 @@ func (l *Launcher) Prepare(r Request, worktree, lock string, sb *Sandbox) (Prepa
 		guard.EnvSession:  name,
 	}
 	if forks != nil {
+		// the guard stays review-only without the forks variable
+		env[guard.EnvPush] = "review-only"
 		env[guard.EnvReviewForks] = strings.Join(forks, "\n")
+		env[guard.EnvReviewForksPush] = forkPush
 		env[guard.EnvHeadRepo] = headRepo(r.PR)
 	}
 	if forkPush != "allow" || forks != nil {

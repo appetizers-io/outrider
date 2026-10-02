@@ -389,6 +389,16 @@ func TestCheckSandbox(t *testing.T) {
 			status: OK, detail: "read-only (codex: --sandbox read-only",
 		},
 		{
+			name: "claude settings loosen the sandbox", setup: func(m *machine) { m.cfg = "sandbox: read-only\nagent: claude" },
+			edit: func(t *testing.T, in *Input) {
+				dir := filepath.Join(in.Deps.Home, ".claude")
+				require.NoError(t, os.MkdirAll(dir, 0o700))
+				require.NoError(t, os.WriteFile(filepath.Join(dir, "settings.json"),
+					[]byte(`{"sandbox": {"excludedCommands": ["gpg *"]}}`), 0o600))
+			},
+			status: Fail, detail: "set sandbox.excludedCommands", fix: "remove the named keys from your Claude settings",
+		},
+		{
 			name: "windows", setup: func(m *machine) { m.cfg = "sandbox: read-only"; m.goos = "windows" },
 			status: Fail, detail: "outrider supports no codex sandbox on windows",
 		},
@@ -446,6 +456,10 @@ func TestCheckReviewForks(t *testing.T) {
 		{
 			name: "explicit list", setup: func(m *machine) { forkCheckout(m); m.cfg = "others_prs: {review_forks: [me/x]}" },
 			status: Info, detail: "me/x (config)",
+		},
+		{
+			name: "wildcard", setup: func(m *machine) { forkCheckout(m); m.cfg = "others_prs: {review_forks: [me/x, me/*]}" },
+			status: Warn, detail: "me/* is a wildcard, which also matches repos that aren't forks",
 		},
 		{
 			name: "off", setup: func(m *machine) { forkCheckout(m); m.cfg = "others_prs: {review_forks: []}" },

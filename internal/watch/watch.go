@@ -198,6 +198,11 @@ func logSandbox(ctx context.Context, cfg *config.Config, codexHome string, d Dep
 		return err
 	}
 	log.Info(fmt.Sprintf("%s (%s)", mode, session.SandboxNote(cfg.Agent)))
+	if cfg.Agent == "claude" {
+		if err := session.UserSandboxLoosening(session.ClaudeUserSettings(d.Getenv, d.Home)); err != nil {
+			log.Error("sandboxed sessions will be refused until this is fixed: " + err.Error())
+		}
+	}
 	return nil
 }
 
@@ -342,7 +347,8 @@ func Run(ctx context.Context, s Settings, d Deps, log *slog.Logger) error {
 	launch := &session.Launcher{
 		Root: root, Self: d.Self, Cfg: cfg, ConfigSource: s.ConfigSource, Login: user.Login, Owner: owner,
 		Agent: cfg.Agent, Launcher: launcher, Terminal: terminal, LaunchCheck: launchCheck, ToolGate: toolGate,
-		Local: local, DryRun: s.DryRun, SandboxErr: sandboxErr, CodexHome: codexHome, GOOS: d.GOOS, Run: d.Run, LookPath: d.LookPath, Log: log,
+		Local: local, DryRun: s.DryRun, SandboxErr: sandboxErr, CodexHome: codexHome,
+		ClaudeUser: session.ClaudeUserSettings(d.Getenv, d.Home), GOOS: d.GOOS, Run: d.Run, LookPath: d.LookPath, Log: log,
 	}
 	p := &poll.Poller{
 		GH: gh, Cfg: cfg, Login: user.Login, Include: include, Exclude: exclude, IgnoreAuthors: ignore,

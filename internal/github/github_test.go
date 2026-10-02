@@ -242,6 +242,30 @@ func TestSaveContextWritesWhatAnOfflineSessionNeeds(t *testing.T) {
 	}
 }
 
+// Security review A4: a huge PR can't fill the disk or the agent's context.
+func TestSaveContextCapsEachFile(t *testing.T) {
+	r := require.New(t)
+	big := strings.Repeat("+x\n", MaxContextFile)
+	c := fake(func(args []string) (any, error) {
+		switch args[0] + " " + args[1] {
+		case "pr view":
+			return map[string]any{"body": big}, nil
+		case "pr diff":
+			return big, nil
+		}
+		return [][]any{{}}, nil
+	})
+	dir := t.TempDir()
+	r.NoError(c.SaveContext(t.Context(), "o/r", 7, dir))
+	for _, name := range []string{"pr.json", "pr.diff"} {
+		raw, err := os.ReadFile(filepath.Join(dir, name))
+		r.NoError(err)
+		r.Less(len(raw), MaxContextFile+100, name)
+		r.Contains(string(raw), "[outrider: truncated, the first 2097152 of ", name)
+	}
+	r.Equal([]byte("x"), capped([]byte("x")))
+}
+
 func TestSaveContextFailsWhenGitHubDoes(t *testing.T) {
 	c := fake(func([]string) (any, error) { return nil, errors.New("offline") })
 	require.Error(t, c.SaveContext(t.Context(), "o/r", 7, t.TempDir()))

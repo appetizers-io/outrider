@@ -368,6 +368,14 @@ func checkSandbox(ctx context.Context, in *Input) Result {
 			Fix: "install or update what is named above, or set sandbox and others_prs.sandbox to off (see docs/safety.md)",
 		}
 	}
+	if cfg.Agent == "claude" {
+		if err := session.UserSandboxLoosening(session.ClaudeUserSettings(d.Getenv, d.Home)); err != nil {
+			return Result{
+				Name: "sandbox", Status: Fail, Detail: mode + ": " + err.Error() + "; sandboxed sessions are refused",
+				Fix: "remove the named keys from your Claude settings, or set sandbox and others_prs.sandbox to off",
+			}
+		}
+	}
 	return Result{Name: "sandbox", Status: OK, Detail: mode + " (" + session.SandboxNote(cfg.Agent) + ")"}
 }
 
@@ -395,6 +403,14 @@ func checkReviewForks(_ context.Context, in *Input) Result {
 	r := Result{Name: "review forks", Status: Info, Detail: in.forks.String()}
 	if in.forks.Failed {
 		r.Status, r.Fix = Warn, "check `gh api repos/<origin>` and `git remote get-url --push origin`, or set others_prs.review_forks"
+		return r
+	}
+	// a wildcard can match repos that aren't forks, whose workflows run with
+	// their own secrets on a pushed review/ branch
+	if i := slices.IndexFunc(in.forks.Forks, func(f string) bool { return strings.ContainsAny(f, "*?[{") }); i >= 0 {
+		r.Status = Warn
+		r.Detail += "; " + in.forks.Forks[i] + " is a wildcard, which also matches repos that aren't forks"
+		r.Fix = "list exact fork names in others_prs.review_forks, e.g. me/repo"
 	}
 	return r
 }

@@ -4,6 +4,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"slices"
 	"strings"
 	"testing"
@@ -91,11 +92,11 @@ func TestReviewForkPushDecision(t *testing.T) {
 		dest string
 	}{
 		{"remote name, scp url", []string{"push", "fork", "HEAD:review/pr-7"}, nil, "github.com/me/fork"},
-		{"https remote", []string{"push", "-u", "fork2", "review/pr-7"}, nil, "github.com/me/fork2"},
-		{"url given directly", []string{"push", "https://github.com/me/fork", "HEAD:refs/heads/x"}, nil, "github.com/me/fork"},
-		{"force-with-lease", []string{"push", "--force-with-lease", "fork", "HEAD:x"}, nil, "github.com/me/fork"},
-		{"force-with-lease=ref", []string{"push", "--force-with-lease=x:abc", "--", "fork", "HEAD:x"}, nil, "github.com/me/fork"},
-		{"the session's own push trap", []string{"push", "fork", "HEAD:x"}, trap, "github.com/me/fork"},
+		{"https remote, branch name", []string{"push", "-u", "fork2", "review/pr-7"}, nil, "github.com/me/fork2"},
+		{"url given directly", []string{"push", "https://github.com/me/fork", "HEAD:refs/heads/review/x"}, nil, "github.com/me/fork"},
+		{"force-with-lease", []string{"push", "--force-with-lease", "fork", "HEAD:review/x"}, nil, "github.com/me/fork"},
+		{"force-with-lease=ref", []string{"push", "--force-with-lease=x:abc", "--", "fork", "HEAD:review/x"}, nil, "github.com/me/fork"},
+		{"the session's own push trap", []string{"push", "fork", "HEAD:review/x"}, trap, "github.com/me/fork"},
 	}
 	for _, tc := range allowed {
 		t.Run("allowed/"+tc.name, func(t *testing.T) {
@@ -104,6 +105,7 @@ func TestReviewForkPushDecision(t *testing.T) {
 			r.Empty(d.Deny)
 			r.False(d.Ask)
 			r.Equal(tc.dest, d.Dest)
+			r.Equal(forkURLs[tc.args[len(tc.args)-2]][0], d.URL)
 			d = reviewForks("bob/repo").Decide(tc.args, "ask", tc.env, fakeResolve)
 			r.Empty(d.Deny)
 			r.True(d.Ask)
@@ -117,16 +119,16 @@ func TestReviewForkPushDecision(t *testing.T) {
 		env        []string
 		why        string
 	}{
-		{"base repo", "bob/repo", []string{"push", "origin", "HEAD:x"}, nil, "head or base repo"},
-		{"head repo", "bob/repo", []string{"push", "head", "HEAD:x"}, nil, "head or base repo"},
-		{"head repo matching a fork glob", "me/repo", []string{"push", "mine", "HEAD:x"}, nil, "head or base repo"},
-		{"base url given directly", "bob/repo", []string{"push", "https://github.com/base/repo", "HEAD:x"}, nil, "Cannot resolve"},
-		{"other repo", "bob/repo", []string{"push", "other", "HEAD:x"}, nil, "not one of the review forks"},
-		{"not github", "bob/repo", []string{"push", "gitlab", "HEAD:x"}, nil, "not a github.com"},
-		{"pushurl redirect", "bob/repo", []string{"push", "pushurl", "HEAD:x"}, nil, "head or base repo"},
-		{"two push urls", "bob/repo", []string{"push", "twice", "HEAD:x"}, nil, "2 URLs"},
-		{"unknown remote", "bob/repo", []string{"push", "nope", "HEAD:x"}, nil, "Cannot resolve"},
-		{"head unknown", "", []string{"push", "fork", "HEAD:x"}, nil, "unknown"},
+		{"base repo", "bob/repo", []string{"push", "origin", "HEAD:review/x"}, nil, "head or base repo"},
+		{"head repo", "bob/repo", []string{"push", "head", "HEAD:review/x"}, nil, "head or base repo"},
+		{"head repo matching a fork glob", "me/repo", []string{"push", "mine", "HEAD:review/x"}, nil, "head or base repo"},
+		{"base url given directly", "bob/repo", []string{"push", "https://github.com/base/repo", "HEAD:review/x"}, nil, "Cannot resolve"},
+		{"other repo", "bob/repo", []string{"push", "other", "HEAD:review/x"}, nil, "not one of the review forks"},
+		{"not github", "bob/repo", []string{"push", "gitlab", "HEAD:review/x"}, nil, "not a github.com"},
+		{"pushurl redirect", "bob/repo", []string{"push", "pushurl", "HEAD:review/x"}, nil, "head or base repo"},
+		{"two push urls", "bob/repo", []string{"push", "twice", "HEAD:review/x"}, nil, "2 URLs"},
+		{"unknown remote", "bob/repo", []string{"push", "nope", "HEAD:review/x"}, nil, "Cannot resolve"},
+		{"head unknown", "", []string{"push", "fork", "HEAD:review/x"}, nil, "unknown"},
 		{"no refspec", "bob/repo", []string{"push", "fork"}, nil, "Name the remote"},
 		{"no remote", "bob/repo", []string{"push"}, nil, "Name the remote"},
 		{"--mirror", "bob/repo", []string{"push", "--mirror", "fork", "x"}, nil, "--mirror"},
@@ -157,6 +159,20 @@ func TestReviewForkPushDecision(t *testing.T) {
 			append(slices.Clone(trap), "GIT_CONFIG_KEY_1=remote.fork.pushurl"), "GIT_CONFIG_KEY_1"},
 		{"GIT_CONFIG_GLOBAL", "bob/repo", []string{"push", "fork", "x"}, []string{"GIT_CONFIG_GLOBAL=/tmp/x"}, "GIT_CONFIG_GLOBAL"},
 		{"GIT_DIR", "bob/repo", []string{"push", "fork", "x"}, []string{"GIT_DIR=/x/.git"}, "GIT_DIR"},
+		// security review B1: the transport and helpers git reads at push time
+		{"GIT_SSH_COMMAND", "bob/repo", []string{"push", "fork", "HEAD:review/x"}, []string{"GIT_SSH_COMMAND=ssh-evil"}, "GIT_SSH_COMMAND"},
+		{"GIT_SSH", "bob/repo", []string{"push", "fork", "HEAD:review/x"}, []string{"GIT_SSH=ssh-evil"}, "GIT_SSH"},
+		{"GIT_SSH_VARIANT", "bob/repo", []string{"push", "fork", "HEAD:review/x"}, []string{"GIT_SSH_VARIANT=simple"}, "GIT_SSH_VARIANT"},
+		{"GIT_EXEC_PATH", "bob/repo", []string{"push", "fork", "HEAD:review/x"}, []string{"GIT_EXEC_PATH=/evil"}, "GIT_EXEC_PATH"},
+		{"GIT_PROXY_COMMAND", "bob/repo", []string{"push", "fork", "HEAD:review/x"}, []string{"GIT_PROXY_COMMAND=evil"}, "GIT_PROXY_COMMAND"},
+		// security review B3: only branches under review/
+		{"main", "bob/repo", []string{"push", "fork", "HEAD:main"}, nil, "under review/"},
+		{"refs/heads/main", "bob/repo", []string{"push", "fork", "HEAD:refs/heads/main"}, nil, "under review/"},
+		{"branch name", "bob/repo", []string{"push", "fork", "main"}, nil, "under review/"},
+		{"tag", "bob/repo", []string{"push", "fork", "HEAD:refs/tags/review/x"}, nil, "under review/"},
+		{"review/ alone", "bob/repo", []string{"push", "fork", "HEAD:review/"}, nil, "under review/"},
+		{"wildcard", "bob/repo", []string{"push", "fork", "refs/heads/*:refs/heads/review/*"}, nil, "under review/"},
+		{"one bad refspec", "bob/repo", []string{"push", "fork", "HEAD:review/x", "HEAD:main"}, nil, "under review/"},
 	}
 	for _, tc := range refused {
 		t.Run("refused/"+tc.name, func(t *testing.T) {
@@ -167,6 +183,28 @@ func TestReviewForkPushDecision(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestReviewRefsAreQualified(t *testing.T) {
+	for ref, want := range map[string]string{
+		"HEAD:review/x":                "HEAD:refs/heads/review/x",
+		"review/pr-7":                  "review/pr-7:refs/heads/review/pr-7",
+		"abc123:refs/heads/review/a/b": "abc123:refs/heads/review/a/b",
+		"HEAD:main":                    "",
+		"HEAD:refs/remotes/review/x":   "",
+		"HEAD:review/x:y":              "",
+		"HEAD:review/../main":          "",
+		"HEAD:review/^x":               "",
+		":review/x":                    "",
+	} {
+		require.Equal(t, want, reviewRef(ref), ref)
+	}
+}
+
+func TestPinnedPushRunsAgainstTheResolvedURL(t *testing.T) {
+	d := GitDecision{URL: "git@github.com:me/fork.git", Refs: []string{"HEAD:refs/heads/review/x"}, Flags: []string{"-u"}}
+	require.Equal(t, []string{"-c", "core.hooksPath=" + os.DevNull, "-c", "core.sshCommand=ssh", "push", "--no-verify",
+		"-u", "--", "git@github.com:me/fork.git", "HEAD:refs/heads/review/x"}, PinnedPush(d))
 }
 
 // gitRepo is a throwaway repository with the given config; the global config
@@ -226,7 +264,7 @@ func TestResolvePushWithRealGit(t *testing.T) {
 		{repo: "https://github.com/base/repo", deny: "head or base repo"},
 		{repo: "upstream", deny: "not a github.com https or ssh URL"}, // no such remote: a URL
 	} {
-		d := rf.Decide([]string{"push", tc.repo, "HEAD:x"}, "allow", nil, resolve)
+		d := rf.Decide([]string{"push", tc.repo, "HEAD:review/x"}, "allow", nil, resolve)
 		if tc.deny != "" {
 			require.Contains(t, d.Deny, tc.deny, tc.repo)
 			continue
@@ -246,7 +284,8 @@ func TestReviewForkGuardShowsTheDestination(t *testing.T) {
 	dir, env := gitRepo(t, "", [2]string{"remote.fork.url", "git@github.com:me/fork.git"})
 	t.Chdir(dir)
 	sess := map[string]string{
-		EnvRealGit: realGit, EnvPush: "ask", EnvReviewForks: "me/*", EnvHeadRepo: "bob/repo", EnvRepo: "base/repo",
+		EnvRealGit: realGit, EnvPush: "review-only", EnvReviewForks: "me/*", EnvReviewForksPush: "ask",
+		EnvHeadRepo: "bob/repo", EnvRepo: "base/repo",
 		"GUARD_ANSWER": "Deny",
 	}
 	for _, kv := range env {
@@ -258,13 +297,127 @@ func TestReviewForkGuardShowsTheDestination(t *testing.T) {
 	res := runGuard(t, "git", sess, "push", "fork", "HEAD:review/pr-7")
 	r.Equal(1, res.code)
 	r.Contains(res.stderr, "did not approve")
-	r.Contains(res.dialog, "to: github.com/me/fork\nrefs: HEAD:review/pr-7\n")
+	r.Contains(res.dialog, "to: github.com/me/fork\nrefs: HEAD:refs/heads/review/pr-7\n")
 
-	res = runGuard(t, "git", sess, "-c", "remote.fork.pushurl=https://github.com/base/repo", "push", "fork", "HEAD:x")
+	res = runGuard(t, "git", sess, "-c", "remote.fork.pushurl=https://github.com/base/repo", "push", "fork", "HEAD:review/x")
 	r.Equal(1, res.code)
 	r.Contains(res.stderr, "global options")
 	r.Empty(res.dialog)
 
 	res = runGuard(t, "git", sess, "status")
 	r.Equal(0, res.code, res.stderr) // everything else runs the real git
+}
+
+// writeExec writes an executable shell script.
+func writeScript(t *testing.T, path, body string) {
+	t.Helper()
+	require.NoError(t, os.WriteFile(path, []byte("#!/bin/sh\n"+body), 0o700)) //nolint:gosec // a test script
+}
+
+// Security review B1 and B2, end to end: a review-fork push the guard allowed
+// for the fork must not land anywhere else, whatever git reads at push time
+// (ssh command, hooks, a remote helper), and a session that lost
+// $OUTRIDER_REVIEW_FORKS pushes nowhere. Local bare repos stand in for
+// GitHub behind a fake ssh that serves git@github.com:<owner>/<repo>.
+func TestReviewForkPushCannotBeRedirected(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("shell scripts stand in for ssh, hooks and helpers")
+	}
+	realGit, err := exec.LookPath("git")
+	require.NoError(t, err)
+	root := t.TempDir()
+	remotes, bin, work := filepath.Join(root, "remotes"), filepath.Join(root, "bin"), filepath.Join(root, "work")
+	base := filepath.Join(remotes, "base", "repo.git")
+	git := func(dir string, args ...string) string {
+		t.Helper()
+		cmd := exec.Command(realGit, args...)
+		cmd.Dir, cmd.Env = dir, []string{"PATH=" + os.Getenv("PATH"), "HOME=" + root}
+		out, err := cmd.CombinedOutput()
+		require.NoError(t, err, string(out))
+		return string(out)
+	}
+	require.NoError(t, os.WriteFile(filepath.Join(root, ".gitconfig"),
+		[]byte("[user]\n\tname = t\n\temail = t@example.com\n[commit]\n\tgpgsign = false\n"), 0o600))
+	for _, repo := range []string{"me/fork.git", "base/repo.git"} {
+		require.NoError(t, os.MkdirAll(filepath.Join(remotes, repo), 0o700))
+		git(filepath.Join(remotes, repo), "init", "-q", "--bare")
+	}
+	require.NoError(t, os.MkdirAll(bin, 0o700))
+	require.NoError(t, os.MkdirAll(work, 0o700))
+	// ssh git@github.com "git-receive-pack 'me/fork.git'" serves remotes/me/fork.git;
+	// ssh-evil serves the base repo whatever was asked for
+	serve := `[ "$1" = -G ] && exit 1
+for a; do last=$a; done
+path=$(printf '%s' "$last" | sed "s/^[^']*'\\(.*\\)'$/\\1/")
+exec ` + realGit + ` receive-pack "` + remotes + `/PATH"
+`
+	writeScript(t, filepath.Join(bin, "ssh"), strings.Replace(serve, "PATH", "$path", 1))
+	writeScript(t, filepath.Join(bin, "ssh-evil"), strings.Replace(serve, "PATH", "base/repo.git", 1))
+	toBase := realGit + ` push -q --no-verify "` + base + `" HEAD:refs/heads/pwned
+`
+	writeScript(t, filepath.Join(bin, "git-remote-evil"), toBase+"exit 1\n")
+	require.NoError(t, os.MkdirAll(filepath.Join(work, "hooks"), 0o700))
+	git(work, "init", "-q")
+	writeScript(t, filepath.Join(work, "hooks", "pre-push"), toBase)
+	writeScript(t, filepath.Join(work, ".git", "hooks", "pre-push"), toBase)
+	git(work, "commit", "-q", "--allow-empty", "-m", "evidence")
+	git(work, "remote", "add", "fork", "git@github.com:me/fork.git")
+	t.Chdir(work)
+
+	sess := func(extra ...string) map[string]string {
+		m := map[string]string{
+			"PATH": bin + string(os.PathListSeparator) + os.Getenv("PATH"), "HOME": root,
+			EnvRealGit: realGit, EnvPush: "review-only", EnvReviewForks: "me/fork", EnvReviewForksPush: "allow",
+			EnvHeadRepo: "bob/repo", EnvRepo: "base/repo",
+		}
+		for i := 0; i+1 < len(extra); i += 2 {
+			m[extra[i]] = extra[i+1]
+		}
+		return m
+	}
+	baseRefs := func() string { return git(base, "for-each-ref", "--format=%(refname)") }
+	forkRefs := func() string {
+		return git(filepath.Join(remotes, "me", "fork.git"), "for-each-ref", "--format=%(refname)")
+	}
+
+	for _, tc := range []struct {
+		name   string
+		config [2]string // repo config set for this case
+		env    []string
+		deny   string // "": pushed, and only to the fork
+	}{
+		{name: "plain", env: nil},
+		{name: "GIT_SSH_COMMAND", env: []string{"GIT_SSH_COMMAND", "ssh-evil"}, deny: "Unset GIT_SSH_COMMAND"},
+		{name: "GIT_SSH", env: []string{"GIT_SSH", "ssh-evil"}, deny: "Unset GIT_SSH"},
+		{name: "core.sshCommand", config: [2]string{"core.sshCommand", "ssh-evil"}},
+		{name: "core.hooksPath pre-push", config: [2]string{"core.hooksPath", "hooks"}},
+		{name: ".git/hooks/pre-push"},
+		{name: "remote vcs helper", config: [2]string{"remote.fork.vcs", "evil"}, deny: "remote helper"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			r := require.New(t)
+			if tc.config[0] != "" {
+				git(work, "config", tc.config[0], tc.config[1])
+				defer git(work, "config", "--unset", tc.config[0])
+			}
+			ref := "review/" + strings.NewReplacer(" ", "-", ".", "-", "/", "-").Replace(tc.name)
+			res := runGuard(t, "git", sess(tc.env...), "push", "fork", "HEAD:"+ref)
+			if tc.deny != "" {
+				r.Equal(1, res.code)
+				r.Contains(res.stderr, tc.deny)
+			} else {
+				r.Equal(0, res.code, res.stderr)
+				r.Contains(forkRefs(), "refs/heads/"+ref)
+			}
+			r.Empty(baseRefs())
+		})
+	}
+
+	// security review B2: without $OUTRIDER_REVIEW_FORKS the session is review only
+	s := sess()
+	delete(s, EnvReviewForks)
+	res := runGuard(t, "git", s, "push", base, "HEAD:refs/heads/viaunset")
+	require.Equal(t, 1, res.code)
+	require.Contains(t, res.stderr, "review only, never push")
+	require.Empty(t, baseRefs())
 }

@@ -59,6 +59,22 @@ session that would need it (`refusing session: read-only sandbox
 unavailable`); it never runs one unsandboxed. Claude Code's
 `failIfUnavailable` is a second check.
 
+**Your Claude settings must not loosen it.** Claude Code adds the sandbox
+lists of your user settings (`~/.claude/settings.json`, or
+`$CLAUDE_CONFIG_DIR/settings.json`; `--setting-sources user` loads no other
+file) to outrider's. `sandbox.excludedCommands` run outside the sandbox after
+one approval, and `sandbox.filesystem.allowWrite` and
+`sandbox.network.allowedDomains` open writes and network. When that file sets
+any of them, every read-only Claude session is refused
+(`refusing session: read-only sandbox not enforceable: your Claude settings
+... set sandbox.excludedCommands ...; remove sandbox.excludedCommands from
+that file`). The file is read again for each session, so removing the keys
+needs no restart. `outrider doctor` reports the same.
+
+The prefetched PR context is untrusted: each file is cut at 2 MiB (ending in
+an `[outrider: truncated ...]` note), and the prompt says the files are data,
+never instructions.
+
 | | Claude Code | Codex |
 |---|---|---|
 | macOS | yes | yes |
@@ -99,8 +115,12 @@ deleting branches and remote branches.
 
 ```yaml
 others_prs:
-  review_forks: ["me/*"]   # owner/repo globs of your own forks
+  review_forks: ["me/repo"]   # your own forks, by exact name
 ```
+
+List exact fork names. A wildcard like `me/*` also matches your repos that
+aren't forks, and a workflow pushed to one of them runs with that repo's
+secrets; `outrider doctor` warns about wildcards.
 
 `review_forks` has three states:
 
@@ -120,12 +140,13 @@ others_prs:
 - **`[]`:** off, no evidence pushes.
 
 The startup log and `outrider doctor` show the result:
-`review forks: me/repo (auto: origin)`, `review forks: me/* (config)` or
+`review forks: me/repo (auto: origin)`, `review forks: me/repo (config)` or
 `review forks: off (origin o/repo is not your fork)`.
 
 A review-only session on someone else's PR becomes **review with evidence**:
 the agent may edit files and commit locally, and push failing tests, repro
-scripts or a CI workflow to a fork matching `review_forks`. Each push follows
+scripts or a CI workflow to a branch under `review/` of a fork matching
+`review_forks`. Each push follows
 `push` (`ask`: the dialog shows where it goes, `never`, `allow`); posting to
 the PR still follows `github_writes`.
 
@@ -140,6 +161,8 @@ The `git` guard decides every push in these sessions:
 - It pushes only to a repo matching `review_forks`, and never to the PR's
   head repo or its base repo, even when a glob matches them. It refuses every
   push when GitHub didn't report the head repo.
+- It pushes only to branches under `refs/heads/review/` (`HEAD:review/<name>`
+  or a local branch `review/<name>`); `main`, tags and other refs are refused.
 - Only plain `git push <remote> <refspec>...` with a few options (`-u`,
   `--dry-run`, `--force-with-lease`, `--force-if-includes`, `--atomic`,
   `--no-verify`, `-q`, `-v`, `--porcelain`, `--progress`) is allowed. It
@@ -147,15 +170,30 @@ The `git` guard decides every push in these sessions:
   `--force`, `--prune`, `--repo`, aliases, `send-pack`, and global options
   such as `-c`, `--config-env`, `-C` and `--git-dir`.
 - It refuses the push when `GIT_CONFIG_PARAMETERS`, `GIT_CONFIG_GLOBAL`,
-  `GIT_CONFIG_SYSTEM`, `GIT_DIR`, `GIT_WORK_TREE` or a `GIT_CONFIG_KEY_<n>`
-  other than the push trap's is set, since they can redirect it.
+  `GIT_CONFIG_SYSTEM`, `GIT_DIR`, `GIT_WORK_TREE`, `GIT_SSH`,
+  `GIT_SSH_COMMAND`, `GIT_SSH_VARIANT`, `GIT_EXEC_PATH`, `GIT_PROXY_COMMAND`
+  or a `GIT_CONFIG_KEY_<n>` other than the push trap's is set, and when the
+  remote has a `vcs` helper, since they can redirect it.
+- **Transport and hooks are pinned.** An allowed push runs against the
+  resolved URL, not the remote name, as
+  `git -c core.hooksPath=/dev/null -c core.sshCommand=ssh push --no-verify
+  <options> -- <url> <src>:refs/heads/review/<name>`. So a `core.sshCommand`,
+  a pre-push hook (in `.git/hooks` or `core.hooksPath`) or a remote helper
+  can't send it to another repo. A URL that a `url.*.insteadOf` rule would
+  rewrite again is refused.
 - In `ask` mode the destination is resolved again after you click **Push**;
   if it changed, the push is refused.
 - The push trap stays in the session; an allowed push runs without it.
 
-Claude's deny rules for `Edit`, `Write` and `git commit` are dropped for these
-sessions; plain force pushes, `git push --delete`, `git rebase`,
-`git reset --hard` and `git branch -D` stay denied. `policy.json` lists the
+The guard reads `$OUTRIDER_REVIEW_FORKS` and the fork push mode
+`$OUTRIDER_REVIEW_FORKS_PUSH`; `$OUTRIDER_PUSH` stays `review-only`, so a
+session that loses the forks variable pushes nowhere.
+
+Claude's blanket deny rules for `Edit`, `Write` and `git commit` are dropped
+for these sessions. `Edit` and `Write` stay denied in any `.git` directory, in
+`~/.claude` and in outrider's state dir (`~/.cache/outrider`); plain force
+pushes, `git push --delete`, `git rebase`, `git reset --hard` and
+`git branch -D` stay denied. `policy.json` lists the
 forks.
 
 GitHub refuses a push that adds or changes `.github/workflows/` unless the
@@ -245,7 +283,7 @@ From two security reviews of the Go rewrite. The open items are tracked in
 | The push dialog shows the session's checkout | A push with `-C`, `--git-dir` or `GIT_DIR` can target something else. |
 | `gh api -X PATCH …/issues/comments/<id>` | In `ask` or `allow` mode it can edit any comment in the session's repo, not only yours. |
 | The guard links are shared | All sessions use `~/.cache/outrider/bin`, which one session could replace. |
-| A review-fork push is checked, then run | Config changed by a background process between the check and the push, a remote's `vcs` helper, a hook, or GitHub redirecting a renamed repo can still send it elsewhere. |
+| A review-fork push is checked, then run | The transport and hooks are pinned, but an `ssh` earlier on `PATH`, `http.proxy` together with `http.sslVerify=false`, config changed by a background process between the check and the push, or GitHub redirecting a renamed repo can still send it elsewhere. |
 
 In a [read-only sandbox](#read-only-sandbox) the gaps above that need a write
 or the network (changing the guards' environment to push or post, the real

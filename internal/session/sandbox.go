@@ -8,6 +8,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"slices"
 	"strings"
 
 	"golang.org/x/mod/semver"
@@ -66,6 +67,64 @@ func SandboxSupport(ctx context.Context, agent, goos, codexHome string, lookPath
 		}
 	}
 	return nil
+}
+
+// ClaudeUserSettings is the settings file `--setting-sources user` loads:
+// settings.json in $CLAUDE_CONFIG_DIR, else in ~/.claude. Claude Code reads
+// no user-level settings.local.json; that name is a checkout's local
+// settings, which read-only sessions skip.
+func ClaudeUserSettings(getenv func(string) string, home string) string {
+	if dir := getenv("CLAUDE_CONFIG_DIR"); dir != "" {
+		return filepath.Join(dir, "settings.json")
+	}
+	return filepath.Join(home, ".claude", "settings.json")
+}
+
+// UserSandboxLoosening tells why the user's Claude Code settings at path
+// would open a read-only session's sandbox, or nil. Claude Code adds these
+// user-level lists to outrider's sandbox settings: excludedCommands run
+// outside the sandbox after one approval, allowWrite and allowedDomains open
+// writes and network. A missing file is fine; one that can't be read or
+// parsed is an error, so the session fails closed.
+func UserSandboxLoosening(path string) error {
+	raw, err := os.ReadFile(path)
+	if errors.Is(err, os.ErrNotExist) {
+		return nil
+	}
+	if err != nil {
+		return fmt.Errorf("cannot read your Claude settings %s: %w", path, err)
+	}
+	var s struct {
+		Sandbox struct {
+			ExcludedCommands []any `json:"excludedCommands"`
+			Filesystem       struct {
+				AllowWrite []any `json:"allowWrite"`
+			} `json:"filesystem"`
+			Network struct {
+				AllowedDomains []any `json:"allowedDomains"`
+			} `json:"network"`
+		} `json:"sandbox"`
+	}
+	if err := json.Unmarshal(raw, &s); err != nil {
+		return fmt.Errorf("cannot parse your Claude settings %s: %w", path, err)
+	}
+	var keys []string
+	for key, list := range map[string][]any{
+		"sandbox.excludedCommands":       s.Sandbox.ExcludedCommands,
+		"sandbox.filesystem.allowWrite":  s.Sandbox.Filesystem.AllowWrite,
+		"sandbox.network.allowedDomains": s.Sandbox.Network.AllowedDomains,
+	} {
+		if len(list) > 0 {
+			keys = append(keys, key)
+		}
+	}
+	if len(keys) == 0 {
+		return nil
+	}
+	slices.Sort(keys)
+	return fmt.Errorf("your Claude settings %s set %s, which would let a read-only session write or reach "+
+		"the network outside its sandbox; remove %s from that file (or turn the sandbox off)",
+		path, strings.Join(keys, ", "), strings.Join(keys, " and "))
 }
 
 // Sandbox is what a read-only session gets prepared before it starts.

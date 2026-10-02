@@ -2,6 +2,7 @@ package session
 
 import (
 	"fmt"
+	"path/filepath"
 	"strings"
 
 	"github.com/appetizers-io/outrider/internal/classifier"
@@ -21,8 +22,9 @@ func dialogDenyRules(goos string) []string {
 }
 
 // DenyRules are the deterministic Claude Code deny rules for a supervised
-// session; push is review-only, never, ask or allow.
-func DenyRules(push, goos string) []string {
+// session; push is review-only, review-forks, never, ask or allow. root is
+// outrider's state dir (~/.cache/outrider), with the sessions and guards.
+func DenyRules(push, goos, root string) []string {
 	if push == "review-only" {
 		return append([]string{
 			"Edit",
@@ -38,7 +40,13 @@ func DenyRules(push, goos string) []string {
 		}, dialogDenyRules(goos)...)
 	}
 	if push == "review-forks" { // local commits are fine; the PR branch keeps its history
-		return append(dialogDenyRules(goos),
+		rules := dialogDenyRules(goos)
+		// edits stay out of git's own config and hooks, Claude's settings and
+		// outrider's session files
+		for _, path := range []string{"//**/.git/**", "~/.claude/**", "/" + filepath.ToSlash(root) + "/**"} {
+			rules = append(rules, "Edit("+path+")", "Write("+path+")")
+		}
+		return append(rules,
 			"Bash(git push --force:*)",
 			"Bash(git push -f:*)",
 			"Bash(git push --delete:*)",
@@ -66,10 +74,12 @@ var pushGateRules = map[string]string{
 		"absolute path, unsetting or changing GIT_CONFIG_* or OUTRIDER_* " +
 		"variables, git remote/config changes to push URLs, curl or API calls.",
 	"never": " Deny every git push, by any route.",
-	"review-forks": " Every git push must be plain `git push <remote> <refspec>`; the git " +
-		"guard checks where it goes and may ask the owner. Deny any push by another route: a " +
-		"git binary by absolute path, -c or GIT_CONFIG_* changes, unsetting or changing " +
-		"OUTRIDER_* variables, curl or API calls.",
+	"review-forks": " Every git push must be plain `git push <remote> HEAD:review/<name>` to a " +
+		"branch under review/; the git guard checks where it goes and may ask the owner. Deny any " +
+		"push by another route: a git binary by absolute path, -c or GIT_CONFIG_* changes, " +
+		"unsetting or changing OUTRIDER_* variables, git remote/config changes to push URLs, " +
+		"core.sshCommand, core.hooksPath, git hooks, remote.*.vcs, GIT_SSH, GIT_SSH_COMMAND, " +
+		"curl or API calls.",
 }
 
 var ghWriteGateRules = map[string]string{
@@ -100,7 +110,8 @@ func Rules(repo string, n int, author, owner string, own bool, push, ghWrites st
 	case push == "review-forks":
 		rules = "REVIEW WITH EVIDENCE: someone else's PR. Editing files and committing " +
 			"locally (tests, repro scripts, CI workflow files) is fine, and so is pushing " +
-			"that evidence to one of the owner's review forks listed below. Deny every push " +
+			"that evidence to a branch under review/ of one of the owner's review forks listed " +
+			"below. Deny every push " +
 			"to the PR branch, the PR's head repo or its base repo, force pushes, rebases or " +
 			"history rewrites of the PR branch, and any change to GitHub (except the posts " +
 			"allowed below)."
@@ -143,8 +154,8 @@ func GateText(cfg *config.Config, repo string, n int, author, owner string, own 
 
 // ClaudeSettings is --settings for a supervised Claude session: deny rules
 // plus, when a gate is available, the tool gate hook.
-func ClaudeSettings(cfg *config.Config, push, goos string, gate *classifier.Resolved, env map[string]string) map[string]any {
-	settings := map[string]any{"permissions": map[string]any{"deny": DenyRules(push, goos)}}
+func ClaudeSettings(cfg *config.Config, push, goos, root string, gate *classifier.Resolved, env map[string]string) map[string]any {
+	settings := map[string]any{"permissions": map[string]any{"deny": DenyRules(push, goos, root)}}
 	if gate != nil && gate.HookCmd != nil {
 		settings["env"] = env
 		settings["hooks"] = map[string]any{

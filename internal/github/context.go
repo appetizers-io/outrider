@@ -22,6 +22,19 @@ var ContextFiles = [][2]string{
 const contextFields = "number,title,url,state,isDraft,author,body,baseRefName,headRefName,headRefOid," +
 	"headRepository,headRepositoryOwner,labels,files,commits,reviewDecision,reviews,comments,statusCheckRollup"
 
+// MaxContextFile caps each prefetched file: a PR's text is untrusted and can
+// be huge. A cut file ends with a note saying so.
+const MaxContextFile = 2 << 20
+
+// capped is data cut to MaxContextFile, with a note when it was cut.
+func capped(data []byte) []byte {
+	if len(data) <= MaxContextFile {
+		return data
+	}
+	note := fmt.Sprintf("\n[outrider: truncated, the first %d of %d bytes]\n", MaxContextFile, len(data))
+	return append(data[:MaxContextFile:MaxContextFile], note...)
+}
+
 // SaveContext writes the PR context into dir for a session without network:
 // the files in ContextFiles.
 func (c *Client) SaveContext(ctx context.Context, repo string, n int, dir string) error {
@@ -65,7 +78,7 @@ func (c *Client) SaveContext(ctx context.Context, repo string, n int, dir string
 		files[name] = raw
 	}
 	for name, data := range files {
-		if err := os.WriteFile(filepath.Join(dir, name), data, 0o600); err != nil {
+		if err := os.WriteFile(filepath.Join(dir, name), capped(data), 0o600); err != nil {
 			return fmt.Errorf("pr context: %w", err)
 		}
 	}

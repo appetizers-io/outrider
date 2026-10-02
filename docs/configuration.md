@@ -66,7 +66,7 @@ matter for its case.
 | `others_prs.allow_push` | `false` in supervised, `true` in autonomous | `true`, `false` |
 | `sandbox` | `off` | `off`, `read-only` |
 | `others_prs.sandbox` | `null`: as `sandbox` | `off`, `read-only` |
-| `others_prs.review_forks` | `null`: auto, your `origin` fork in a fork checkout | owner/repo globs of your own forks, e.g. `["me/*"]`; `[]`: off |
+| `others_prs.review_forks` | `null`: auto, your `origin` fork in a fork checkout | your own forks by exact name, e.g. `["me/repo"]` (globs work, but `doctor` warns); `[]`: off |
 
 `sandbox: read-only` makes `push` and `github_writes` default to `never`;
 setting either to anything else with it is an error at startup, and so is

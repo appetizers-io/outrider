@@ -20,7 +20,8 @@ REVIEW WITH EVIDENCE: this PR belongs to bob, not Matthias.
   push it to one of Matthias's review forks (me/*, me-evidence/r):
   `git remote add fork git@github.com:<fork>.git` once, then
   `git push fork HEAD:review/pr-1-<topic>`. Only plain `git push <remote>
-  <refspec>` works; the git guard refuses every other destination
+  <refspec>` to a branch under `review/` works; the git guard refuses every
+  other destination and branch
 - each push opens a dialog for Matthias showing where it goes. If the
   push is denied, do NOT retry it or work around it; keep the commits local
 
