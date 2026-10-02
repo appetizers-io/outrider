@@ -62,6 +62,7 @@ is a user agent. A user agent runs in your desktop session, so sessions open in
 your terminal and approval dialogs show up.
 
 ```sh
+mkdir -p ~/Library/LaunchAgents
 cp docs/examples/service/io.appetizers.outrider.plist ~/Library/LaunchAgents/
 # edit the paths, then
 launchctl load ~/Library/LaunchAgents/io.appetizers.outrider.plist
@@ -73,6 +74,7 @@ is a user service. It has no display, so sessions open in tmux, and approval
 dialogs can't show: pushes and posts in `ask` mode are denied.
 
 ```sh
+mkdir -p ~/.config/systemd/user
 cp docs/examples/service/outrider.service ~/.config/systemd/user/
 systemctl --user daemon-reload
 systemctl --user enable --now outrider

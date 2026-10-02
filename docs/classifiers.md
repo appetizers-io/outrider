@@ -53,7 +53,7 @@ stdin and prints an answer on stdout.
 classifiers:
   local:
     kind: command
-    launch_command: sh ~/outrider/launch-check.sh
+    launch_command: ~/outrider/launch-check.sh   # executable; ~ expands only in the first word
     timeout_seconds: 30
 launch_check:
   classifier: local
@@ -102,7 +102,7 @@ the call and shows stderr to the agent, or it prints a `permissionDecision`.
 classifiers:
   local:
     kind: command
-    hook_command: sh ~/outrider/gate-hook.sh
+    hook_command: ~/outrider/gate-hook.sh
 tool_gate:
   classifier: local
   matcher: Bash|Write|Edit|NotebookEdit

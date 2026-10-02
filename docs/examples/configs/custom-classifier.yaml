@@ -8,6 +8,7 @@
 # Use: copy the scripts first, then run with this config:
 #   mkdir -p ~/.config/outrider
 #   cp docs/examples/classifiers/*.sh ~/.config/outrider/
+#   chmod +x ~/.config/outrider/*.sh
 #   outrider --config docs/examples/configs/custom-classifier.yaml
 
 agent: claude                  # the tool gate is a Claude Code hook
@@ -16,8 +17,10 @@ mode: supervised               # the tool gate only runs in supervised mode
 classifiers:
   local:
     kind: command
-    launch_command: sh ~/.config/outrider/launch-check.sh
-    hook_command: sh ~/.config/outrider/gate-hook.sh
+    # outrider expands a leading ~ only in the first word, so call the
+    # (executable) scripts directly rather than through `sh ~/...`
+    launch_command: ~/.config/outrider/launch-check.sh
+    hook_command: ~/.config/outrider/gate-hook.sh
     timeout_seconds: 30
 
 launch_check:

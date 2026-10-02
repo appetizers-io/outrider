@@ -12,10 +12,12 @@ Edit the paths in the file first (`/Users/you`, `some-repo`), then:
 
 ```sh
 # macOS
+mkdir -p ~/Library/LaunchAgents
 cp docs/examples/service/io.appetizers.outrider.plist ~/Library/LaunchAgents/
 launchctl load ~/Library/LaunchAgents/io.appetizers.outrider.plist
 
 # Linux
+mkdir -p ~/.config/systemd/user
 cp docs/examples/service/outrider.service ~/.config/systemd/user/
 systemctl --user daemon-reload && systemctl --user enable --now outrider
 ```

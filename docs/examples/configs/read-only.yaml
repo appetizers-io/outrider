@@ -1,4 +1,8 @@
-# Read-only: nothing leaves your machine.
+# Read-only: no pushes and no GitHub writes.
+#
+# The agent still sends code and PR content to its model provider (and the
+# launch check to its classifier). This is not a sandbox: for untrusted code
+# also run the agent in a sandbox (see docs/safety.md).
 #
 # For: trying outrider out, or untrusted code you want an agent to look at.
 # Does: sessions still run, but git push is refused (commits stay local) and

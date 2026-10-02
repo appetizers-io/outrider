@@ -50,7 +50,7 @@ matter for its case.
 | [`reviewer.yaml`](examples/configs/reviewer.yaml) | reviewing others' PRs: 👀 and @mentions, review only, posts ask |
 | [`own-prs.yaml`](examples/configs/own-prs.yaml) | fixing CI and review feedback on your own PRs |
 | [`autonomous.yaml`](examples/configs/autonomous.yaml) | a trusted repo: push and post without asking |
-| [`read-only.yaml`](examples/configs/read-only.yaml) | nothing leaves your machine |
+| [`read-only.yaml`](examples/configs/read-only.yaml) | no pushes, no GitHub writes |
 | [`codex.yaml`](examples/configs/codex.yaml) | Codex instead of Claude Code |
 | [`custom-classifier.yaml`](examples/configs/custom-classifier.yaml) | your own launch check and tool gate |
 | [`many-repos.yaml`](examples/configs/many-repos.yaml) | many repos, include/exclude globs, ignored bots |

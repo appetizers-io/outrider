@@ -5,6 +5,7 @@
 # dialogs can't show there either, so nothing is left at `ask` (it would deny
 # every push and post): commits stay local, and replies wait for you.
 # Use: copy it to ~/.config/outrider/config.yaml, where the service finds it:
+#   mkdir -p ~/.config/outrider
 #   cp docs/examples/configs/headless.yaml ~/.config/outrider/config.yaml
 #
 # Switch push/github_writes to allow only for repos you trust (see autonomous.yaml).
