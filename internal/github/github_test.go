@@ -4,6 +4,8 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"os"
+	"path/filepath"
 	"regexp"
 	"strings"
 	"testing"
@@ -203,4 +205,44 @@ func TestConfiguredReactionAndPlaces(t *testing.T) {
 	got, err := c.EyesQuery(t.Context(), refs(3), "rocket", []string{"description"})
 	require.NoError(t, err)
 	require.Equal(t, map[string]*string{"o/r#0": nil, "o/r#1": nil, "o/r#2": str("PR description")}, got)
+}
+
+func TestSaveContextWritesWhatAnOfflineSessionNeeds(t *testing.T) {
+	r := require.New(t)
+	c := fake(func(args []string) (any, error) {
+		switch args[0] + " " + args[1] {
+		case "pr view":
+			r.Equal([]string{"pr", "view", "7", "--repo", "o/r", "--json"}, args[:6])
+			return map[string]any{"title": "T", "statusCheckRollup": []map[string]any{
+				{"name": "lint", "conclusion": "SUCCESS"},
+				{"name": "test", "conclusion": "FAILURE", "detailsUrl": "https://ci/1"},
+			}}, nil
+		case "pr diff":
+			return "diff --git a/x b/x\n", nil
+		case "api repos/o/r/pulls/7/comments?per_page=100":
+			return [][]map[string]any{{{"id": 1, "body": "nit", "diff_hunk": "@@"}}}, nil
+		}
+		return nil, errors.New("unexpected " + strings.Join(args, " "))
+	})
+	dir := filepath.Join(t.TempDir(), "pr-context")
+	r.NoError(c.SaveContext(t.Context(), "o/r", 7, dir))
+	read := func(name string) string {
+		raw, err := os.ReadFile(filepath.Join(dir, name))
+		r.NoError(err)
+		return string(raw)
+	}
+	r.Contains(read("pr.json"), `"title":"T"`)
+	r.Equal("diff --git a/x b/x\n", read("pr.diff"))
+	r.Contains(read("review-comments.json"), `"diff_hunk": "@@"`)
+	var failing []Check
+	r.NoError(json.Unmarshal([]byte(read("failing-checks.json")), &failing))
+	r.Equal([]Check{{Name: "test", Conclusion: "FAILURE", DetailsURL: "https://ci/1"}}, failing)
+	for _, f := range ContextFiles {
+		r.FileExists(filepath.Join(dir, f[0]))
+	}
+}
+
+func TestSaveContextFailsWhenGitHubDoes(t *testing.T) {
+	c := fake(func([]string) (any, error) { return nil, errors.New("offline") })
+	require.Error(t, c.SaveContext(t.Context(), "o/r", 7, t.TempDir()))
 }

@@ -151,3 +151,23 @@ func TestReadOnlyPromptKeepsTheGuardrail(t *testing.T) {
 		}
 	}
 }
+
+func TestSandboxPromptsGolden(t *testing.T) {
+	ctx := "/s/pr-context"
+	for _, author := range []string{"me", "bob"} {
+		for _, scope := range []string{"pr", "mention"} {
+			in := PromptInput{
+				Repo: "o/r", N: 1, PR: goldenPR(author), Trigger: "trigger x", Owner: "Matthias", Login: "me",
+				Push: "review-only", GHWrites: "never", PolicyFile: "/s/policy.json", ContextDir: &ctx,
+			}
+			if scope == "mention" {
+				in.Scope, in.ScopeWhy = []string{"https://x/c3"}, "where someone mentioned @me"
+			}
+			got, err := Prompt(in)
+			if err != nil {
+				t.Fatal(err)
+			}
+			golden.Assert(t, got, fmt.Sprintf("prompts/sandbox-%s-scope_%s.txt", author, scope))
+		}
+	}
+}

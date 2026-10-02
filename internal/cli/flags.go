@@ -12,12 +12,12 @@ import (
 // flags of the root command. A flag overrides the config file only when it
 // was given (Changed); unset flags take the file's values.
 type flags struct {
-	config, agent, remote, launcher, githubWrites, terminal, jevCmd string
-	repo, excludeRepo                                               []string
-	interval, lookbackHours, maxAgents, candidateLimit              int
-	staleLockHours                                                  float64
-	processExisting, once, dryRun, noJev, resetState                bool
-	logLevel, logFormat                                             string
+	config, agent, remote, launcher, githubWrites, sandbox, terminal, jevCmd string
+	repo, excludeRepo                                                        []string
+	interval, lookbackHours, maxAgents, candidateLimit                       int
+	staleLockHours                                                           float64
+	processExisting, once, dryRun, noJev, resetState                         bool
+	logLevel, logFormat                                                      string
 }
 
 func (f *flags) register(cmd *cobra.Command) {
@@ -31,6 +31,8 @@ func (f *flags) register(cmd *cobra.Command) {
 	fs.StringVar(&f.terminal, "terminal", "", "terminal app: "+strings.Join(config.TerminalNames, ", ")+", or a command with {cmd}")
 	fs.StringVar(&f.githubWrites, "github-writes", "", "comments, reviews and reactions the agent posts on its PR with gh: "+
 		"ask, never or allow (ask: a dialog asks you first; default: ask in supervised mode)")
+	fs.StringVar(&f.sandbox, "sandbox", "", "off or read-only (read-only: sessions run in the agent's OS sandbox; "+
+		"no writes, pushes, posts or network)")
 	fs.IntVar(&f.interval, "interval", 0, "seconds between polls")
 	fs.IntVar(&f.lookbackHours, "lookback-hours", 0, "notification window in hours")
 	fs.IntVar(&f.maxAgents, "max-agents", 0, "agent sessions allowed to run at once")
@@ -64,6 +66,7 @@ func (f *flags) settings(cmd *cobra.Command) (watch.Settings, error) {
 	set("agent", func() { cfg.Agent = f.agent })
 	set("launcher", func() { cfg.Launcher = f.launcher })
 	set("github-writes", func() { cfg.GitHubWrites = &f.githubWrites })
+	set("sandbox", func() { cfg.Sandbox = f.sandbox })
 	set("terminal", func() { cfg.Terminal = config.ParseTerminal(f.terminal) })
 	set("interval", func() { cfg.IntervalSeconds = f.interval })
 	set("lookback-hours", func() { cfg.LookbackHours = f.lookbackHours })

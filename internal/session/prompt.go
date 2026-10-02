@@ -24,8 +24,9 @@ type PromptInput struct {
 	Extra         string // prompts.extra
 	AllowPush     bool   // others_prs.allow_push in effect
 	PolicyFile    string
-	Push          string // review-only | never | ask | allow
-	GHWrites      string // never | ask | allow
+	Push          string  // review-only | never | ask | allow
+	GHWrites      string  // never | ask | allow
+	ContextDir    *string // read-only sandbox: the prefetched PR context; nil: no sandbox
 }
 
 // tristate is a yes/no that GitHub may leave out.
@@ -55,14 +56,19 @@ func Prompt(in PromptInput) (string, error) {
 	if remote == "" {
 		remote = "origin"
 	}
+	sandbox := in.ContextDir != nil
 	data := map[string]any{
 		"Trigger": in.Trigger, "Repo": in.Repo, "N": in.N, "URL": in.PR.URL, "Title": in.PR.Title,
 		"Author": author, "Head": owner + "/" + name, "HeadRef": in.PR.HeadRefName,
 		"MaintainerCanModify": tristate(in.PR.MaintainerCanModify), "Base": in.PR.BaseRefName,
-		"Owner": in.Owner, "Remote": remote, "Own": own, "AllowPush": in.AllowPush,
-		"MayPush": own || in.AllowPush, "Push": in.Push, "PushRule": in.Push == "ask" || in.Push == "never",
+		"Owner": in.Owner, "Remote": remote, "Own": own && !sandbox, "AllowPush": in.AllowPush && !sandbox,
+		"MayPush": (own || in.AllowPush) && !sandbox, "Push": in.Push, "PushRule": in.Push == "ask" || in.Push == "never",
 		"GHWrites": in.GHWrites, "Writable": in.GHWrites == "ask" || in.GHWrites == "allow",
 		"Scope": in.Scope, "ScopeWhy": why, "PolicyFile": in.PolicyFile, "Extra": strings.TrimSpace(in.Extra),
+		"Sandbox": sandbox, "ContextFiles": github.ContextFiles,
+	}
+	if sandbox {
+		data["ContextDir"] = *in.ContextDir
 	}
 	var b strings.Builder
 	if err := promptTmpl.Execute(&b, data); err != nil {

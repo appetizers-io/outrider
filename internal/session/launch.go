@@ -46,6 +46,8 @@ type Launcher struct {
 	ToolGate     *classifier.Resolved
 	Local        map[string]Local // owner/repo -> checkout
 	DryRun       bool
+	SandboxErr   error  // why read-only sessions can't run here; nil: they can
+	CodexHome    string // the user's CODEX_HOME
 	GOOS         string
 	Run          proc.Runner
 	LookPath     func(string) (string, error)
@@ -88,6 +90,11 @@ func (l *Launcher) launch(ctx context.Context, r Request) (bool, error) {
 	if !l.DryRun && len(live) >= l.Cfg.MaxAgents {
 		l.Log.Info(fmt.Sprintf("%s: agent limit reached (%d); keeping event pending", key, l.Cfg.MaxAgents))
 		return false, nil
+	}
+	if l.sandboxed(r) && l.SandboxErr != nil {
+		// fail closed: never run a read-only session unsandboxed
+		l.Log.Error(fmt.Sprintf("%s: refusing session: read-only sandbox unavailable: %v", key, l.SandboxErr))
+		return true, nil //nolint:nilerr // refused for good: handled, not retried
 	}
 	if r.Gate != nil && l.LaunchCheck != nil {
 		items, err := r.Gate(ctx)
@@ -148,6 +155,8 @@ type Policy struct {
 	GitHubWrites string     `json:"github_writes"`
 	Scope        []string   `json:"scope"`
 	DenyRules    []string   `json:"deny_rules"`
+	Sandbox      string     `json:"sandbox"`    // off | read-only
+	PRContext    *string    `json:"pr_context"` // read-only: the prefetched PR context
 	ToolGate     PolicyGate `json:"tool_gate"`
 	Config       *string    `json:"config"`
 }
@@ -166,10 +175,19 @@ type Prepared struct {
 	Spec Spec
 }
 
-// Prepare writes the session files for a PR checked out at worktree.
-func (l *Launcher) Prepare(r Request, worktree, lock string) (Prepared, error) {
-	slug := strings.ReplaceAll(r.Repo, "/", "__")
-	dir := filepath.Join(l.Root, "sessions", slug, "pr-"+itoa(r.N))
+func sessionDir(root, repo string, n int) string {
+	return filepath.Join(root, "sessions", strings.ReplaceAll(repo, "/", "__"), "pr-"+itoa(n))
+}
+
+// sandboxed tells whether r's session runs in the read-only sandbox.
+func (l *Launcher) sandboxed(r Request) bool {
+	return l.Cfg.SandboxFor(strings.EqualFold(r.PR.AuthorLogin(), l.Login)) == config.ReadOnly
+}
+
+// Prepare writes the session files for a PR checked out at worktree; sb is
+// nil unless the session is sandboxed.
+func (l *Launcher) Prepare(r Request, worktree, lock string, sb *Sandbox) (Prepared, error) {
+	dir := sessionDir(l.Root, r.Repo, r.N)
 	if err := os.MkdirAll(dir, 0o700); err != nil {
 		return Prepared{}, fmt.Errorf("session dir: %w", err)
 	}
@@ -178,10 +196,13 @@ func (l *Launcher) Prepare(r Request, worktree, lock string) (Prepared, error) {
 	allowPush := l.Cfg.AllowPushToOthers()
 	reviewOnly := !own && !allowPush
 	push := l.Cfg.PushMode()
+	ghWrites := l.Cfg.GitHubWritesMode()
+	if sb != nil {
+		reviewOnly, ghWrites = true, "never"
+	}
 	if reviewOnly {
 		push = "review-only"
 	}
-	ghWrites := l.Cfg.GitHubWritesMode()
 	supervised := l.Cfg.Mode == "supervised"
 	gated := supervised && l.ToolGate != nil
 	mode := map[string]string{
@@ -196,6 +217,9 @@ func (l *Launcher) Prepare(r Request, worktree, lock string) (Prepared, error) {
 	if !ok {
 		ghNote = "gh is read-only"
 	}
+	if sb != nil {
+		mode += ", read-only sandbox"
+	}
 	if supervised {
 		by := "deny rules"
 		if gated {
@@ -208,10 +232,14 @@ func (l *Launcher) Prepare(r Request, worktree, lock string) (Prepared, error) {
 	if loc, ok := l.Local[r.Repo]; ok {
 		remote = loc.Remote
 	}
+	var contextDir *string
+	if sb != nil {
+		contextDir = &sb.ContextDir
+	}
 	prompt, err := Prompt(PromptInput{
 		Repo: r.Repo, N: r.N, PR: r.PR, Trigger: r.Trigger, Owner: l.Owner, Login: l.Login,
 		Remote: remote, Scope: r.Scope, ScopeWhy: r.ScopeWhy, Extra: l.Cfg.Prompts.Extra,
-		AllowPush: allowPush, PolicyFile: policyFile, Push: push, GHWrites: ghWrites,
+		AllowPush: allowPush, PolicyFile: policyFile, Push: push, GHWrites: ghWrites, ContextDir: contextDir,
 	})
 	if err != nil {
 		return Prepared{}, err
@@ -236,18 +264,26 @@ func (l *Launcher) Prepare(r Request, worktree, lock string) (Prepared, error) {
 	}
 
 	rules := GateText(l.Cfg, r.Repo, r.N, author, l.Owner, own, push, ghWrites)
+	sandbox := "off"
+	if sb != nil {
+		rules += sandboxGateRule
+		sandbox = config.ReadOnly
+	}
 	policy := Policy{
 		Repo: r.Repo, PR: r.N, URL: r.PR.URL, Author: author, OwnPR: own, Owner: l.Owner,
 		Trigger: r.Trigger, Mode: l.Cfg.Mode, ReviewOnly: reviewOnly,
 		PushAllowed: push == "ask" || push == "allow", Push: push, GitHubWrites: ghWrites,
-		Scope: r.Scope, DenyRules: []string{},
+		Scope: r.Scope, DenyRules: []string{}, Sandbox: sandbox, PRContext: contextDir,
 		ToolGate: PolicyGate{Matcher: l.Cfg.ToolGate.Matcher, Threshold: l.Cfg.ToolGate.Threshold, Rules: rules},
 	}
 	if len(r.Scope) == 0 {
 		policy.Scope = nil
 	}
-	if supervised && l.Agent == "claude" {
+	if (supervised || sb != nil) && l.Agent == "claude" {
 		policy.DenyRules = DenyRules(push, l.GOOS)
+		if sb != nil {
+			policy.DenyRules = append(policy.DenyRules, readOnlyDenyRules...)
+		}
 	}
 	if gated {
 		policy.ToolGate.Classifier = &l.ToolGate.Name
@@ -268,13 +304,23 @@ func (l *Launcher) Prepare(r Request, worktree, lock string) (Prepared, error) {
 	if l.Agent == "claude" {
 		// Remote Control lists the session on claude.ai and in Claude Desktop
 		agent = append(agent, "--name", name, "--remote-control", name)
-		if supervised {
+		if supervised || sb != nil {
+			settings := ClaudeSettings(l.Cfg, push, l.GOOS, l.ToolGate, hookEnv)
+			if sb != nil {
+				settings["permissions"] = map[string]any{"deny": policy.DenyRules, "disableBypassPermissionsMode": "disable"}
+				settings["sandbox"] = ClaudeSandbox(sb.DenyWrite)
+			}
 			sf := filepath.Join(dir, "claude-settings.json")
-			if err := writeJSON(sf, ClaudeSettings(l.Cfg, push, l.GOOS, l.ToolGate, hookEnv)); err != nil {
+			if err := writeJSON(sf, settings); err != nil {
 				return Prepared{}, err
 			}
 			agent = append(agent, "--settings", sf)
+			if sb != nil {
+				agent = append(agent, ClaudeSandboxArgs()...)
+			}
 		}
+	} else if sb != nil {
+		agent = append(agent, CodexSandboxArgs(worktree, sb.Checkout)...)
 	}
 
 	env := map[string]string{
@@ -293,6 +339,9 @@ func (l *Launcher) Prepare(r Request, worktree, lock string) (Prepared, error) {
 	}
 	for k, v := range hookEnv {
 		env[k] = v
+	}
+	if sb != nil && sb.CodexHome != "" {
+		env["CODEX_HOME"] = sb.CodexHome
 	}
 	var tmux *string
 	if l.Launcher == "tmux" {
@@ -377,7 +426,13 @@ func (l *Launcher) start(ctx context.Context, r Request, lock string) error {
 	if err != nil {
 		return err
 	}
-	p, err := l.Prepare(r, wt, lock)
+	var sb *Sandbox
+	if l.sandboxed(r) {
+		if sb, err = l.prepareSandbox(ctx, r, wt); err != nil {
+			return err
+		}
+	}
+	p, err := l.Prepare(r, wt, lock, sb)
 	if err != nil {
 		return err
 	}
