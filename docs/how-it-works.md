@@ -56,7 +56,9 @@ outrider writes the session files to
 |---|---|
 | `prompt.txt` | what happened, what the agent may do on this PR, the rules for GitHub |
 | `policy.json` | the same rules as data: review only or not, push and post modes, scope, deny rules, tool gate |
-| `claude-settings.json` | Claude only, supervised mode: deny rules and the tool-gate hook |
+| `claude-settings.json` | Claude only, supervised mode or read-only sandbox: deny rules, the tool-gate hook, the sandbox settings |
+| `pr-context/` | read-only sandbox: the PR fetched for an agent without network |
+| `codex-home/` | Codex in the read-only sandbox: a private `CODEX_HOME` with only your login |
 | `session.json` | everything the session runner needs |
 
 Then it opens a terminal window or a tmux session that runs

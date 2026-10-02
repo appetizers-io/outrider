@@ -56,8 +56,10 @@ the startup log.
 Sessions on other people's PRs are review only, and every push and post can
 require your click. These guardrails **catch an agent's mistakes; they are
 not a sandbox.** The agent runs as you, with your credentials. For PRs from
-people you don't trust, keep the tool gate on or run the agent in a sandbox.
-[Safety](docs/safety.md) lists what is and isn't enforced.
+people you don't trust, use `sandbox: read-only` (or only
+`others_prs.sandbox: read-only`): the session then runs in Claude Code's or
+Codex's own OS sandbox and can't write files, commit, push, post or reach
+the network. [Safety](docs/safety.md) lists what is and isn't enforced.
 
 ## Documentation
 
