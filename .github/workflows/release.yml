@@ -52,7 +52,8 @@ jobs:
           BUMP: ${{ inputs.bump }}
         run: |
           bump=$([ "$BUMP" = auto ] && echo "--bump" || echo "--bump $BUMP")
-          echo "args=--unreleased $bump --strip all -o RELEASE_NOTES.md" >> "$GITHUB_OUTPUT"
+          # outside the checkout: GoReleaser refuses to release from a dirty tree
+          echo "args=--unreleased $bump --strip all -o $RUNNER_TEMP/RELEASE_NOTES.md" >> "$GITHUB_OUTPUT"
       - name: Next version and release notes
         id: cliff
         uses: orhun/git-cliff-action@a9a95522b26fe6403f7bb24031f21fb573d0f5ff # v4.9.1
@@ -69,14 +70,14 @@ jobs:
             echo "::error::nothing to release (version: $VERSION)"; exit 1
           fi
           echo "Releasing $VERSION" >> "$GITHUB_STEP_SUMMARY"
-          cat RELEASE_NOTES.md >> "$GITHUB_STEP_SUMMARY"
+          cat "$RUNNER_TEMP/RELEASE_NOTES.md" >> "$GITHUB_STEP_SUMMARY"
       # Local tag only: GoReleaser needs it; GitHub creates the remote tag
       # together with the release.
       - run: git tag "${{ steps.cliff.outputs.version }}"
       - uses: goreleaser/goreleaser-action@f06c13b6b1a9625abc9e6e439d9c05a8f2190e94 # v7.2.3
         with:
           version: v2.18.2
-          args: release --clean --release-notes RELEASE_NOTES.md
+          args: release --clean --release-notes ${{ runner.temp }}/RELEASE_NOTES.md
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           # contents:write on appetizers-io/homebrew-tap only; unset skips the cask upload
