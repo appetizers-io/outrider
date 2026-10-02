@@ -42,7 +42,8 @@ func TestLauncherTools(t *testing.T) {
 		{name: "tmux", launcher: "tmux", goos: "linux", want: []string{"tmux"}},
 		{name: "tmux on windows", launcher: "tmux", goos: "windows", err: "tmux is not supported on Windows"},
 		{name: "kitty", launcher: "terminal", goos: "linux", term: term("kitty"), want: []string{"kitty"}},
-		{name: "macOS app", launcher: "terminal", goos: "darwin", term: term("iterm"), want: []string{"open"}},
+		{name: "iTerm2 via AppleScript", launcher: "terminal", goos: "darwin", term: term("iterm"), want: []string{"osascript"}},
+		{name: "Terminal.app via open", launcher: "terminal", goos: "darwin", term: term("terminal-app"), want: []string{"open"}},
 		{name: "no terminal", launcher: "terminal", goos: "linux", err: "no terminal found"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
