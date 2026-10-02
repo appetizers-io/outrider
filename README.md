@@ -32,6 +32,7 @@ worktree, in your terminal, with guardrails around pushing and posting.
 
 | Platform | How |
 |---|---|
+| macOS (Linux: see [notes](docs/development.md#homebrew-tap)) | `brew install appetizers-io/tap/outrider`, after the first public release |
 | macOS, Linux, Windows | Download an archive from [releases](https://github.com/appetizers-io/outrider/releases/latest) and put `outrider` on your `PATH` |
 | Any, with Go 1.27 | `go install github.com/appetizers-io/outrider@latest` |
 | From a checkout | `task install` (builds into `~/.local/bin`) |
