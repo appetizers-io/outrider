@@ -118,6 +118,15 @@ func (p Platform) dialogFor(title, body, ok string) (dialog, error) {
 	}
 }
 
+// Backend is the dialog tool that Ask would run here, or ErrNoDialog.
+func (p Platform) Backend() (string, error) {
+	d, err := p.dialogFor("", "", "")
+	if err != nil {
+		return "", err
+	}
+	return d.args[0], nil
+}
+
 // Ask shows the dialog and tells whether the owner clicked ok. Any failure,
 // no dialog and the timeout are a "no".
 func Ask(ctx context.Context, title, body, ok string) (bool, error) {

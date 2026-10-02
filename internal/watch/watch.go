@@ -33,8 +33,8 @@ func StatePath(home string) string {
 	return filepath.Join(home, ".local", "state", "outrider", "state.json")
 }
 
-// localCheckout is the GitHub repo of the checkout we run in, if any.
-func localCheckout(ctx context.Context, s *Settings, d Deps) (string, session.Local, error) {
+// LocalCheckout is the GitHub repo of the checkout we run in, if any.
+func LocalCheckout(ctx context.Context, s *Settings, d Deps) (string, session.Local, error) {
 	top, err := d.Run(ctx, proc.Cmd{Args: []string{"git", "rev-parse", "--show-toplevel"}})
 	if err != nil {
 		if s.Remote != "" {
@@ -58,25 +58,103 @@ func localCheckout(ctx context.Context, s *Settings, d Deps) (string, session.Lo
 	return repo, session.Local{Path: checkout, Remote: remote}, nil
 }
 
+// Desktop tells whether this is a desktop session that can show windows: an
+// Aqua session on macOS, a display on Linux, always on Windows.
+func Desktop(ctx context.Context, d Deps) bool {
+	switch d.GOOS {
+	case "darwin":
+		res, _ := d.Run(ctx, proc.Cmd{Args: []string{"launchctl", "managername"}})
+		return strings.TrimSpace(res.Stdout) == "Aqua"
+	case "windows":
+		return true
+	}
+	return d.Getenv("DISPLAY") != "" || d.Getenv("WAYLAND_DISPLAY") != ""
+}
+
 // pickLauncher resolves launcher: auto.
 func pickLauncher(ctx context.Context, launcher string, term session.Terminal, d Deps) string {
 	if launcher != "auto" {
 		return launcher
 	}
 	switch d.GOOS {
-	case "darwin":
-		res, _ := d.Run(ctx, proc.Cmd{Args: []string{"launchctl", "managername"}})
-		if strings.TrimSpace(res.Stdout) == "Aqua" {
+	case "darwin", "windows":
+		if Desktop(ctx, d) {
 			return "terminal"
 		}
-	case "windows":
-		return "terminal"
 	case "linux":
-		if (d.Getenv("DISPLAY") != "" || d.Getenv("WAYLAND_DISPLAY") != "") && term.Found() {
+		if term.Found() && Desktop(ctx, d) {
 			return "terminal"
 		}
 	}
 	return "tmux"
+}
+
+// ResolveLauncher is the launcher and terminal sessions open in.
+func ResolveLauncher(ctx context.Context, cfg *config.Config, d Deps) (string, session.Terminal) {
+	terminal := session.ResolveTerminal(cfg.Terminal, d.GOOS, d.Getenv, d.LookPath)
+	return pickLauncher(ctx, cfg.Launcher, terminal, d), terminal
+}
+
+// LauncherTools are the commands the launcher needs on PATH, or why it
+// can't work here.
+func LauncherTools(launcher string, terminal session.Terminal, d Deps) ([]string, error) {
+	if launcher == "tmux" {
+		if d.GOOS == "windows" {
+			return nil, errors.New("tmux is not supported on Windows; use --launcher terminal")
+		}
+		return []string{"tmux"}, nil
+	}
+	open := terminal.OpenCommand(d.GOOS, "", "", []string{d.Self})
+	if open == nil {
+		return nil, errors.New("no terminal found: set terminal in the config, or use --launcher tmux")
+	}
+	return open[:1], nil
+}
+
+// Classifiers are the launch check and the tool gate, each nil with a note
+// when off.
+func Classifiers(cfg *config.Config, lookPath classifier.LookPath) (launchCheck *classifier.Resolved, checkNote string, toolGate *classifier.Resolved, gateNote string) {
+	launchCheck, checkNote = classifier.ResolveRole(cfg, cfg.LaunchCheck.Classifier, lookPath)
+	toolGate, gateNote = classifier.ResolveRole(cfg, cfg.ToolGate.Classifier, lookPath)
+	if cfg.Mode == "autonomous" {
+		toolGate, gateNote = nil, "off (autonomous mode)"
+	}
+	return launchCheck, checkNote, toolGate, gateNote
+}
+
+// Owner is how prompts call the user: owner_name, else the first name of
+// the GitHub profile, else the login.
+func Owner(cfg *config.Config, user github.User) string {
+	if cfg.OwnerName != nil {
+		return *cfg.OwnerName
+	}
+	if fields := strings.Fields(user.Name); len(fields) > 0 {
+		return fields[0]
+	}
+	return user.Login
+}
+
+// CodexHome is the user's CODEX_HOME.
+func CodexHome(d Deps) string {
+	if h := d.Getenv("CODEX_HOME"); h != "" {
+		return h
+	}
+	return filepath.Join(d.Home, ".codex")
+}
+
+// SandboxMode describes the sandbox of own and others' PRs; on tells
+// whether any session is sandboxed.
+func SandboxMode(cfg *config.Config) (mode string, on bool) {
+	own, others := cfg.SandboxFor(true), cfg.SandboxFor(false)
+	switch {
+	case own != config.ReadOnly && others != config.ReadOnly:
+		return "sandbox: off", false
+	case own != config.ReadOnly:
+		return "sandbox: off; others' PRs: read-only", true
+	case others != config.ReadOnly:
+		return "sandbox: read-only; others' PRs: off", true
+	}
+	return "sandbox: read-only", true
 }
 
 // githubUser is the gh user, retried until GitHub answers (unless once).
@@ -109,17 +187,10 @@ func onOff(r *classifier.Resolved) string {
 // logSandbox logs the sandbox mode and returns why read-only sessions can't
 // run here, if they can't; those sessions are then refused.
 func logSandbox(ctx context.Context, cfg *config.Config, codexHome string, d Deps, log *slog.Logger) error {
-	own, others := cfg.SandboxFor(true), cfg.SandboxFor(false)
-	if own != config.ReadOnly && others != config.ReadOnly {
-		log.Info("sandbox: off")
+	mode, on := SandboxMode(cfg)
+	if !on {
+		log.Info(mode)
 		return nil
-	}
-	mode := "sandbox: read-only"
-	switch {
-	case own != config.ReadOnly:
-		mode = "sandbox: off; others' PRs: read-only"
-	case others != config.ReadOnly:
-		mode = "sandbox: read-only; others' PRs: off"
 	}
 	err := session.SandboxSupport(ctx, cfg.Agent, d.GOOS, codexHome, d.LookPath, d.Run)
 	if err != nil {
@@ -184,7 +255,7 @@ func sleep(ctx context.Context, d time.Duration) error {
 func Run(ctx context.Context, s Settings, d Deps, log *slog.Logger) error {
 	cfg := &s.Cfg
 	local := map[string]session.Local{}
-	repo, loc, err := localCheckout(ctx, &s, d)
+	repo, loc, err := LocalCheckout(ctx, &s, d)
 	if err != nil {
 		return err
 	}
@@ -209,27 +280,13 @@ func Run(ctx context.Context, s Settings, d Deps, log *slog.Logger) error {
 		return fmt.Errorf("ignore_authors: %w", err)
 	}
 
-	launchCheck, checkNote := classifier.ResolveRole(cfg, cfg.LaunchCheck.Classifier, d.LookPath)
-	toolGate, gateNote := classifier.ResolveRole(cfg, cfg.ToolGate.Classifier, d.LookPath)
-	if cfg.Mode == "autonomous" {
-		toolGate, gateNote = nil, "off (autonomous mode)"
+	launchCheck, checkNote, toolGate, gateNote := Classifiers(cfg, d.LookPath)
+	launcher, terminal := ResolveLauncher(ctx, cfg, d)
+	launcherTools, err := LauncherTools(launcher, terminal, d)
+	if err != nil {
+		return err
 	}
-	terminal := session.ResolveTerminal(cfg.Terminal, d.GOOS, d.Getenv, d.LookPath)
-	launcher := pickLauncher(ctx, cfg.Launcher, terminal, d)
-	if launcher == "tmux" && d.GOOS == "windows" {
-		return errors.New("tmux is not supported on Windows; use --launcher terminal")
-	}
-	tools := []string{"gh", "git", cfg.Agent}
-	if launcher == "tmux" {
-		tools = append(tools, "tmux")
-	} else {
-		open := terminal.OpenCommand(d.GOOS, "", "", []string{d.Self})
-		if open == nil {
-			return errors.New("no terminal found: set terminal in the config, or use --launcher tmux")
-		}
-		tools = append(tools, open[0])
-	}
-	for _, tool := range tools {
+	for _, tool := range append([]string{"gh", "git", cfg.Agent}, launcherTools...) {
 		if _, err := d.LookPath(tool); err != nil {
 			return fmt.Errorf("missing required command: %s", tool)
 		}
@@ -253,13 +310,7 @@ func Run(ctx context.Context, s Settings, d Deps, log *slog.Logger) error {
 	if err != nil {
 		return err
 	}
-	owner := user.Login
-	if fields := strings.Fields(user.Name); len(fields) > 0 {
-		owner = fields[0]
-	}
-	if cfg.OwnerName != nil {
-		owner = *cfg.OwnerName
-	}
+	owner := Owner(cfg, user)
 
 	log.Info("config: " + config.Describe(s.ConfigSource))
 	log.Info(fmt.Sprintf("GitHub user: %s (prompts call you %s)", user.Login, owner))
@@ -269,10 +320,7 @@ func Run(ctx context.Context, s Settings, d Deps, log *slog.Logger) error {
 	log.Info(fmt.Sprintf("max active agents: %d", cfg.MaxAgents))
 	log.Info(fmt.Sprintf("launch check: %s (%s)", onOff(launchCheck), checkNote))
 	log.Info(fmt.Sprintf("tool gate: %s (%s)", onOff(toolGate), gateNote))
-	codexHome := d.Getenv("CODEX_HOME")
-	if codexHome == "" {
-		codexHome = filepath.Join(d.Home, ".codex")
-	}
+	codexHome := CodexHome(d)
 	sandboxErr := logSandbox(ctx, cfg, codexHome, d, log)
 	log.Info("GitHub notifications: READ ONLY")
 	log.Info("review output: LOCAL SESSION ONLY")

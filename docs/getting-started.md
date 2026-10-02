@@ -12,6 +12,32 @@
 
 Install outrider as described in the [README](../README.md#install).
 
+## Check the setup
+
+```sh
+cd ~/dev/some-repo
+outrider doctor
+```
+
+`outrider doctor` checks everything above, plus the launcher and terminal,
+the approval dialogs, the classifiers and the sandbox, and prints one line per
+check with `ok`, `info`, `warn` or `fail`, and the fix for anything not ok:
+
+```text
+ok    config            no config file, built-in defaults (mode supervised, push ask, github_writes ask, sandbox: off)
+ok    github            github.com as octocat (prompts call you Mona), token from keyring, scopes gist, read:org, repo
+ok    git               git version 2.50.0
+fail  agent             codex not found on PATH
+                        fix: install Codex: https://github.com/openai/codex, or set agent in the config
+ok    launcher          terminal (launcher: auto), terminal iTerm2 (from $TERM_PROGRAM)
+warn  launch check      off (jev: no backend key (TYPESAFE_API_KEY, OPENROUTER_API_KEY, AI_GATEWAY_API_KEY, JEV_BACKEND))
+                        fix: install jev-use (or npx) and export a backend key (…); see docs/classifiers.md
+```
+
+It exits 1 when a check failed; warnings don't fail. It only reads: no
+writes, no GitHub writes, no session. `--config` checks another config,
+`--json` prints a list of `{name, status, detail, fix}`.
+
 ## First run: a dry run
 
 Run it inside a checkout. outrider then watches that checkout's GitHub repo

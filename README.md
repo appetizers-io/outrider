@@ -43,9 +43,10 @@ outrider needs [`gh`](https://cli.github.com) (logged in), `git`, and
 
 ```sh
 cd ~/dev/some-repo                  # watches this checkout's GitHub repo
-outrider --dry-run --once           # 1. see what would launch; changes nothing
-outrider --agent claude             # 2. run it; sessions open as PRs need you
-outrider config generate --write    # 3. write a documented config to edit
+outrider doctor                     # 1. check gh, git, the agent, the terminal; says what to fix
+outrider --dry-run --once           # 2. see what would launch; changes nothing
+outrider --agent claude             # 3. run it; sessions open as PRs need you
+outrider config generate --write    # 4. write a documented config to edit
 ```
 
 [Getting started](docs/getting-started.md) walks through the first run and
