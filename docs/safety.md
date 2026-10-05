@@ -88,6 +88,17 @@ agent's process (Claude Code or Codex itself) runs outside the sandbox and
 writes its own state, e.g. `.claude/` in the worktree. A sandboxed session
 can't fetch CI logs; it gets the failed checks and their links.
 
+## Session network overrides
+
+`network_access` optionally overrides the agent’s network sandbox settings for
+this session. `true` allows all outbound hosts to reduce network approval
+prompts; `false` blocks sandboxed outbound connections; unset inherits the
+owner’s settings. It does not enable sandboxing or change push/post guards or
+tool approval policies. For Claude, it applies only to an enabled Bash sandbox,
+and existing denies and managed domain restrictions still apply. For Codex, it
+applies in workspace-write mode. `true` with any read-only session is refused.
+See [configuration](configuration.md#session-network-access).
+
 ## Review only
 
 A session on a PR someone else authored is review only unless

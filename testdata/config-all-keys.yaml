@@ -6,6 +6,7 @@ mode: supervised              # autonomous: no tool gating, may push to others' 
 push: ask                     # every git push waits for your click; never | allow
 github_writes: ask            # every gh comment/review waits for your click; never | allow
 sandbox: off                  # read-only: the agent's OS sandbox, no writes or network
+network_access: false         # sandbox network override; null inherits owner settings
 agent: claude
 launcher: auto                # terminal window on a desktop, else tmux
 terminal: [alacritty, -e, "{cmd}"]
