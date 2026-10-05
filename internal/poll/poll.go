@@ -90,6 +90,7 @@ type pass struct {
 	now            time.Time
 	baseline       bool   // first live run: record existing events, launch nothing
 	windowStart    string // lookback_hours ago
+	workflowRefs   map[string]github.Ref
 	scopes         map[scope]resolved
 	mine, cand, ig int
 }
@@ -106,7 +107,7 @@ func (p *Poller) Poll(ctx context.Context, s *State) error {
 	if p.mentioned == nil {
 		p.mentioned = Mentions(p.Login)
 	}
-	ps := &pass{Poller: p, s: s, now: now, windowStart: windowStart, scopes: map[scope]resolved{}}
+	ps := &pass{Poller: p, s: s, now: now, windowStart: windowStart, scopes: map[scope]resolved{}, workflowRefs: maps.Clone(s.WorkflowPRs)}
 
 	ns, err := p.GH.Notifications(ctx, windowStart)
 	if err != nil {
@@ -133,6 +134,7 @@ func (p *Poller) Poll(ctx context.Context, s *State) error {
 		n, _ := strconv.Atoi(m[1])
 		k := key(repo, n)
 		nid, updated := x.ID, x.UpdatedAt
+		ps.workflowRefs[k] = github.Ref{Repo: repo, N: n}
 
 		if _, ok := s.Watched[k]; ok {
 			s.Seen[nid] = updated
@@ -143,7 +145,7 @@ func (p *Poller) Poll(ctx context.Context, s *State) error {
 			c.SeenAt = unix(now)
 			s.Candidates[k] = c
 			ps.cand++
-			if s.Seen[nid] != updated && !ps.repliesAndMentions(ctx, repo, n, nil) {
+			if s.Seen[nid] != updated && !ps.nonOwnedNotification(ctx, repo, n, nil) {
 				continue // keep the notification pending
 			}
 			s.Seen[nid] = updated
@@ -168,7 +170,7 @@ func (p *Poller) Poll(ctx context.Context, s *State) error {
 			// so a reaction added later can still opt it in.
 			s.Candidates[k] = Candidate{Repo: repo, PR: n, SeenAt: unix(now)}
 			ps.cand++
-			if ps.repliesAndMentions(ctx, repo, n, &pr) {
+			if ps.nonOwnedNotification(ctx, repo, n, &pr) {
 				s.Seen[nid] = updated
 			}
 			continue
@@ -209,7 +211,7 @@ func (p *Poller) Poll(ctx context.Context, s *State) error {
 				return NewerThan(items, t), nil
 			}
 		}
-		req := session.Request{Repo: repo, N: n, PR: pr, Trigger: "my PR notification (" + x.Reason + ")", Gate: gate}
+		req := session.Request{Repo: repo, N: n, PR: pr, Event: "own_pr", Trigger: "my PR notification (" + x.Reason + ")", Gate: gate}
 		if p.Launch(ctx, req) && !p.DryRun {
 			s.Seen[nid] = updated
 			s.Handled[k] = iso(p.Now())
@@ -219,6 +221,7 @@ func (p *Poller) Poll(ctx context.Context, s *State) error {
 	if slices.ContainsFunc(cfg.Layers(), func(c config.Config) bool { return c.Triggers.OptIn.Enabled }) {
 		ps.optIn(ctx)
 	}
+	ps.workflows(ctx)
 	return ps.finish(firstLive)
 }
 
@@ -315,7 +318,7 @@ func (ps *pass) optIn(ctx context.Context) {
 			ps.Log.Info(fmt.Sprintf("%s detected %s (on %s)", emoji, k, *where))
 		}
 		trigger := fmt.Sprintf("%s opt-in (on %s)", emoji, *where)
-		if ps.Launch(ctx, session.Request{Repo: ref.Repo, N: ref.N, PR: pr, Trigger: trigger}) && !ps.DryRun {
+		if ps.Launch(ctx, session.Request{Repo: ref.Repo, N: ref.N, PR: pr, Event: "opt_in", Trigger: trigger}) && !ps.DryRun {
 			var fp *string
 			if items, err := ps.GH.Activity(ctx, ref.Repo, ref.N); err == nil {
 				fp = new(Fingerprint(items))
@@ -382,7 +385,7 @@ func (ps *pass) optIn(ctx context.Context) {
 		if optIn.OnChange.Check {
 			gate = func(context.Context) ([]github.Activity, error) { return newer, nil }
 		}
-		req := session.Request{Repo: ref.Repo, N: ref.N, PR: pr, Trigger: "review/discussion changed", Gate: gate}
+		req := session.Request{Repo: ref.Repo, N: ref.N, PR: pr, Event: "review_change", Trigger: "review/discussion changed", Gate: gate}
 		if ps.Launch(ctx, req) && !ps.DryRun {
 			w.Fingerprint = &fp
 			s.Watched[k] = w
@@ -472,7 +475,7 @@ func (ps *pass) replies(ctx context.Context, repo string, n int, pr *github.PR) 
 				thread = append(thread, github.ActivityOf("inline comment", c))
 			}
 		}
-		req := session.Request{Repo: repo, N: n, PR: *pr, Trigger: "reply to my review comment(s): " + strings.Join(urls, " ")}
+		req := session.Request{Repo: repo, N: n, PR: *pr, Event: "review_reply", Trigger: "reply to my review comment(s): " + strings.Join(urls, " ")}
 		if rules.Check {
 			req.Gate = func(context.Context) ([]github.Activity, error) { return thread, nil }
 		}
@@ -551,7 +554,7 @@ func (ps *pass) mentions(ctx context.Context, repo string, n int, pr *github.PR)
 			urls = append(urls, url)
 		}
 		req := session.Request{
-			Repo: repo, N: n, PR: *pr, Trigger: "@" + ps.Login + " mentioned: " + strings.Join(urls, " "),
+			Repo: repo, N: n, PR: *pr, Event: "mention", Trigger: "@" + ps.Login + " mentioned: " + strings.Join(urls, " "),
 			ScopeWhy: "where someone mentioned @" + ps.Login,
 		}
 		if rules.Check {

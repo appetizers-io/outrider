@@ -186,3 +186,15 @@ prompts:
 #     ignore_authors: ["*[bot]"]
 #   - match: [{repo: "my-org/*", prs: others}, {url: "https://github.com/upstream-org/repo"}]
 #     launch_check: {skip_below: 0.7}
+
+# Ordered agent instructions selected by PR metadata. Omitted: default prompts.
+# Lists replace when set in overrides. See docs/workflows.md for full recipes.
+# workflows:
+#   - name: dependency-review
+#     match: [{prs: others, authors: ['renovate[bot]', 'dependabot[bot]']}]
+#     on: activity  # activity | discussions_resolved | ci_passed
+#     post: false   # true authorizes posts in steps; github_writes still applies
+#     steps:
+#       - Read the changelog for every updated dependency.
+#       - Check compatibility and breaking changes.
+#       - Check CI and summarize the result here.

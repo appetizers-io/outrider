@@ -156,10 +156,17 @@ overrides:
 
 Only per-PR keys can be overridden: `push`, `github_writes`, `sandbox`,
 `agent`, `ignore_authors`, `triggers`, `others_prs`, `launch_check`,
-`tool_gate` and `prompts`. Others are errors. Conflicts (e.g. a read-only
+`tool_gate`, `prompts` and `workflows`. Others are errors. Conflicts (e.g. a read-only
 sandbox and `push: allow`) are checked at startup for each entry, and for all
 entries on your own PRs and on others' together. `config show --repo`,
 `doctor` and the session's `policy.json` name the entries that apply.
+
+## Workflows
+
+`workflows` selects named, ordered agent instructions using repo/ownership,
+author, label, title, branch and event matches. It also supports condition
+triggers when review threads are resolved or CI passes. See
+[Workflows](workflows.md) for dependency review and technical review examples.
 
 ## Triggers, launch check and tool gate
 

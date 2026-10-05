@@ -6,6 +6,8 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+
+	"github.com/appetizers-io/outrider/internal/github"
 )
 
 // Candidate is a non-owned PR that may still be opted in.
@@ -25,16 +27,24 @@ type Watched struct {
 // State is kept between polls. Keys are owner/repo#n; the fields are in
 // alphabetical order, so the file keeps a stable layout.
 type State struct {
-	Candidates  map[string]Candidate `json:"candidates"`
-	Handled     map[string]string    `json:"handled"` // when activity was last judged
-	Initialized bool                 `json:"initialized"`
-	Mentions    map[string][]string  `json:"mentions"` // handled "kind:id"
-	Replies     map[string][]int64   `json:"replies"`  // handled reply ids
-	Seen        map[string]string    `json:"seen"`     // notification id -> updated_at
-	Watched     map[string]Watched   `json:"watched"`
+	WorkflowPRs        map[string]github.Ref      `json:"workflow_prs,omitempty"`
+	WorkflowConditions map[string]map[string]bool `json:"workflow_conditions,omitempty"`
+	Candidates         map[string]Candidate       `json:"candidates"`
+	Handled            map[string]string          `json:"handled"` // when activity was last judged
+	Initialized        bool                       `json:"initialized"`
+	Mentions           map[string][]string        `json:"mentions"` // handled "kind:id"
+	Replies            map[string][]int64         `json:"replies"`  // handled reply ids
+	Seen               map[string]string          `json:"seen"`     // notification id -> updated_at
+	Watched            map[string]Watched         `json:"watched"`
 }
 
 func (s *State) fill() {
+	if s.WorkflowPRs == nil {
+		s.WorkflowPRs = map[string]github.Ref{}
+	}
+	if s.WorkflowConditions == nil {
+		s.WorkflowConditions = map[string]map[string]bool{}
+	}
 	if s.Candidates == nil {
 		s.Candidates = map[string]Candidate{}
 	}

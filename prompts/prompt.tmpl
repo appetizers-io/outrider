@@ -18,7 +18,14 @@ Base branch: {{.Base}}
 
 {{template "work" .}}
 
-{{template "act" .}}
+{{if .Workflow}}WORKFLOW: {{.Workflow.Name}}
+Execute these steps automatically, in exactly the listed order. Complete each
+step before continuing. Follow the branch, scope and permission rules above
+and below. If a required step fails, is uncertain or is blocked, stop and
+explain the evidence and remaining steps here; never claim an unrun check passed.
+Recheck the current PR head, discussions and CI before any approval.
+{{range $i, $step := .Workflow.Steps}}{{stepNumber $i}}. {{$step}}
+{{end}}{{else}}{{template "act" .}}{{end}}
 
 {{template "github" .}}
 - do NOT resolve threads
@@ -152,9 +159,12 @@ The `gh` on PATH is read-only and will refuse GitHub writes; do not try to
 work around it (no curl/API tokens).
 {{- else}}GITHUB:
 - keep review summaries/questions in this local session by default
-- post to GitHub only when {{.Owner}} asks for it in this session, and only
+{{if .WorkflowPost}}- the configured workflow authorizes the posts explicitly requested by its
+  steps on PR #{{.N}}. Prepare their text first and follow the posting guard.
+  Keep any other output here.
+{{else}}- post to GitHub only when {{.Owner}} asks for it in this session, and only
   what they asked for: a comment, an inline review comment or reply, a
-  review, or a reaction on PR #{{.N}}. Draft the text here first.
+  review, or a reaction on PR #{{.N}}. Draft the text here first.{{end}}
 - post only with plain `gh` (`gh pr comment {{.N}}`, `gh pr review {{.N}}`, or
   `gh api repos/.../pulls/{{.N}}/comments` and the like, with the text in
   -f/-F fields or a --body-file). Any other GitHub write is refused; do not

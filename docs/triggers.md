@@ -93,3 +93,9 @@ triggers:
 Without `repos.include` (or `--repo`), outrider watches the repo of the
 checkout you run it in, or every repo when you run it elsewhere. See
 [Configuration](configuration.md#repos-and-authors).
+
+## Workflow conditions
+
+Named [workflows](workflows.md) can launch when all review threads are resolved
+or CI passes, including when no new notification arrives. Activity workflows
+can also select non-owned PR notifications by metadata without a reaction.

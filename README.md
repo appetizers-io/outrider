@@ -70,6 +70,7 @@ the network. [Safety](docs/safety.md) lists what is and isn't enforced.
 | [Getting started](docs/getting-started.md) | Prerequisites, first run, what you'll see |
 | [How it works](docs/how-it-works.md) | Poll, triggers, launch check, worktree, session, guards |
 | [Triggers](docs/triggers.md) | Own PRs, @mentions, 👀 opt-in, review replies |
+| [Workflows](docs/workflows.md) | ordered review steps, PR matching and condition triggers |
 | [Safety](docs/safety.md) | Modes, push and post approval, guards, tool gate |
 | [Configuration](docs/configuration.md) | The config file by topic, flags, the schema |
 | [Classifiers](docs/classifiers.md) | Jev, your own launch check and tool gate |
