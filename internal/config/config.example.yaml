@@ -36,6 +36,14 @@ github_writes: null           # ask | never | allow | null
 # be never or null. Where the sandbox is unavailable, sessions are refused.
 sandbox: off                  # off | read-only
 
+# Session network sandbox override for both agents; null inherits owner settings.
+# true: allow all outbound hosts without network approval prompts. false: block
+# sandboxed outbound access. Does not enable sandboxing or skip tool approvals.
+# Claude: applies only when its Bash sandbox is enabled; denied domains and
+# managed restrictions still apply. Codex: applies in workspace-write mode.
+# true conflicts with read-only sessions. Push/post guards are unchanged.
+network_access: null           # true | false | null
+
 agent: codex                  # codex | claude
 
 # auto: macOS: the terminal in a desktop (Aqua) session, else tmux. Linux: the
@@ -176,7 +184,7 @@ prompts:
   # Appended to every agent prompt, e.g. house rules for tests or commits.
   extra: ""
 
-# Per-PR keys (push, github_writes, sandbox, agent, ignore_authors, triggers,
+# Per-PR keys (push, github_writes, sandbox, network_access, agent, ignore_authors, triggers,
 # others_prs, launch_check, tool_gate, prompts) for some PRs only. Every entry
 # whose match selects a PR applies, in file order; later entries win. An
 # identity in match sets any of repo (owner/repo glob), url (GitHub repo URL)

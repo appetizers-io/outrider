@@ -368,6 +368,17 @@
           "description": "read-only: every session runs in the agent's own OS sandbox (Claude Code: sandbox settings and deny rules; Codex: --sandbox read-only, approvals never): no file writes, no commits, no pushes, no GitHub posts, no network. The PR context is fetched into the session dir first. push and github_writes must be never or unset. Where the sandbox is unavailable, sessions are refused. off: no sandbox.",
           "default": "off"
         },
+        "network_access": {
+          "oneOf": [
+            {
+              "type": "boolean",
+              "description": "Session override for the agent network sandbox. true: allow outbound hosts without network approval prompts; false: block sandboxed outbound access; null: inherit the owner settings. Codex: sandbox_workspace_write.network_access. Claude: sandbox network domain rules, only effective when its Bash sandbox is enabled. Does not enable a sandbox or change tool approvals, push or post guards. true conflicts with read-only sessions."
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
         "agent": {
           "type": "string",
           "enum": [
@@ -762,6 +773,17 @@
       ],
       "description": "read-only: every session runs in the agent's own OS sandbox (Claude Code: sandbox settings and deny rules; Codex: --sandbox read-only, approvals never): no file writes, no commits, no pushes, no GitHub posts, no network. The PR context is fetched into the session dir first. push and github_writes must be never or unset. Where the sandbox is unavailable, sessions are refused. off: no sandbox.",
       "default": "off"
+    },
+    "network_access": {
+      "oneOf": [
+        {
+          "type": "boolean",
+          "description": "Session override for the agent network sandbox. true: allow outbound hosts without network approval prompts; false: block sandboxed outbound access; null: inherit the owner settings. Codex: sandbox_workspace_write.network_access. Claude: sandbox network domain rules, only effective when its Bash sandbox is enabled. Does not enable a sandbox or change tool approvals, push or post guards. true conflicts with read-only sessions."
+        },
+        {
+          "type": "null"
+        }
+      ]
     },
     "agent": {
       "type": "string",

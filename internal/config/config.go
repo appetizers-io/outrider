@@ -57,6 +57,7 @@ type PRSettings struct {
 	Push          *string     `yaml:"push" jsonschema:"enum=ask,enum=never,enum=allow,nullable" jsonschema_description:"Pushes in sessions that may push (your own PRs, others' PRs with others_prs.allow_push). ask: every git push opens a dialog and runs only after you click Push (without a dialog it is refused). never: commits stay local. allow: no question. null: ask in supervised mode, allow in autonomous mode."`
 	GitHubWrites  *string     `yaml:"github_writes" jsonschema:"enum=ask,enum=never,enum=allow,nullable" jsonschema_description:"Comments, review comments and replies, reviews and reactions the agent posts with gh on the session's PR. ask: each one opens a dialog showing the text and runs only after you click Post (without a dialog it is refused). never: GitHub stays read-only. allow: no question. null: ask in supervised mode, allow in autonomous mode."`
 	Sandbox       string      `yaml:"sandbox" jsonschema:"enum=off,enum=read-only,default=off" jsonschema_description:"read-only: every session runs in the agent's own OS sandbox (Claude Code: sandbox settings and deny rules; Codex: --sandbox read-only, approvals never): no file writes, no commits, no pushes, no GitHub posts, no network. The PR context is fetched into the session dir first. push and github_writes must be never or unset. Where the sandbox is unavailable, sessions are refused. off: no sandbox."`
+	NetworkAccess *bool       `yaml:"network_access" jsonschema:"nullable" jsonschema_description:"Session override for the agent network sandbox. true: allow outbound hosts without network approval prompts; false: block sandboxed outbound access; null: inherit the owner settings. Codex: sandbox_workspace_write.network_access. Claude: sandbox network domain rules, only effective when its Bash sandbox is enabled. Does not enable a sandbox or change tool approvals, push or post guards. true conflicts with read-only sessions."`
 	Agent         string      `yaml:"agent" jsonschema:"enum=codex,enum=claude,default=codex" jsonschema_description:"Coding agent CLI to launch."`
 	IgnoreAuthors []string    `yaml:"ignore_authors" jsonschema:"minLength=1" jsonschema_description:"Login globs (* and ?) whose activity alone never triggers a session, e.g. netlify[bot] or *[bot]."`
 	Triggers      Triggers    `yaml:"triggers"`
@@ -306,6 +307,9 @@ func JevBackendConfigured() bool {
 // crossCheck validates what spans several keys, which the schema can't.
 func (c *Config) crossCheck() []string {
 	errs := c.checkWorkflows()
+	if c.NetworkAccess != nil && *c.NetworkAccess && (c.SandboxFor(true) == ReadOnly || c.SandboxFor(false) == ReadOnly) {
+		errs = append(errs, "network_access: true conflicts with read-only sessions, which have no network (set false or remove it)")
+	}
 	if _, ok := c.Classifiers["jev"]; !ok {
 		// keep the built-in available when only others are added
 		c.Classifiers["jev"] = DefaultJev()

@@ -146,27 +146,28 @@ func writeJSON(path string, v any) error {
 
 // Policy describes a session for the agent (policy.json) and the tool gate.
 type Policy struct {
-	Repo         string           `json:"repo"`
-	PR           int              `json:"pr"`
-	URL          string           `json:"url"`
-	Author       string           `json:"author"`
-	OwnPR        bool             `json:"own_pr"`
-	Owner        string           `json:"owner"`
-	Trigger      string           `json:"trigger"`
-	Mode         string           `json:"mode"`
-	ReviewOnly   bool             `json:"review_only"`
-	PushAllowed  bool             `json:"push_allowed"`
-	Push         string           `json:"push"`
-	ReviewForks  []string         `json:"review_forks"` // review only, but pushes to these forks
-	GitHubWrites string           `json:"github_writes"`
-	Scope        []string         `json:"scope"`
-	DenyRules    []string         `json:"deny_rules"`
-	Sandbox      string           `json:"sandbox"`    // off | read-only
-	PRContext    *string          `json:"pr_context"` // read-only: the prefetched PR context
-	ToolGate     PolicyGate       `json:"tool_gate"`
-	Config       *string          `json:"config"`
-	Workflow     *config.Workflow `json:"workflow,omitempty"`
-	Overrides    []string         `json:"overrides,omitempty"` // the config's overrides that apply, in order
+	Repo          string           `json:"repo"`
+	PR            int              `json:"pr"`
+	URL           string           `json:"url"`
+	Author        string           `json:"author"`
+	OwnPR         bool             `json:"own_pr"`
+	Owner         string           `json:"owner"`
+	Trigger       string           `json:"trigger"`
+	Mode          string           `json:"mode"`
+	ReviewOnly    bool             `json:"review_only"`
+	PushAllowed   bool             `json:"push_allowed"`
+	Push          string           `json:"push"`
+	ReviewForks   []string         `json:"review_forks"` // review only, but pushes to these forks
+	GitHubWrites  string           `json:"github_writes"`
+	Scope         []string         `json:"scope"`
+	DenyRules     []string         `json:"deny_rules"`
+	NetworkAccess *bool            `json:"network_access,omitempty"`
+	Sandbox       string           `json:"sandbox"`    // off | read-only
+	PRContext     *string          `json:"pr_context"` // read-only: the prefetched PR context
+	ToolGate      PolicyGate       `json:"tool_gate"`
+	Config        *string          `json:"config"`
+	Workflow      *config.Workflow `json:"workflow,omitempty"`
+	Overrides     []string         `json:"overrides,omitempty"` // the config's overrides that apply, in order
 }
 
 // PolicyGate is the tool gate part of the policy.
@@ -317,7 +318,7 @@ func (l *Launcher) Prepare(r Request, worktree, lock string, sb *Sandbox) (Prepa
 		Repo: r.Repo, PR: r.N, URL: r.PR.URL, Author: author, OwnPR: own, Owner: l.Owner,
 		Trigger: r.Trigger, Mode: cfg.Mode, ReviewOnly: reviewOnly,
 		PushAllowed: forkPush == "ask" || forkPush == "allow", Push: forkPush, ReviewForks: forks, GitHubWrites: ghWrites,
-		Scope: r.Scope, DenyRules: []string{}, Sandbox: sandbox, PRContext: contextDir,
+		Scope: r.Scope, DenyRules: []string{}, Sandbox: sandbox, PRContext: contextDir, NetworkAccess: cfg.NetworkAccess,
 		ToolGate: PolicyGate{Matcher: cfg.ToolGate.Matcher, Threshold: cfg.ToolGate.Threshold, Rules: rules},
 	}
 	if len(r.Scope) == 0 {
@@ -347,11 +348,22 @@ func (l *Launcher) Prepare(r Request, worktree, lock string, sb *Sandbox) (Prepa
 	}
 	name := fmt.Sprintf("PR %s#%d", r.Repo, r.N)
 	agent := []string{agentPath}
-	if cfg.Agent == "claude" {
+	switch {
+	case cfg.Agent == "claude":
 		// Remote Control lists the session on claude.ai and in Claude Desktop
 		agent = append(agent, "--name", name, "--remote-control", name)
-		if supervised || sb != nil {
-			settings := ClaudeSettings(&cfg, push, l.GOOS, l.Root, toolGate, hookEnv)
+		if supervised || sb != nil || cfg.NetworkAccess != nil {
+			settings := map[string]any{}
+			if supervised || sb != nil {
+				settings = ClaudeSettings(&cfg, push, l.GOOS, l.Root, toolGate, hookEnv)
+			}
+			if cfg.NetworkAccess != nil {
+				network := map[string]any{"allowedDomains": []string{"*"}}
+				if !*cfg.NetworkAccess {
+					network = map[string]any{"deniedDomains": []string{"*"}, "strictAllowlist": true}
+				}
+				settings["sandbox"] = map[string]any{"network": network}
+			}
 			if sb != nil {
 				settings["permissions"] = map[string]any{"deny": policy.DenyRules, "disableBypassPermissionsMode": "disable"}
 				settings["sandbox"] = ClaudeSandbox(sb.DenyWrite)
@@ -365,8 +377,10 @@ func (l *Launcher) Prepare(r Request, worktree, lock string, sb *Sandbox) (Prepa
 				agent = append(agent, ClaudeSandboxArgs()...)
 			}
 		}
-	} else if sb != nil {
+	case sb != nil:
 		agent = append(agent, CodexSandboxArgs(worktree, sb.Checkout)...)
+	case cfg.NetworkAccess != nil:
+		agent = append(agent, "-c", fmt.Sprintf("sandbox_workspace_write.network_access=%t", *cfg.NetworkAccess))
 	}
 
 	env := map[string]string{

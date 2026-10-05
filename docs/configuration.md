@@ -86,11 +86,41 @@ and `outrider doctor` show the result, e.g.
 
 What each value does is on the [Safety](safety.md) page.
 
+## Session network access
+
+To reduce repeated GitHub network approval prompts for either agent, set:
+
+```yaml
+network_access: true
+```
+
+This applies only to sessions launched by Outrider, without editing the owner’s
+global settings. It can also be scoped with `overrides`. Unset or `null` inherits
+the owner’s settings; `false` blocks outbound access inside the applicable
+network sandbox. `true` conflicts with `sandbox: read-only` or
+`others_prs.sandbox: read-only`; use a scoped override for non-read-only sessions.
+
+Codex receives `-c sandbox_workspace_write.network_access=true` (or `false`),
+which applies in workspace-write mode. Claude receives session `--settings` with
+`sandbox.network.allowedDomains: ["*"]` for `true`, or
+`sandbox.network.deniedDomains: ["*"]` and `strictAllowlist: true` for `false`.
+Claude’s existing denied domains and managed restrictions still apply.
+See the [Codex configuration reference](https://learn.chatgpt.com/docs/config-file/config-reference)
+and [Claude sandbox settings](https://code.claude.com/docs/en/settings-reference#sandbox-network-alloweddomains).
+
+The setting does not enable an agent sandbox: Claude’s Bash sandbox must already
+be enabled for domain rules to take effect. It permits all outbound hosts when
+true, not just GitHub. It does not change tool approval policies, Claude’s
+WebFetch/MCP permissions, or Outrider’s push/post guards. With no active network
+sandbox, `false` does not impose network isolation; use `sandbox: read-only`
+for Outrider’s enforced no-network mode.
+
 ## Agent and sessions
 
 | Key | Default | Meaning |
 |---|---|---|
 | `agent` | `codex` | `claude` or `codex` |
+| `network_access` | `null`: inherit owner settings | `true`: allow sandbox network hosts; `false`: block sandboxed outbound access |
 | `launcher` | `auto` | `auto`, `terminal`, `tmux`; see [Terminals](terminals.md) |
 | `terminal` | `auto` | a terminal name, or a command list with `{cmd}` |
 | `max_agents` | `1` | sessions running at once |
@@ -154,7 +184,7 @@ overrides:
     launch_check: {skip_below: 0.7}
 ```
 
-Only per-PR keys can be overridden: `push`, `github_writes`, `sandbox`,
+Only per-PR keys can be overridden: `push`, `github_writes`, `sandbox`, `network_access`,
 `agent`, `ignore_authors`, `triggers`, `others_prs`, `launch_check`,
 `tool_gate`, `prompts` and `workflows`. Others are errors. Conflicts (e.g. a read-only
 sandbox and `push: allow`) are checked at startup for each entry, and for all
