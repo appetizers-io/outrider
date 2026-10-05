@@ -12,7 +12,7 @@ import (
 type Workflow struct {
 	Name  string          `yaml:"name" jsonschema:"required,minLength=1"`
 	Match []WorkflowMatch `yaml:"match" jsonschema:"required,minItems=1"`
-	On    string          `yaml:"on" jsonschema:"enum=activity,enum=discussions_resolved,enum=ci_passed" jsonschema_description:"activity (default): use for an existing session trigger. Other values launch on a false-to-true condition transition on a discovered PR."`
+	On    string          `yaml:"on,omitempty" jsonschema:"enum=activity,enum=discussions_resolved,enum=ci_passed" jsonschema_description:"activity (default): use for an existing session trigger. Other values launch on a false-to-true condition transition on a discovered PR."`
 	Steps []string        `yaml:"steps" jsonschema:"required,minItems=1" jsonschema_description:"Instructions executed by the agent in this order. Stop and explain when a required step is blocked."`
 	Post  bool            `yaml:"post" jsonschema_description:"Authorize GitHub posts explicitly requested by the steps. Existing github_writes guards still apply. Default: prepare drafts in chat."`
 }
@@ -21,11 +21,11 @@ type Workflow struct {
 // Attributes are ANDed; entries and values within a list are ORed.
 type WorkflowMatch struct {
 	Identity `yaml:",inline"`
-	Authors  []string `yaml:"authors" jsonschema:"minLength=1"`
-	Labels   []string `yaml:"labels" jsonschema:"minLength=1"`
-	Title    string   `yaml:"title" jsonschema:"minLength=1"`
-	Head     string   `yaml:"head" jsonschema:"minLength=1"`
-	Events   []string `yaml:"events" jsonschema:"enum=notification,enum=own_pr,enum=opt_in,enum=review_change,enum=review_reply,enum=mention,minItems=1,uniqueItems=true"`
+	Authors  []string `yaml:"authors,omitempty" jsonschema:"minLength=1"`
+	Labels   []string `yaml:"labels,omitempty" jsonschema:"minLength=1"`
+	Title    string   `yaml:"title,omitempty" jsonschema:"minLength=1"`
+	Head     string   `yaml:"head,omitempty" jsonschema:"minLength=1"`
+	Events   []string `yaml:"events,omitempty" jsonschema:"enum=notification,enum=own_pr,enum=opt_in,enum=review_change,enum=review_reply,enum=mention,minItems=1,uniqueItems=true"`
 }
 
 // WorkflowPR is the metadata used when selecting a workflow.

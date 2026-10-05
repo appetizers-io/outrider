@@ -19,9 +19,9 @@ type Override struct {
 // Identity selects PRs: every attribute it sets must match; an unset one
 // matches anything.
 type Identity struct {
-	Repo string `yaml:"repo" jsonschema:"minLength=1" jsonschema_description:"owner/repo glob (*, ?, [abc], [!abc], {a,b}), e.g. my-org/*."`
-	URL  string `yaml:"url" jsonschema:"pattern=^(https?://|git@|ssh://git@)github\\.com[/:][^/]+/[^/]+?/?$" jsonschema_description:"GitHub repo URL, e.g. https://github.com/my-org/repo."`
-	PRs  string `yaml:"prs" jsonschema:"enum=own,enum=others" jsonschema_description:"own: PRs you authored. others: everyone else's."`
+	Repo string `yaml:"repo,omitempty" jsonschema:"minLength=1" jsonschema_description:"owner/repo glob (*, ?, [abc], [!abc], {a,b}), e.g. my-org/*."`
+	URL  string `yaml:"url,omitempty" jsonschema:"pattern=^(https?://|git@|ssh://git@)github\\.com[/:][^/]+/[^/]+?/?$" jsonschema_description:"GitHub repo URL, e.g. https://github.com/my-org/repo."`
+	PRs  string `yaml:"prs,omitempty" jsonschema:"enum=own,enum=others" jsonschema_description:"own: PRs you authored. others: everyone else's."`
 }
 
 // overrideKeys is an override as the schema describes it: match and the
