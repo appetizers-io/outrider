@@ -1,10 +1,29 @@
 package config
 
 import (
+	"fmt"
 	"testing"
 
 	"github.com/stretchr/testify/require"
 )
+
+func TestWorkflowConfigValidationRoundTrip(t *testing.T) {
+	for _, match := range []string{
+		"{}",
+		"{prs: others, authors: ['dependabot[bot]']}",
+		"{repo: org/*, labels: [feature]}",
+		"{url: 'https://github.com/org/repo', head: 'feature/*'}",
+		"{title: '*update*', events: [opt_in]}",
+	} {
+		t.Run(match, func(t *testing.T) {
+			c, err := Parse([]byte(fmt.Sprintf("workflows: [{name: review, match: [%s], steps: [Check]}]", match)), "test")
+			require.NoError(t, err)
+			got, err := Validate(c, "flags and config")
+			require.NoError(t, err)
+			require.Equal(t, c, got)
+		})
+	}
+}
 
 func TestWorkflowMatchingAndOverrides(t *testing.T) {
 	c, err := Parse([]byte(`workflows:
