@@ -44,6 +44,12 @@ sandbox: off                  # off | read-only
 # true conflicts with read-only sessions. Push/post guards are unchanged.
 network_access: null           # true | false | null
 
+# Existing Docker Sandboxes runtime; no writable host mounts.
+isolation:
+  enabled: false             # requires mode: autonomous
+  guard_binary: null         # Linux binary; task build/install provide it
+  read_only: []              # extra absolute host paths, always read-only
+
 agent: codex                  # codex | claude
 
 # auto: macOS: the terminal in a desktop (Aqua) session, else tmux. Linux: the

@@ -156,6 +156,12 @@ func SandboxMode(cfg *config.Config) (mode string, on bool) {
 	case others != config.ReadOnly:
 		mode = "sandbox: read-only; others' PRs: off"
 	}
+	for _, layer := range cfg.Layers() {
+		if layer.Isolation.Enabled {
+			mode += "; Docker Sandboxes isolation enabled"
+			break
+		}
+	}
 	on = len(SandboxAgents(cfg)) > 0
 	if on && mode == "sandbox: off" {
 		mode += "; overrides: read-only"
@@ -172,6 +178,21 @@ func Agents(cfg *config.Config) []string {
 		}
 	}
 	return agents
+}
+
+// AgentTools are executables needed on the host; isolated agents live in sbx.
+func AgentTools(cfg *config.Config) []string {
+	var out []string
+	for _, layer := range cfg.Layers() {
+		name := layer.Agent
+		if layer.Isolation.Enabled {
+			name = "sbx"
+		}
+		if !slices.Contains(out, name) {
+			out = append(out, name)
+		}
+	}
+	return out
 }
 
 // SandboxAgents are the agents of sandboxed sessions, overrides included.
@@ -325,7 +346,14 @@ func Run(ctx context.Context, s Settings, d Deps, log *slog.Logger) error {
 	if err != nil {
 		return err
 	}
-	for _, tool := range append(append([]string{"gh", "git"}, Agents(cfg)...), launcherTools...) {
+	for _, layer := range cfg.Layers() {
+		if layer.Isolation.Enabled {
+			if err := session.IsolationSupport(ctx, &layer, d.Self, d.LookPath, d.Run); err != nil {
+				return err
+			}
+		}
+	}
+	for _, tool := range append(append([]string{"gh", "git"}, AgentTools(cfg)...), launcherTools...) {
 		if _, err := d.LookPath(tool); err != nil {
 			return fmt.Errorf("missing required command: %s", tool)
 		}

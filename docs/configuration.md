@@ -184,7 +184,7 @@ overrides:
     launch_check: {skip_below: 0.7}
 ```
 
-Only per-PR keys can be overridden: `push`, `github_writes`, `sandbox`, `network_access`,
+Only per-PR keys can be overridden: `push`, `github_writes`, `sandbox`, `isolation`, `network_access`,
 `agent`, `ignore_authors`, `triggers`, `others_prs`, `launch_check`,
 `tool_gate`, `prompts` and `workflows`. Others are errors. Conflicts (e.g. a read-only
 sandbox and `push: allow`) are checked at startup for each entry, and for all
@@ -238,3 +238,16 @@ Flags without a config key:
 | `--reset-state` | forget what was handled before |
 | `--log-level` | `debug`, `info`, `warn`, `error` (default `info`) |
 | `--log-format` | `text` or `json` (default `text`) |
+
+## Docker Sandboxes isolation
+
+`isolation.enabled: true` selects the existing `sbx` microVM runtime. It requires
+`mode: autonomous` and push/post modes of `never` or `allow`; host approval dialogs
+cannot run inside the VM. The private clone and agent home are writable, while
+host inputs are read-only. See [setup, credential reuse and results](isolation.md).
+
+| Key | Default | Purpose |
+| --- | --- | --- |
+| `isolation.enabled` | `false` | Opt into Docker Sandboxes; missing support refuses launch |
+| `isolation.guard_binary` | `null` | Linux Outrider binary; defaults to `outrider-linux-runtime` next to the host executable |
+| `isolation.read_only` | `[]` | Extra absolute host paths mounted read-only |

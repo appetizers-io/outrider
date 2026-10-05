@@ -7,6 +7,12 @@ push: ask                     # every git push waits for your click; never | all
 github_writes: ask            # every gh comment/review waits for your click; never | allow
 sandbox: off                  # read-only: the agent's OS sandbox, no writes or network
 network_access: false         # sandbox network override; null inherits owner settings
+# Existing Docker Sandboxes runtime; no writable host mounts.
+isolation:
+  enabled: false             # requires mode: autonomous
+  guard_binary: null         # Linux binary; task build/install provide it
+  read_only: []              # extra absolute host paths, always read-only
+
 agent: claude
 launcher: auto                # terminal window on a desktop, else tmux
 terminal: [alacritty, -e, "{cmd}"]

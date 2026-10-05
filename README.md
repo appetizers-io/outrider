@@ -89,3 +89,6 @@ to a maintainer, not in a public issue.
 ## License
 
 [Apache-2.0](LICENSE)
+
+Opt-in [Docker Sandboxes sessions](docs/isolation.md) run Claude Code or Codex in
+a private writable clone with read-only host configuration inputs.

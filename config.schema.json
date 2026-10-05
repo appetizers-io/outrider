@@ -89,6 +89,37 @@
       "additionalProperties": false,
       "type": "object"
     },
+    "Isolation": {
+      "properties": {
+        "enabled": {
+          "type": "boolean",
+          "default": false
+        },
+        "guard_binary": {
+          "oneOf": [
+            {
+              "type": "string",
+              "minLength": 1,
+              "description": "Linux Outrider binary for the sandbox architecture. null: outrider-linux-runtime beside the running binary (task build/install provide it)."
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "read_only": {
+          "items": {
+            "type": "string",
+            "minLength": 1
+          },
+          "type": "array",
+          "uniqueItems": true,
+          "description": "Additional absolute host paths mounted read-only. No writable host mounts are allowed."
+        }
+      },
+      "additionalProperties": false,
+      "type": "object"
+    },
     "JevClassifier": {
       "properties": {
         "kind": {
@@ -367,6 +398,10 @@
           ],
           "description": "read-only: every session runs in the agent's own OS sandbox (Claude Code: sandbox settings and deny rules; Codex: --sandbox read-only, approvals never): no file writes, no commits, no pushes, no GitHub posts, no network. The PR context is fetched into the session dir first. push and github_writes must be never or unset. Where the sandbox is unavailable, sessions are refused. off: no sandbox.",
           "default": "off"
+        },
+        "isolation": {
+          "$ref": "#/$defs/Isolation",
+          "description": "Opt-in Docker Sandboxes microVM with a private writable clone and read-only configuration inputs. Requires autonomous mode; host approval dialogs are unavailable."
         },
         "network_access": {
           "oneOf": [
@@ -773,6 +808,10 @@
       ],
       "description": "read-only: every session runs in the agent's own OS sandbox (Claude Code: sandbox settings and deny rules; Codex: --sandbox read-only, approvals never): no file writes, no commits, no pushes, no GitHub posts, no network. The PR context is fetched into the session dir first. push and github_writes must be never or unset. Where the sandbox is unavailable, sessions are refused. off: no sandbox.",
       "default": "off"
+    },
+    "isolation": {
+      "$ref": "#/$defs/Isolation",
+      "description": "Opt-in Docker Sandboxes microVM with a private writable clone and read-only configuration inputs. Requires autonomous mode; host approval dialogs are unavailable."
     },
     "network_access": {
       "oneOf": [
