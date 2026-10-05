@@ -105,6 +105,10 @@ func Run(dir string, stdin io.Reader, stdout io.Writer) int {
 		}
 	}()
 
+	if spec.Isolation != nil {
+		return runIsolated(spec, watcher, stdin, stdout)
+	}
+
 	prompt, err := os.ReadFile(spec.PromptFile)
 	if err != nil {
 		_, _ = fmt.Fprintf(stdout, "outrider: cannot read prompt: %v\n", err)

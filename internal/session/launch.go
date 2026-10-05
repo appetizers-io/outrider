@@ -123,6 +123,7 @@ func (l *Launcher) launch(ctx context.Context, r Request) (bool, error) {
 
 // Spec is everything `outrider session run` needs, saved as session.json.
 type Spec struct {
+	Isolation  *IsolatedSpec     `json:"isolation,omitempty"`
 	Lock       string            `json:"lock"`
 	Meta       LockMeta          `json:"meta"`
 	Dir        string            `json:"dir"` // the worktree
@@ -498,6 +499,10 @@ func copyFile(src, dst string) error {
 
 // start checks the PR out, writes the session and opens it.
 func (l *Launcher) start(ctx context.Context, r Request, lock string) error {
+	cfg, _ := l.scoped(r)
+	if cfg.Isolation.Enabled {
+		return l.startIsolated(ctx, r, lock, &cfg)
+	}
 	wt, err := l.worktree(ctx, r.Repo, r.N)
 	if err != nil {
 		return err

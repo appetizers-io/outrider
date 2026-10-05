@@ -57,6 +57,7 @@ type PRSettings struct {
 	Push          *string     `yaml:"push" jsonschema:"enum=ask,enum=never,enum=allow,nullable" jsonschema_description:"Pushes in sessions that may push (your own PRs, others' PRs with others_prs.allow_push). ask: every git push opens a dialog and runs only after you click Push (without a dialog it is refused). never: commits stay local. allow: no question. null: ask in supervised mode, allow in autonomous mode."`
 	GitHubWrites  *string     `yaml:"github_writes" jsonschema:"enum=ask,enum=never,enum=allow,nullable" jsonschema_description:"Comments, review comments and replies, reviews and reactions the agent posts with gh on the session's PR. ask: each one opens a dialog showing the text and runs only after you click Post (without a dialog it is refused). never: GitHub stays read-only. allow: no question. null: ask in supervised mode, allow in autonomous mode."`
 	Sandbox       string      `yaml:"sandbox" jsonschema:"enum=off,enum=read-only,default=off" jsonschema_description:"read-only: every session runs in the agent's own OS sandbox (Claude Code: sandbox settings and deny rules; Codex: --sandbox read-only, approvals never): no file writes, no commits, no pushes, no GitHub posts, no network. The PR context is fetched into the session dir first. push and github_writes must be never or unset. Where the sandbox is unavailable, sessions are refused. off: no sandbox."`
+	Isolation     Isolation   `yaml:"isolation" jsonschema_description:"Opt-in Docker Sandboxes microVM with a private writable clone and read-only configuration inputs. Requires autonomous mode; host approval dialogs are unavailable."`
 	NetworkAccess *bool       `yaml:"network_access" jsonschema:"nullable" jsonschema_description:"Session override for the agent network sandbox. true: allow outbound hosts without network approval prompts; false: block sandboxed outbound access; null: inherit the owner settings. Codex: sandbox_workspace_write.network_access. Claude: sandbox network domain rules, only effective when its Bash sandbox is enabled. Does not enable a sandbox or change tool approvals, push or post guards. true conflicts with read-only sessions."`
 	Agent         string      `yaml:"agent" jsonschema:"enum=codex,enum=claude,default=codex" jsonschema_description:"Coding agent CLI to launch."`
 	IgnoreAuthors []string    `yaml:"ignore_authors" jsonschema:"minLength=1" jsonschema_description:"Login globs (* and ?) whose activity alone never triggers a session, e.g. netlify[bot] or *[bot]."`
@@ -65,6 +66,13 @@ type PRSettings struct {
 	LaunchCheck   LaunchCheck `yaml:"launch_check"`
 	ToolGate      ToolGate    `yaml:"tool_gate"`
 	Prompts       Prompts     `yaml:"prompts"`
+}
+
+// Isolation selects the existing Docker Sandboxes runtime.
+type Isolation struct {
+	Enabled     bool     `yaml:"enabled" jsonschema:"default=false"`
+	GuardBinary *string  `yaml:"guard_binary" jsonschema:"minLength=1,nullable" jsonschema_description:"Linux Outrider binary for the sandbox architecture. null: outrider-linux-runtime beside the running binary (task build/install provide it)."`
+	ReadOnly    []string `yaml:"read_only" jsonschema:"minLength=1,uniqueItems=true" jsonschema_description:"Additional absolute host paths mounted read-only. No writable host mounts are allowed."`
 }
 
 // Repos limits which repositories are watched.
@@ -171,6 +179,7 @@ func Default() Config {
 		PRSettings: PRSettings{
 			Sandbox:       "off",
 			Agent:         "codex",
+			Isolation:     Isolation{ReadOnly: []string{}},
 			IgnoreAuthors: []string{},
 			Triggers: Triggers{
 				OwnPRs: OwnPRs{Enabled: true, Check: true},
@@ -307,6 +316,25 @@ func JevBackendConfigured() bool {
 // crossCheck validates what spans several keys, which the schema can't.
 func (c *Config) crossCheck() []string {
 	errs := c.checkWorkflows()
+	if c.Isolation.Enabled {
+		if c.Mode != "autonomous" {
+			errs = append(errs, "isolation.enabled requires mode: autonomous; the VM replaces host tool approval gating")
+		}
+		if c.SandboxFor(true) == ReadOnly || c.SandboxFor(false) == ReadOnly {
+			errs = append(errs, "isolation.enabled conflicts with sandbox: read-only; its private clone is writable")
+		}
+		if c.PushMode() == "ask" || c.GitHubWritesMode() == "ask" {
+			errs = append(errs, "isolation.enabled does not support host approval dialogs; set push and github_writes to never or allow")
+		}
+		if c.Isolation.GuardBinary != nil && !filepath.IsAbs(*c.Isolation.GuardBinary) {
+			errs = append(errs, "isolation.guard_binary must be an absolute path")
+		}
+		for _, path := range c.Isolation.ReadOnly {
+			if !filepath.IsAbs(path) || strings.ContainsAny(path, "\r\n") || strings.HasSuffix(path, ":ro") {
+				errs = append(errs, "isolation.read_only entries must be absolute paths without newline or :ro suffix")
+			}
+		}
+	}
 	if c.NetworkAccess != nil && *c.NetworkAccess && (c.SandboxFor(true) == ReadOnly || c.SandboxFor(false) == ReadOnly) {
 		errs = append(errs, "network_access: true conflicts with read-only sessions, which have no network (set false or remove it)")
 	}

@@ -29,6 +29,7 @@ tasks:
     desc: Build the binary into bin/
     cmds:
       - go build -o {{.BIN}} .
+      - CGO_ENABLED=0 GOOS=linux go build -o bin/outrider-linux-runtime .
 
   install:
     desc: Build and install the binary into INSTALL_DIR (default ~/.local/bin)
@@ -37,6 +38,7 @@ tasks:
     cmds:
       - mkdir -p "{{.INSTALL_DIR}}"
       - go build -o "{{.INSTALL_DIR}}/outrider{{exeExt}}" .
+      - CGO_ENABLED=0 GOOS=linux go build -o "{{.INSTALL_DIR}}/outrider-linux-runtime" .
       - echo "installed {{.INSTALL_DIR}}/outrider{{exeExt}}"
 
   schema:

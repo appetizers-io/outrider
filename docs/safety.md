@@ -309,3 +309,14 @@ closed by the OS sandbox instead.
 - **The agent** sends what it reads (the prompt, the code, the PR discussion)
   to its model provider, like any Claude Code or Codex session.
 - GitHub is only read, unless you allow posts.
+
+## MicroVM isolation
+
+[Docker Sandboxes sessions](isolation.md) use the existing `sbx` runtime with a
+private writable clone and read-only host inputs. The host home and Docker socket
+are not mounted. Selected login/configuration files seed writable state inside
+the VM; GitHub credentials use Docker's proxy and SSH keys use agent forwarding.
+The agent can use the shared identities remotely. Desktop approval dialogs are
+unavailable, so configurations requiring them are refused. Runtime setup failures
+never fall back to host agent execution. See the isolation guide for authentication,
+network policy limitations and how to inspect results before importing them.

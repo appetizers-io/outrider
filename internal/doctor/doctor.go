@@ -255,6 +255,12 @@ func agentResult(ctx context.Context, d watch.Deps, agent string) (string, error
 }
 
 func checkAgent(ctx context.Context, in *Input) Result {
+	if in.Settings.Cfg.Isolation.Enabled {
+		if err := session.IsolationSupport(ctx, &in.Settings.Cfg, in.Deps.Self, in.Deps.LookPath, in.Deps.Run); err != nil {
+			return Result{Name: "agent", Status: Fail, Detail: err.Error(), Fix: "install Docker Sandboxes, run sbx login, initialize its network policy, and task build/install"}
+		}
+		return Result{Name: "agent", Status: OK, Detail: in.Settings.Cfg.Agent + " in Docker Sandboxes (private clone, read-only host inputs)"}
+	}
 	agent := in.Settings.Cfg.Agent
 	detail, err := agentResult(ctx, in.Deps, agent)
 	if err != nil {
@@ -267,6 +273,16 @@ func checkOtherAgent(ctx context.Context, in *Input) Result {
 	other := "claude"
 	if in.Settings.Cfg.Agent == "claude" {
 		other = "codex"
+	}
+	if !slices.Contains(watch.AgentTools(&in.Settings.Cfg), other) && slices.Contains(watch.Agents(&in.Settings.Cfg), other) {
+		for _, layer := range in.Settings.Cfg.Layers() {
+			if layer.Agent == other && layer.Isolation.Enabled {
+				if err := session.IsolationSupport(ctx, &layer, in.Deps.Self, in.Deps.LookPath, in.Deps.Run); err != nil {
+					return Result{Name: "other agent", Status: Fail, Detail: err.Error(), Fix: "run sbx login and task build/install"}
+				}
+			}
+		}
+		return Result{Name: "other agent", Status: OK, Detail: other + " in Docker Sandboxes"}
 	}
 	detail, err := agentResult(ctx, in.Deps, other)
 	switch {
