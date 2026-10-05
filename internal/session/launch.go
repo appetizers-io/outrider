@@ -62,6 +62,8 @@ type Request struct {
 	Gate     func(context.Context) ([]github.Activity, error) // new activity to judge first; nil: launch unconditionally
 	Scope    []string                                         // comment URLs the session is limited to; nil: the whole PR
 	ScopeWhy string
+	Event    string           // stable trigger kind used by workflow match
+	Workflow *config.Workflow // explicit conditional workflow; nil selects by activity
 }
 
 // Launch handles the event: true once the agent started or the launch check
@@ -96,7 +98,7 @@ func (l *Launcher) launch(ctx context.Context, r Request) (bool, error) {
 		l.Log.Error(fmt.Sprintf("%s: refusing session: read-only sandbox unavailable: %v", key, err))
 		return true, nil //nolint:nilerr // refused for good: handled, not retried
 	}
-	if check, _ := l.classifiers(&cfg); r.Gate != nil && check != nil {
+	if check, _ := l.classifiers(&cfg); r.Gate != nil && check != nil && l.workflow(r, &cfg) == nil {
 		items, err := r.Gate(ctx)
 		if err != nil {
 			return false, err
@@ -110,6 +112,9 @@ func (l *Launcher) launch(ctx context.Context, r Request) (bool, error) {
 		}
 	}
 	l.Log.Info(fmt.Sprintf("matched %s: %s [%s]", key, r.PR.Title, r.Trigger))
+	if w := l.workflow(r, &cfg); w != nil {
+		l.Log.Info(key + ": workflow " + w.Name)
+	}
 	if l.DryRun {
 		return true, nil
 	}
@@ -141,26 +146,27 @@ func writeJSON(path string, v any) error {
 
 // Policy describes a session for the agent (policy.json) and the tool gate.
 type Policy struct {
-	Repo         string     `json:"repo"`
-	PR           int        `json:"pr"`
-	URL          string     `json:"url"`
-	Author       string     `json:"author"`
-	OwnPR        bool       `json:"own_pr"`
-	Owner        string     `json:"owner"`
-	Trigger      string     `json:"trigger"`
-	Mode         string     `json:"mode"`
-	ReviewOnly   bool       `json:"review_only"`
-	PushAllowed  bool       `json:"push_allowed"`
-	Push         string     `json:"push"`
-	ReviewForks  []string   `json:"review_forks"` // review only, but pushes to these forks
-	GitHubWrites string     `json:"github_writes"`
-	Scope        []string   `json:"scope"`
-	DenyRules    []string   `json:"deny_rules"`
-	Sandbox      string     `json:"sandbox"`    // off | read-only
-	PRContext    *string    `json:"pr_context"` // read-only: the prefetched PR context
-	ToolGate     PolicyGate `json:"tool_gate"`
-	Config       *string    `json:"config"`
-	Overrides    []string   `json:"overrides,omitempty"` // the config's overrides that apply, in order
+	Repo         string           `json:"repo"`
+	PR           int              `json:"pr"`
+	URL          string           `json:"url"`
+	Author       string           `json:"author"`
+	OwnPR        bool             `json:"own_pr"`
+	Owner        string           `json:"owner"`
+	Trigger      string           `json:"trigger"`
+	Mode         string           `json:"mode"`
+	ReviewOnly   bool             `json:"review_only"`
+	PushAllowed  bool             `json:"push_allowed"`
+	Push         string           `json:"push"`
+	ReviewForks  []string         `json:"review_forks"` // review only, but pushes to these forks
+	GitHubWrites string           `json:"github_writes"`
+	Scope        []string         `json:"scope"`
+	DenyRules    []string         `json:"deny_rules"`
+	Sandbox      string           `json:"sandbox"`    // off | read-only
+	PRContext    *string          `json:"pr_context"` // read-only: the prefetched PR context
+	ToolGate     PolicyGate       `json:"tool_gate"`
+	Config       *string          `json:"config"`
+	Workflow     *config.Workflow `json:"workflow,omitempty"`
+	Overrides    []string         `json:"overrides,omitempty"` // the config's overrides that apply, in order
 }
 
 // PolicyGate is the tool gate part of the policy.
@@ -274,7 +280,7 @@ func (l *Launcher) Prepare(r Request, worktree, lock string, sb *Sandbox) (Prepa
 		Repo: r.Repo, N: r.N, PR: r.PR, Trigger: r.Trigger, Owner: l.Owner, Login: l.Login,
 		Remote: remote, Scope: r.Scope, ScopeWhy: r.ScopeWhy, Extra: cfg.Prompts.Extra,
 		AllowPush: allowPush, PolicyFile: policyFile, Push: forkPush, GHWrites: ghWrites, ContextDir: contextDir,
-		ReviewForks: forks,
+		ReviewForks: forks, Workflow: l.workflow(r, &cfg),
 	})
 	if err != nil {
 		return Prepared{}, err
@@ -304,6 +310,9 @@ func (l *Launcher) Prepare(r Request, worktree, lock string, sb *Sandbox) (Prepa
 		rules += sandboxGateRule
 		sandbox = config.ReadOnly
 	}
+	if w := l.workflow(r, &cfg); w != nil {
+		rules += " Follow workflow " + w.Name + " in the listed order: " + strings.Join(w.Steps, "; ") + ". Existing session permissions still apply."
+	}
 	policy := Policy{
 		Repo: r.Repo, PR: r.N, URL: r.PR.URL, Author: author, OwnPR: own, Owner: l.Owner,
 		Trigger: r.Trigger, Mode: cfg.Mode, ReviewOnly: reviewOnly,
@@ -326,6 +335,7 @@ func (l *Launcher) Prepare(r Request, worktree, lock string, sb *Sandbox) (Prepa
 	if l.ConfigSource != "" {
 		policy.Config = &l.ConfigSource
 	}
+	policy.Workflow = l.workflow(r, &cfg)
 	policy.Overrides = l.Cfg.Applied(r.Repo, own)
 	if err := writeJSON(policyFile, policy); err != nil {
 		return Prepared{}, err

@@ -6,14 +6,16 @@ import (
 	"strings"
 	"text/template"
 
+	"github.com/appetizers-io/outrider/internal/config"
 	"github.com/appetizers-io/outrider/internal/github"
 	"github.com/appetizers-io/outrider/prompts"
 )
 
-var promptTmpl = template.Must(template.ParseFS(prompts.FS, "prompt.tmpl"))
+var promptTmpl = template.Must(template.New("prompt.tmpl").Funcs(template.FuncMap{"stepNumber": func(i int) int { return i + 1 }}).ParseFS(prompts.FS, "prompt.tmpl"))
 
 // PromptInput is what the agent prompt is about.
 type PromptInput struct {
+	Workflow      *config.Workflow
 	Repo, Trigger string
 	N             int
 	PR            github.PR
@@ -59,6 +61,7 @@ func Prompt(in PromptInput) (string, error) {
 	}
 	sandbox := in.ContextDir != nil
 	data := map[string]any{
+		"Workflow": in.Workflow, "WorkflowPost": in.Workflow != nil && in.Workflow.Post,
 		"Trigger": in.Trigger, "Repo": in.Repo, "N": in.N, "URL": in.PR.URL, "Title": in.PR.Title,
 		"Author": author, "Head": owner + "/" + name, "HeadRef": in.PR.HeadRefName,
 		"MaintainerCanModify": tristate(in.PR.MaintainerCanModify), "Base": in.PR.BaseRefName,

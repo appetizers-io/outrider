@@ -320,6 +320,13 @@
           "minItems": 1,
           "description": "PRs this override applies to: any of these identities."
         },
+        "workflows": {
+          "items": {
+            "$ref": "#/$defs/Workflow"
+          },
+          "type": "array",
+          "description": "Ordered agent workflows selected by PR metadata. First matching activity workflow wins; conditional workflows watch discovered PRs."
+        },
         "push": {
           "oneOf": [
             {
@@ -579,6 +586,111 @@
       },
       "additionalProperties": false,
       "type": "object"
+    },
+    "Workflow": {
+      "properties": {
+        "name": {
+          "type": "string",
+          "minLength": 1
+        },
+        "match": {
+          "items": {
+            "$ref": "#/$defs/WorkflowMatch"
+          },
+          "type": "array",
+          "minItems": 1
+        },
+        "on": {
+          "type": "string",
+          "enum": [
+            "activity",
+            "discussions_resolved",
+            "ci_passed"
+          ],
+          "description": "activity (default): use for an existing session trigger. Other values launch on a false-to-true condition transition on a discovered PR."
+        },
+        "steps": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array",
+          "minItems": 1,
+          "description": "Instructions executed by the agent in this order. Stop and explain when a required step is blocked."
+        },
+        "post": {
+          "type": "boolean",
+          "description": "Authorize GitHub posts explicitly requested by the steps. Existing github_writes guards still apply. Default: prepare drafts in chat."
+        }
+      },
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "name",
+        "match",
+        "steps"
+      ]
+    },
+    "WorkflowMatch": {
+      "properties": {
+        "repo": {
+          "type": "string",
+          "minLength": 1,
+          "description": "owner/repo glob (*, ?, [abc], [!abc], {a,b}), e.g. my-org/*."
+        },
+        "url": {
+          "type": "string",
+          "pattern": "^(https?://|git@|ssh://git@)github\\.com[/:][^/]+/[^/]+?/?$",
+          "description": "GitHub repo URL, e.g. https://github.com/my-org/repo."
+        },
+        "prs": {
+          "type": "string",
+          "enum": [
+            "own",
+            "others"
+          ],
+          "description": "own: PRs you authored. others: everyone else's."
+        },
+        "authors": {
+          "items": {
+            "type": "string",
+            "minLength": 1
+          },
+          "type": "array"
+        },
+        "labels": {
+          "items": {
+            "type": "string",
+            "minLength": 1
+          },
+          "type": "array"
+        },
+        "title": {
+          "type": "string",
+          "minLength": 1
+        },
+        "head": {
+          "type": "string",
+          "minLength": 1
+        },
+        "events": {
+          "items": {
+            "type": "string",
+            "enum": [
+              "notification",
+              "own_pr",
+              "opt_in",
+              "review_change",
+              "review_reply",
+              "mention"
+            ]
+          },
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true
+        }
+      },
+      "additionalProperties": false,
+      "type": "object"
     }
   },
   "properties": {
@@ -602,6 +714,13 @@
       ],
       "description": "supervised: Claude sessions get deny rules for risky tools and, when its classifier is available, the tool_gate on every call; other people's PRs are review only. autonomous: no tool gating, and pushing to other people's PRs follows others_prs.allow_push (default: allowed).",
       "default": "supervised"
+    },
+    "workflows": {
+      "items": {
+        "$ref": "#/$defs/Workflow"
+      },
+      "type": "array",
+      "description": "Ordered agent workflows selected by PR metadata. First matching activity workflow wins; conditional workflows watch discovered PRs."
     },
     "push": {
       "oneOf": [

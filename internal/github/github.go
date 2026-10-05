@@ -103,7 +103,10 @@ type Check struct {
 
 // PR is what `gh pr view --json` tells about a pull request.
 type PR struct {
-	Number         int    `json:"number"`
+	Number int `json:"number"`
+	Labels []struct {
+		Name string `json:"name"`
+	} `json:"labels"`
 	Title          string `json:"title"`
 	URL            string `json:"url"`
 	State          string `json:"state"`
@@ -134,7 +137,7 @@ func (p PR) Open() bool { return p.State == "OPEN" }
 
 const prFields = "number,title,url,state,author,headRefName,baseRefName," +
 	"headRepository,headRepositoryOwner,maintainerCanModify,reviewDecision," +
-	"statusCheckRollup,body,createdAt"
+	"statusCheckRollup,body,createdAt,labels"
 
 // PRView looks a pull request up.
 func (c *Client) PRView(ctx context.Context, repo string, n int) (PR, error) {
