@@ -184,6 +184,7 @@ tool_gate:
   threshold: null
   # Your own rules for every tool call, e.g. ["never modify generated/"].
   rules: []
+  include_profile: false      # playbooks never change gate policy
   include_prompt_extra: false # also enforce prompts.extra through the gate
 
 prompts:
@@ -212,3 +213,23 @@ prompts:
 #       - Read the changelog for every updated dependency.
 #       - Check compatibility and breaking changes.
 #       - Check CI and summarize the result here.
+
+# Opt-in profiles for other people's PRs; absent keeps today's prompts.
+# review:
+#   default: standard
+#   trusted_authors: []       # exact logins; tests stay off for everyone else
+#   trusted_repos: []         # explicit repo globs; org membership is not trust
+#   profiles:
+#     deep:
+#       playbook: profiles/deep.md # within this config directory, never the PR
+#       model: {claude: opus, codex: gpt-5.5}
+#       effort: high
+#       max_minutes: 120
+#       evidence: {tests: local, comments: draft}
+#       context: {issues: true, docs: ["docs/**", "AGENTS.md"]}
+#   rules:
+#     - repos: ["my-org/*"]
+#       triggers: [opt_in]
+#       profile: deep
+#     - triggers: [mentions, review_replies]
+#       profile: quick

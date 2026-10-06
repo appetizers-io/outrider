@@ -15,6 +15,7 @@ var promptTmpl = template.Must(template.New("prompt.tmpl").Funcs(template.FuncMa
 
 // PromptInput is what the agent prompt is about.
 type PromptInput struct {
+	Review        *Review
 	Workflow      *config.Workflow
 	Repo, Trigger string
 	N             int
@@ -61,7 +62,7 @@ func Prompt(in PromptInput) (string, error) {
 	}
 	sandbox := in.ContextDir != nil
 	data := map[string]any{
-		"Workflow": in.Workflow, "WorkflowPost": in.Workflow != nil && in.Workflow.Post,
+		"Review": in.Review, "Workflow": in.Workflow, "WorkflowPost": in.Workflow != nil && in.Workflow.Post,
 		"Trigger": in.Trigger, "Repo": in.Repo, "N": in.N, "URL": in.PR.URL, "Title": in.PR.Title,
 		"Author": author, "Head": owner + "/" + name, "HeadRef": in.PR.HeadRefName,
 		"MaintainerCanModify": tristate(in.PR.MaintainerCanModify), "Base": in.PR.BaseRefName,

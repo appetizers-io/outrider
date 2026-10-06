@@ -115,6 +115,10 @@ func (l *Launcher) launch(ctx context.Context, r Request) (bool, error) {
 	if w := l.workflow(r, &cfg); w != nil {
 		l.Log.Info(key + ": workflow " + w.Name)
 	}
+	if cfg.Review != nil && !strings.EqualFold(r.PR.AuthorLogin(), l.Login) {
+		name, rule := cfg.Review.Select(r.Repo, r.Event)
+		l.Log.Info(key + ": review profile " + name + " (" + rule + ")")
+	}
 	if l.DryRun {
 		return true, nil
 	}
@@ -123,6 +127,7 @@ func (l *Launcher) launch(ctx context.Context, r Request) (bool, error) {
 
 // Spec is everything `outrider session run` needs, saved as session.json.
 type Spec struct {
+	Review     *Review           `json:"review,omitempty"`
 	Isolation  *IsolatedSpec     `json:"isolation,omitempty"`
 	Lock       string            `json:"lock"`
 	Meta       LockMeta          `json:"meta"`
@@ -147,6 +152,7 @@ func writeJSON(path string, v any) error {
 
 // Policy describes a session for the agent (policy.json) and the tool gate.
 type Policy struct {
+	Review        *Review          `json:"review,omitempty"`
 	Repo          string           `json:"repo"`
 	PR            int              `json:"pr"`
 	URL           string           `json:"url"`
@@ -168,6 +174,7 @@ type Policy struct {
 	ToolGate      PolicyGate       `json:"tool_gate"`
 	Config        *string          `json:"config"`
 	Workflow      *config.Workflow `json:"workflow,omitempty"`
+	Guard         guard.Runtime    `json:"guard"`
 	Overrides     []string         `json:"overrides,omitempty"` // the config's overrides that apply, in order
 }
 
@@ -269,6 +276,10 @@ func (l *Launcher) Prepare(r Request, worktree, lock string, sb *Sandbox) (Prepa
 		}
 		mode += ", tools gated by " + by
 	}
+	review, err := l.review(r, &cfg, dir, sb != nil, worktree)
+	if err != nil {
+		return Prepared{}, err
+	}
 	policyFile := filepath.Join(dir, "policy.json")
 	remote := ""
 	if loc, ok := l.Local[r.Repo]; ok {
@@ -282,7 +293,7 @@ func (l *Launcher) Prepare(r Request, worktree, lock string, sb *Sandbox) (Prepa
 		Repo: r.Repo, N: r.N, PR: r.PR, Trigger: r.Trigger, Owner: l.Owner, Login: l.Login,
 		Remote: remote, Scope: r.Scope, ScopeWhy: r.ScopeWhy, Extra: cfg.Prompts.Extra,
 		AllowPush: allowPush, PolicyFile: policyFile, Push: forkPush, GHWrites: ghWrites, ContextDir: contextDir,
-		ReviewForks: forks, Workflow: l.workflow(r, &cfg),
+		Review: review, ReviewForks: forks, Workflow: l.workflow(r, &cfg),
 	})
 	if err != nil {
 		return Prepared{}, err
@@ -301,12 +312,13 @@ func (l *Launcher) Prepare(r Request, worktree, lock string, sb *Sandbox) (Prepa
 	if err1 != nil || err2 != nil {
 		return Prepared{}, errors.New("gh and git must be installed")
 	}
-	guardBin, err := l.installGuards()
+	guardBin, err := l.installGuards(dir)
 	if err != nil {
 		return Prepared{}, err
 	}
 
 	rules := GateText(&cfg, r.Repo, r.N, author, l.Owner, own, push, ghWrites)
+	rules += " Session metadata and guard binaries in " + dir + " are protected: never edit, replace, delete or redirect them."
 	sandbox := "off"
 	if sb != nil {
 		rules += sandboxGateRule
@@ -337,6 +349,12 @@ func (l *Launcher) Prepare(r Request, worktree, lock string, sb *Sandbox) (Prepa
 	if l.ConfigSource != "" {
 		policy.Config = &l.ConfigSource
 	}
+	policy.Guard = guard.Runtime{Git: gitPath, GH: ghPath, Head: headRepo(r.PR), Display: map[string]string{}}
+	policy.Guard.SSH, _ = l.LookPath("ssh")
+	for _, key := range []string{"DISPLAY", "WAYLAND_DISPLAY", "XAUTHORITY", "XDG_RUNTIME_DIR", "DBUS_SESSION_BUS_ADDRESS"} {
+		policy.Guard.Display[key] = os.Getenv(key)
+	}
+	policy.Review = review
 	policy.Workflow = l.workflow(r, &cfg)
 	policy.Overrides = l.Cfg.Applied(r.Repo, own)
 	if err := writeJSON(policyFile, policy); err != nil {
@@ -347,16 +365,41 @@ func (l *Launcher) Prepare(r Request, worktree, lock string, sb *Sandbox) (Prepa
 	if gated {
 		hookEnv = classifier.HookEnv(toolGate, rules, cfg.ToolGate.Threshold, policyFile)
 	}
+	if gated {
+		policy.Guard.Hook, policy.Guard.HookEnv = toolGate.HookCmd, hookEnv
+		if err := writeJSON(policyFile, policy); err != nil {
+			return Prepared{}, err
+		}
+		toolGate = &classifier.Resolved{Name: toolGate.Name, HookCmd: []string{filepath.Join(guardBin, "outrider-gate"+exeSuffix(l.GOOS))}}
+	}
+	if review != nil && review.Outbox != "" {
+		rules += " The only local draft exception is " + review.Outbox + "; this permits drafting, never PR edits or GitHub submission."
+		policy.ToolGate.Rules = rules
+		if gated {
+			hookEnv["OUTRIDER_GATE_TEXT"] = rules
+			if _, ok := hookEnv["JEV_GATE_STATE"]; ok {
+				hookEnv["JEV_GATE_STATE"] = rules
+			}
+			policy.Guard.HookEnv = hookEnv
+		}
+		if err := writeJSON(policyFile, policy); err != nil {
+			return Prepared{}, err
+		}
+	}
 	name := fmt.Sprintf("PR %s#%d", r.Repo, r.N)
 	agent := []string{agentPath}
 	switch {
 	case cfg.Agent == "claude":
+		if reviewOnly && sb == nil {
+			agent = append(agent, "--setting-sources", "user", "--strict-mcp-config")
+		}
 		// Remote Control lists the session on claude.ai and in Claude Desktop
 		agent = append(agent, "--name", name, "--remote-control", name)
 		if supervised || sb != nil || cfg.NetworkAccess != nil {
 			settings := map[string]any{}
 			if supervised || sb != nil {
 				settings = ClaudeSettings(&cfg, push, l.GOOS, l.Root, toolGate, hookEnv)
+				settings["permissions"] = map[string]any{"deny": policy.DenyRules}
 			}
 			if cfg.NetworkAccess != nil {
 				network := map[string]any{"allowedDomains": []string{"*"}}
@@ -368,6 +411,14 @@ func (l *Launcher) Prepare(r Request, worktree, lock string, sb *Sandbox) (Prepa
 			if sb != nil {
 				settings["permissions"] = map[string]any{"deny": policy.DenyRules, "disableBypassPermissionsMode": "disable"}
 				settings["sandbox"] = ClaudeSandbox(sb.DenyWrite)
+			}
+			if review != nil && review.Outbox != "" {
+				sandboxSettings, _ := settings["sandbox"].(map[string]any)
+				if sandboxSettings == nil {
+					sandboxSettings = map[string]any{}
+				}
+				sandboxSettings["filesystem"] = map[string]any{"allowWrite": []string{review.Outbox}}
+				settings["sandbox"] = sandboxSettings
 			}
 			sf := filepath.Join(dir, "claude-settings.json")
 			if err := writeJSON(sf, settings); err != nil {
@@ -384,6 +435,22 @@ func (l *Launcher) Prepare(r Request, worktree, lock string, sb *Sandbox) (Prepa
 		agent = append(agent, "-c", fmt.Sprintf("sandbox_workspace_write.network_access=%t", *cfg.NetworkAccess))
 	}
 
+	if review != nil {
+		if review.Model != "" {
+			if cfg.Agent == "claude" {
+				agent = append(agent, "--model", review.Model)
+			} else {
+				agent = append(agent, "-m", review.Model)
+			}
+		}
+		if review.Effort != "" {
+			if cfg.Agent == "claude" {
+				agent = append(agent, "--effort", review.Effort)
+			} else {
+				agent = append(agent, "-c", "model_reasoning_effort="+review.Effort)
+			}
+		}
+	}
 	env := map[string]string{
 		guard.EnvRealGH:   ghPath,
 		guard.EnvRealGit:  gitPath,
@@ -416,6 +483,7 @@ func (l *Launcher) Prepare(r Request, worktree, lock string, sb *Sandbox) (Prepa
 		tmux = new(regexp.MustCompile(`[^A-Za-z0-9_-]`).ReplaceAllString(fmt.Sprintf("pr-%s-%d", r.Repo, r.N), "-"))
 	}
 	spec := Spec{
+		Review:     review,
 		Lock:       lock,
 		Meta:       LockMeta{Repo: r.Repo, PR: r.N, Started: float64(time.Now().UnixNano()) / 1e9, Tmux: tmux},
 		Dir:        worktree,
@@ -428,6 +496,12 @@ func (l *Launcher) Prepare(r Request, worktree, lock string, sb *Sandbox) (Prepa
 			fmt.Sprintf("agent: %s (%s%s)", cfg.Agent, ghNote, mode),
 			"",
 		},
+	}
+	if review != nil {
+		spec.Header = append(spec.Header, "review profile: "+review.Name+" ("+review.Rule+")")
+		for _, note := range review.Notes {
+			l.Log.Info(note)
+		}
 	}
 	if err := writeJSON(filepath.Join(dir, "session.json"), spec); err != nil {
 		return Prepared{}, err
@@ -444,28 +518,26 @@ func headRepo(pr github.PR) string {
 	return pr.HeadRepositoryOwner.Login + "/" + pr.HeadRepository.Name
 }
 
-// installGuards links gh and git in <root>/bin to this binary (copies on Windows).
-func (l *Launcher) installGuards() (string, error) {
-	bin := filepath.Join(l.Root, "bin")
+// installGuards copies the binary into each session so os.Executable anchors
+// the policy independently of PATH, argv[0], HOME and OUTRIDER_*.
+func (l *Launcher) installGuards(dir string) (string, error) {
+	bin := filepath.Join(dir, "bin")
 	if err := os.MkdirAll(bin, 0o700); err != nil {
 		return "", fmt.Errorf("guard dir: %w", err)
 	}
-	for _, name := range []string{"gh", "git"} {
-		if l.GOOS == "windows" {
-			if err := copyFile(l.Self, filepath.Join(bin, name+".exe")); err != nil {
-				return "", err
-			}
-			continue
-		}
-		p := filepath.Join(bin, name)
-		if err := os.Remove(p); err != nil && !errors.Is(err, os.ErrNotExist) {
-			return "", fmt.Errorf("replace guard %s: %w", p, err)
-		}
-		if err := os.Symlink(l.Self, p); err != nil {
-			return "", fmt.Errorf("install guard %s: %w", p, err)
+	for _, name := range []string{"gh", "git", "outrider-gate", "outrider-draft"} {
+		if err := copyFile(l.Self, filepath.Join(bin, name+exeSuffix(l.GOOS))); err != nil {
+			return "", err
 		}
 	}
 	return bin, nil
+}
+
+func exeSuffix(goos string) string {
+	if goos == "windows" {
+		return ".exe"
+	}
+	return ""
 }
 
 func copyFile(src, dst string) error {
@@ -486,12 +558,9 @@ func copyFile(src, dst string) error {
 	if err := out.Close(); err != nil {
 		return fmt.Errorf("copy guard: %w", err)
 	}
-	// a running guard keeps its file open; then the old copy stays
+	// A failed replacement must never leave a stale guard active.
 	if err := os.Rename(tmp, dst); err != nil {
 		_ = os.Remove(tmp)
-		if _, statErr := os.Stat(dst); statErr == nil {
-			return nil
-		}
 		return fmt.Errorf("copy guard: %w", err)
 	}
 	return nil
@@ -512,6 +581,13 @@ func (l *Launcher) start(ctx context.Context, r Request, lock string) error {
 		if sb, err = l.prepareSandbox(ctx, r, wt); err != nil {
 			return err
 		}
+	}
+	review, err := l.review(r, &cfg, sessionDir(l.Root, r.Repo, r.N), sb != nil, wt)
+	if err != nil {
+		return err
+	}
+	if err := l.reviewContext(ctx, r, &cfg, review, wt, sessionDir(l.Root, r.Repo, r.N)); err != nil {
+		return err
 	}
 	p, err := l.Prepare(r, wt, lock, sb)
 	if err != nil {

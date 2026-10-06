@@ -391,6 +391,13 @@ func Run(ctx context.Context, s Settings, d Deps, log *slog.Logger) error {
 	log.Info("launcher: " + launcher)
 	log.Info("terminal: " + terminal.String())
 	log.Info(fmt.Sprintf("max active agents: %d", cfg.MaxAgents))
+	if cfg.Review != nil {
+		name := "off"
+		if cfg.Review.Default != nil {
+			name = *cfg.Review.Default
+		}
+		log.Info(fmt.Sprintf("review profiles: default %s, %d rules (others' PRs only)", name, len(cfg.Review.Rules)))
+	}
 	log.Info(fmt.Sprintf("launch check: %s (%s)", onOff(launchCheck), checkNote))
 	log.Info(fmt.Sprintf("tool gate: %s (%s)", onOff(toolGate), gateNote))
 	codexHome := CodexHome(d)

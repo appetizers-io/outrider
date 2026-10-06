@@ -11,10 +11,10 @@ outrider watches your GitHub notifications and opens a local coding agent
 (Claude Code or Codex) for the pull requests that need you: in its own
 worktree, in your terminal, with guardrails around pushing and posting.
 
-<!-- Demo: record one launch and replace this comment, e.g.
-     asciinema rec demo.cast -c "outrider --once"
-     agg demo.cast docs/demo.gif
-     then add: ![outrider launching a session](docs/demo.gif) -->
+![Outrider launching a read-only Codex session](docs/demo.gif)
+
+The demo uses a public PR and a local read-only session. Its compact output
+shows the real agent connection, README read and response; no push or post runs.
 
 ## What it does
 

@@ -1,0 +1,20 @@
+# Static standard review by default; test execution needs explicit trust.
+mode: supervised
+agent: claude
+github_writes: ask
+review:
+  default: standard
+  trusted_authors: []
+  trusted_repos: []
+  profiles:
+    deep:
+      effort: high
+      max_minutes: 120
+      evidence: {tests: local, comments: draft}
+      context: {issues: true, docs: ["docs/**", "AGENTS.md"]}
+  rules:
+    - repos: ["my-org/*"]
+      triggers: [opt_in]
+      profile: deep
+    - triggers: [mentions, review_replies]
+      profile: quick

@@ -64,7 +64,7 @@ const requiredScope = "repo"
 
 var checks = []func(context.Context, *Input) Result{
 	checkConfig, checkGitHub, checkGit, checkAgent, checkOtherAgent, checkLauncher, checkDialogs,
-	checkLaunchCheck, checkToolGate, checkSandbox, checkCheckout, checkReviewForks, checkFiles, checkLeftovers,
+	checkReview, checkLaunchCheck, checkToolGate, checkSandbox, checkCheckout, checkReviewForks, checkFiles, checkLeftovers,
 }
 
 // Run runs every check, with review_forks resolved the way the watcher does.
@@ -505,4 +505,22 @@ func checkLeftovers(_ context.Context, in *Input) Result {
 		r.Detail = strings.Join(found, ", ")
 	}
 	return r
+}
+
+func checkReview(_ context.Context, in *Input) Result {
+	c := &in.Settings.Cfg
+	if c.Review == nil {
+		return Result{Name: "review profiles", Status: Info, Detail: "off (existing prompts)"}
+	}
+	name := "off"
+	if c.Review.Default != nil {
+		name = *c.Review.Default
+	}
+	detail := fmt.Sprintf("default: %s; %d rules; explicit trusted author/repository allowlist for tests", name, len(c.Review.Rules))
+	status := OK
+	fix := ""
+	if c.MaxAgents == 1 && (name == "deep" || slices.ContainsFunc(c.Review.Rules, func(r config.ReviewRule) bool { return r.Profile == "deep" })) {
+		status, fix = Warn, "Deep reviews occupy the only slot; set max_agents above 1 or use a shorter max_minutes."
+	}
+	return Result{Name: "review profiles", Status: status, Detail: detail, Fix: fix}
 }
