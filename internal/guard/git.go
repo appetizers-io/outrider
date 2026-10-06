@@ -3,6 +3,8 @@ package guard
 import (
 	"slices"
 	"strings"
+
+	"github.com/appetizers-io/outrider/internal/shell"
 )
 
 // git: $OUTRIDER_PUSH decides what `git push` (also through aliases) does:
@@ -104,7 +106,7 @@ func PushDialog(session string, args []string, branch, dir string, d GitDecision
 	if branch == "" {
 		branch = "?"
 	}
-	text := session + " wants to run:\n\ngit " + strings.Join(args, " ") + "\n\n"
+	text := session + " wants to run:\n\ngit " + shell.Join(args...) + "\n\n"
 	if d.Dest != "" {
 		text += "to: " + d.Dest + "\nrefs: " + strings.Join(d.Refs, " ") + "\n"
 	}
@@ -123,5 +125,5 @@ func approvedPushEnv(env []string) []string {
 		}
 		out = append(out, kv)
 	}
-	return append(out, EnvPush+"=allow")
+	return out
 }

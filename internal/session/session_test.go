@@ -145,12 +145,13 @@ func TestReviewOnlySessionDeniesEditsAndPushes(t *testing.T) {
 	r.Subset(got.deny(), []string{"Edit", "Write", "Bash(git commit:*)", "Bash(git push:*)"})
 	hook := got.settings["hooks"].(map[string]any)["PreToolUse"].([]any)[0].(map[string]any)
 	r.Equal("Bash|Write|Edit|NotebookEdit", hook["matcher"])
-	r.Equal("jev-use hook gate", hook["hooks"].([]any)[0].(map[string]any)["command"])
+	r.Contains(hook["hooks"].([]any)[0].(map[string]any)["command"], "outrider-gate")
+	r.Equal([]any{"jev-use", "hook", "gate"}, got.policy["guard"].(map[string]any)["hook"])
 	r.Contains(got.settingsEnv()["JEV_GATE_STATE"], "REVIEW ONLY")
 	r.True(got.usesSettings())
 	r.Equal("review-only", got.spec.Env["OUTRIDER_PUSH"])
 	r.Contains(got.prompt, "REVIEW ONLY")
-	r.Equal([]string{"/bin/claude", "--name", "PR o/r#1", "--remote-control", "PR o/r#1", "--settings"}, got.spec.Agent[:6])
+	r.Equal([]string{"/bin/claude", "--setting-sources", "user", "--strict-mcp-config", "--name", "PR o/r#1", "--remote-control", "PR o/r#1", "--settings"}, got.spec.Agent[:9])
 }
 
 func TestOwnPRSessionAllowsWorkButNotForce(t *testing.T) {
@@ -239,7 +240,8 @@ func TestLocalClassifierAsToolGate(t *testing.T) {
 	l.ToolGate = localGate
 	got := l.launched(t, "bob")
 	hook := got.settings["hooks"].(map[string]any)["PreToolUse"].([]any)[0].(map[string]any)["hooks"].([]any)[0].(map[string]any)
-	r.Equal("cls hook", hook["command"])
+	r.Contains(hook["command"], "outrider-gate")
+	r.Equal([]any{"cls", "hook"}, got.policy["guard"].(map[string]any)["hook"])
 	r.Equal("Tool gate (local): checking this action", hook["statusMessage"])
 	env := got.settingsEnv()
 	r.Contains(env["OUTRIDER_GATE_TEXT"], "REVIEW ONLY")
@@ -485,11 +487,11 @@ func TestSessionStartsInTmuxWithTheRunner(t *testing.T) {
 	r.NoError(json.Unmarshal(raw, &meta))
 	r.Nil(meta.PID) // stamped by the runner
 	r.Equal("pr-o-r-1", *meta.Tmux)
-	if runtime.GOOS != "windows" {
-		target, err := os.Readlink(filepath.Join(l.Root, "bin", "git"))
-		r.NoError(err)
-		r.Equal(os.Args[0], target) // the guard is this binary
-	}
+	guardPath := filepath.Join(dir, "bin", "git"+exeSuffix(runtime.GOOS))
+	st, err := os.Lstat(guardPath)
+	r.NoError(err)
+	r.True(st.Mode().IsRegular())
+	r.NotEqual(filepath.Join(l.Root, "bin"), filepath.Dir(guardPath))
 }
 
 func TestSessionOpensInTheTerminal(t *testing.T) {
@@ -579,7 +581,7 @@ func TestRunnerStampsItsPidRunsTheAgentAndCleansUp(t *testing.T) {
 	text := string(raw)
 	r.Contains(text, fmt.Sprintf(`"pid": %d`, os.Getpid()))
 	r.Contains(text, "push=review-only")
-	r.Contains(text, "path="+filepath.Join(l.Root, "bin"))
+	r.Contains(text, "path="+filepath.Join(dir, "bin"))
 	r.Contains(text, "REVIEW ONLY") // the prompt is the last argument
 	resolved, _ := filepath.EvalSymlinks(wt)
 	r.True(strings.Contains(text, "wd="+wt) || strings.Contains(text, "wd="+resolved))
@@ -698,7 +700,7 @@ func TestTerminalSessionGetsTheWatchersEnvironment(t *testing.T) {
 	text := string(raw)
 	r.Contains(text, "typesafe=from-the-shell\n")
 	r.Contains(text, "push=review-only\n")
-	r.Contains(text, "path="+filepath.Join(l.Root, "bin")+"\n")
+	r.Contains(text, "path="+filepath.Join(dir, "bin")+"\n")
 	_, err = os.Stat(envFile)
 	r.ErrorIs(err, os.ErrNotExist)
 }

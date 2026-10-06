@@ -18,7 +18,13 @@ import (
 type Ask func(title, body, ok string) bool
 
 // RunGH is the gh guard: decide, maybe ask, then run the real gh.
-func RunGH(args []string, getenv func(string) string, ask Ask, stderr io.Writer) int {
+func RunGH(args []string, ask Ask, stderr io.Writer) int {
+	getenv, policy, err := trustedEnv()
+	if err != nil {
+		_, _ = fmt.Fprintln(stderr, "outrider guard:", err)
+		return 1
+	}
+	ask = trustedAsk(ask, policy.Guard.Display)
 	s := GHSessionFromEnv(getenv)
 	d := DecideGH(args, s)
 	if d.Deny == "" && d.Write && s.Mode == "ask" &&
@@ -39,7 +45,13 @@ func RunGH(args []string, getenv func(string) string, ask Ask, stderr io.Writer)
 }
 
 // RunGit is the git guard: decide, maybe ask, then run the real git.
-func RunGit(args []string, getenv func(string) string, ask Ask, stderr io.Writer) int {
+func RunGit(args []string, ask Ask, stderr io.Writer) int {
+	getenv, policy, err := trustedEnv()
+	if err != nil {
+		_, _ = fmt.Fprintln(stderr, "outrider guard:", err)
+		return 1
+	}
+	ask = trustedAsk(ask, policy.Guard.Display)
 	real := getenv(EnvRealGit)
 	if real == "" {
 		_, _ = fmt.Fprintln(stderr, "outrider guard: "+EnvRealGit+" is not set")
@@ -73,6 +85,16 @@ func RunGit(args []string, getenv func(string) string, ask Ask, stderr io.Writer
 	} else {
 		d = DecideGit(args, getenv(EnvPush), alias)
 		if d.Ask {
+			if _, i := Subcommand(args); i != 0 {
+				d = GitDecision{Deny: gitDeny(args, "Approval pushes cannot use global options or aliases.")}
+			}
+			for _, k := range redirectEnv {
+				if os.Getenv(k) != "" {
+					d = GitDecision{Deny: gitDeny(args, "Unset "+k+" before requesting approval.")}
+				}
+			}
+		}
+		if d.Ask {
 			if !askPush(real, getenv, ask, args, d) {
 				d.Deny = gitDeny(args, deniedNotApproved)
 			}
@@ -82,6 +104,9 @@ func RunGit(args []string, getenv func(string) string, ask Ask, stderr io.Writer
 	if d.Deny != "" {
 		_, _ = fmt.Fprintln(stderr, d.Deny)
 		return 1
+	}
+	if rf != nil && d.URL != "" {
+		return isolatedPush(d, policy.Guard, env, stderr)
 	}
 	return execReal(real, args, env, stderr)
 }
@@ -157,10 +182,23 @@ func Command(argv0 string) func(args []string) int {
 		return approved
 	}
 	switch strings.TrimSuffix(strings.ToLower(filepath.Base(argv0)), ".exe") {
+	case "outrider-gate":
+		return func(_ []string) int { return RunGate(os.Stdin, os.Stdout, os.Stderr) }
 	case "gh":
-		return func(args []string) int { return RunGH(args, os.Getenv, ask, os.Stderr) }
+		return func(args []string) int { return RunGH(args, ask, os.Stderr) }
 	case "git":
-		return func(args []string) int { return RunGit(args, os.Getenv, ask, os.Stderr) }
+		return func(args []string) int { return RunGit(args, ask, os.Stderr) }
 	}
 	return nil
+}
+
+// Approval tools see the watcher's display, never a replacement supplied by
+// the agent. Guards are short-lived standalone processes.
+func trustedAsk(ask Ask, display map[string]string) Ask {
+	return func(title, body, ok string) bool {
+		for _, k := range []string{"DISPLAY", "WAYLAND_DISPLAY", "XAUTHORITY", "XDG_RUNTIME_DIR", "DBUS_SESSION_BUS_ADDRESS"} {
+			_ = os.Setenv(k, display[k])
+		}
+		return ask(title, body, ok)
+	}
 }

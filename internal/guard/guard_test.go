@@ -1,11 +1,13 @@
 package guard
 
 import (
+	"encoding/json"
 	"errors"
 	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"slices"
 	"strings"
 	"testing"
@@ -29,7 +31,7 @@ func TestMain(m *testing.M) {
 		if as == "git" {
 			run = RunGit
 		}
-		os.Exit(run(os.Args[1:], os.Getenv, ask, os.Stderr))
+		os.Exit(run(os.Args[1:], ask, os.Stderr))
 	}
 	if os.Getenv("FAKE_REAL") != "" {
 		a := os.Args[1:]
@@ -101,12 +103,13 @@ var posts = [][]string{
 	{"api", "/repos/O/R/pulls/7/comments/11/replies", "-f", "body=hi"},
 	{"api", "-X", "POST", "repos/o/r/pulls/7/reviews", "-f", "event=COMMENT"},
 	{"api", "repos/o/r/issues/7/comments", "-f", "body=hi"},
-	{"api", "-X", "PATCH", "repos/o/r/issues/comments/9", "-f", "body=hi"},
 	{"api", "repos/o/r/pulls/comments/9/reactions", "-f", "content=+1"},
 	{"api", "-XDELETE", "repos/o/r/issues/comments/9/reactions/2"},
 }
 
 var neverPosts = [][]string{
+	{"api", "-X", "PATCH", "repos/o/r/issues/comments/9", "-f", "body=hi"},
+	{"api", "-X", "PATCH", "repos/o/r/pulls/comments/9", "-f", "body=hi"},
 	{"pr", "merge", "7"},
 	{"pr", "close", "7"},
 	{"pr", "edit", "7", "--add-label", "x"},
@@ -328,7 +331,7 @@ func TestGitPushModes(t *testing.T) {
 
 func TestApprovedPushEnvDropsTheTrap(t *testing.T) {
 	env := approvedPushEnv([]string{"PATH=/x", "GIT_CONFIG_COUNT=1", "GIT_CONFIG_KEY_0=k", "GIT_CONFIG_VALUE_0=v", "OUTRIDER_PUSH=ask"})
-	require.Equal(t, []string{"PATH=/x", "OUTRIDER_PUSH=allow"}, env)
+	require.Equal(t, []string{"PATH=/x"}, env)
 }
 
 // --- the whole guard, run as a process ---------------------------------------
@@ -343,15 +346,45 @@ func runGuard(t *testing.T, as string, env map[string]string, args ...string) re
 	t.Helper()
 	dir := t.TempDir()
 	dialog := filepath.Join(dir, "dialog")
-	cmd := exec.Command(os.Args[0], args...)
+	bin := filepath.Join(dir, "bin")
+	require.NoError(t, os.Mkdir(bin, 0o700))
+	executable := filepath.Join(bin, "guard")
+	if runtime.GOOS == "windows" {
+		executable += ".exe"
+	}
+	raw, err := os.ReadFile(os.Args[0])
+	require.NoError(t, err)
+	require.NoError(t, os.WriteFile(executable, raw, 0o700))
+	realGit := os.Args[0]
+	if env[EnvRealGit] != "" {
+		realGit = env[EnvRealGit]
+	}
+	p := Policy{Repo: "o/r", PR: 7, Push: env[EnvPush], GitHubWrites: env[EnvGHWrites],
+		Guard: Runtime{Git: realGit, GH: os.Args[0], Head: env[EnvHeadRepo], Display: map[string]string{}}}
+	if env[EnvRepo] != "" {
+		p.Repo = env[EnvRepo]
+	}
+	if env[EnvReviewForks] != "" {
+		p.ReviewOnly = true
+		p.ReviewForks = strings.Split(env[EnvReviewForks], "\n")
+		p.Push = env[EnvReviewForksPush]
+	}
+	if env["TRUSTED_SSH"] != "" {
+		p.Guard.SSH = env["TRUSTED_SSH"]
+	}
+	raw, err = json.Marshal(p)
+	require.NoError(t, err)
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "policy.json"), raw, 0o600))
+	cmd := exec.Command(executable, args...)
 	cmd.Env = append(os.Environ(), "GUARD_AS="+as, "FAKE_REAL=1", "GUARD_DIALOG="+dialog,
 		EnvRealGH+"="+os.Args[0], EnvRealGit+"="+os.Args[0])
 	for k, v := range env {
+		k = strings.TrimPrefix(k, "ATTACK_")
 		cmd.Env = append(cmd.Env, k+"="+v)
 	}
 	var stdout, stderr strings.Builder
 	cmd.Stdout, cmd.Stderr = &stdout, &stderr
-	err := cmd.Run()
+	err = cmd.Run()
 	code := 0
 	var ee *exec.ExitError
 	if errors.As(err, &ee) {
@@ -407,7 +440,7 @@ func TestGitGuardAsksAndDropsTheTrap(t *testing.T) {
 	r.Contains(res.dialog, "git push origin")
 
 	trap["GUARD_ANSWER"] = "Deny"
-	res = runGuard(t, "git", trap, "p")
+	res = runGuard(t, "git", trap, "push", "origin")
 	r.Equal(1, res.code)
 	r.Contains(res.stderr, "did not approve")
 	r.NotContains(res.stdout, "REAL")
@@ -447,4 +480,30 @@ func TestPostDialogQuotesHash(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, append([]string{"gh"}, args...), back)
 	require.NotContains(t, cmd, " #x")
+}
+
+func TestGuardIgnoresAgentPolicyOverrides(t *testing.T) {
+	env := session("never", "Post")
+	env["ATTACK_"+EnvGHWrites] = "allow"
+	env["ATTACK_"+EnvRepo] = "other/repo"
+	env["ATTACK_"+EnvRealGH] = "/malicious/gh"
+	res := runGuard(t, "gh", env, "pr", "comment", "7", "-b", "attack")
+	require.Equal(t, 1, res.code)
+	require.Contains(t, res.stderr, "read-only")
+	require.Empty(t, res.dialog)
+	env = map[string]string{EnvPush: "never", "ATTACK_" + EnvPush: "allow", "GIT_CONFIG_COUNT": "0"}
+	res = runGuard(t, "git", env, "push", "origin")
+	require.Equal(t, 1, res.code)
+	require.Contains(t, res.stderr, "Pushing is off")
+}
+
+func TestAskPushRejectsTargetOverrides(t *testing.T) {
+	for _, args := range [][]string{{"-C", "/another", "push", "origin"}, {"--git-dir=/another", "push", "origin"}, {"-c", "remote.origin.pushurl=x", "push", "origin"}} {
+		res := runGuard(t, "git", map[string]string{EnvPush: "ask", "GUARD_ANSWER": "Push"}, args...)
+		require.Equal(t, 1, res.code)
+		require.Empty(t, res.dialog)
+	}
+	res := runGuard(t, "git", map[string]string{EnvPush: "ask", "GUARD_ANSWER": "Push", "GIT_DIR": "/another"}, "push", "origin")
+	require.Equal(t, 1, res.code)
+	require.Empty(t, res.dialog)
 }

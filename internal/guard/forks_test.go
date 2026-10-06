@@ -366,7 +366,7 @@ exec ` + realGit + ` receive-pack "` + remotes + `/PATH"
 
 	sess := func(extra ...string) map[string]string {
 		m := map[string]string{
-			"PATH": bin + string(os.PathListSeparator) + os.Getenv("PATH"), "HOME": root,
+			"PATH": bin + string(os.PathListSeparator) + os.Getenv("PATH"), "HOME": root, "TRUSTED_SSH": filepath.Join(bin, "ssh"),
 			EnvRealGit: realGit, EnvPush: "review-only", EnvReviewForks: "me/fork", EnvReviewForksPush: "allow",
 			EnvHeadRepo: "bob/repo", EnvRepo: "base/repo",
 		}
@@ -389,6 +389,8 @@ exec ` + realGit + ` receive-pack "` + remotes + `/PATH"
 		{name: "plain", env: nil},
 		{name: "GIT_SSH_COMMAND", env: []string{"GIT_SSH_COMMAND", "ssh-evil"}, deny: "Unset GIT_SSH_COMMAND"},
 		{name: "GIT_SSH", env: []string{"GIT_SSH", "ssh-evil"}, deny: "Unset GIT_SSH"},
+		{name: "http.proxy", config: [2]string{"http.proxy", "http://127.0.0.1:1"}},
+		{name: "http.sslVerify", config: [2]string{"http.sslVerify", "false"}},
 		{name: "core.sshCommand", config: [2]string{"core.sshCommand", "ssh-evil"}},
 		{name: "core.hooksPath pre-push", config: [2]string{"core.hooksPath", "hooks"}},
 		{name: ".git/hooks/pre-push"},

@@ -139,6 +139,8 @@ func (l *Launcher) startIsolated(ctx context.Context, r Request, lock string, cf
 				return err
 			}
 			policy.Sandbox = "docker-sandbox"
+			policy.Guard.Git, policy.Guard.GH, policy.Guard.SSH = "/usr/bin/git", "/usr/bin/gh", "/usr/bin/ssh"
+			policy.Guard.Display = map[string]string{}
 			if policy.Config != nil {
 				*policy.Config = isolatedPath(*policy.Config, p.Dir)
 			}
@@ -380,8 +382,8 @@ if [ -d /tmp/outrider/agent ]; then cp -R /tmp/outrider/agent/. "$HOME/.$2/"; fi
 if [ -f /tmp/outrider/claude.json ]; then cp /tmp/outrider/claude.json "$HOME/.claude.json"; fi
 if [ -f /tmp/outrider/gitconfig ]; then cp /tmp/outrider/gitconfig "$HOME/.gitconfig"; fi
 sudo chmod 755 /tmp/outrider/outrider
-ln -sf /tmp/outrider/outrider /tmp/outrider/bin/git
-ln -sf /tmp/outrider/outrider /tmp/outrider/bin/gh
+cp /tmp/outrider/outrider /tmp/outrider/bin/git
+cp /tmp/outrider/outrider /tmp/outrider/bin/gh
 command -v git >/dev/null
 command -v gh >/dev/null
 

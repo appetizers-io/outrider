@@ -185,20 +185,18 @@ The `git` guard decides every push in these sessions:
   `GIT_SSH_COMMAND`, `GIT_SSH_VARIANT`, `GIT_EXEC_PATH`, `GIT_PROXY_COMMAND`
   or a `GIT_CONFIG_KEY_<n>` other than the push trap's is set, and when the
   remote has a `vcs` helper, since they can redirect it.
-- **Transport and hooks are pinned.** An allowed push runs against the
-  resolved URL, not the remote name, as
-  `git -c core.hooksPath=/dev/null -c core.sshCommand=ssh push --no-verify
-  <options> -- <url> <src>:refs/heads/review/<name>`. So a `core.sshCommand`,
-  a pre-push hook (in `.git/hooks` or `core.hooksPath`) or a remote helper
-  can't send it to another repo. A URL that a `url.*.insteadOf` rule would
-  rewrite again is refused.
+- **Transport and configuration are isolated.** The guard resolves source
+  commits to object IDs, then pushes from a disposable bare repository with
+  the source object store as an alternate. It has no inherited Git config,
+  hooks, proxy, URL rewrites or remote helpers. SSH uses the watcher's absolute
+  executable path with no SSH config; HTTPS verifies TLS and refuses redirects.
 - In `ask` mode the destination is resolved again after you click **Push**;
   if it changed, the push is refused.
 - The push trap stays in the session; an allowed push runs without it.
 
-The guard reads `$OUTRIDER_REVIEW_FORKS` and the fork push mode
-`$OUTRIDER_REVIEW_FORKS_PUSH`; `$OUTRIDER_PUSH` stays `review-only`, so a
-session that loses the forks variable pushes nowhere.
+The guard reads the session policy beside its own executable. Changing
+`OUTRIDER_*`, `HOME`, or the working directory does not change that policy.
+Missing or invalid policy refuses the invocation.
 
 Claude's blanket deny rules for `Edit`, `Write` and `git commit` are dropped
 for these sessions. `Edit` and `Write` stay denied in any `.git` directory, in
@@ -254,7 +252,9 @@ read list. Reads pass: `gh pr view|diff|checks|list|status|checkout`,
 | Linux | `zenity`, else `kdialog`, when `$DISPLAY` or `$WAYLAND_DISPLAY` is set |
 | Windows | a PowerShell message box (Yes = Post or Push, No = Deny) |
 
-The dialog tool is taken from fixed system paths, never from `PATH`. No dialog,
+The dialog tool is taken from fixed system paths, never from `PATH`. Linux
+display and authorization settings are captured by the watcher and restored
+before approval, so an agent-supplied display cannot redirect the dialog. No dialog,
 **Deny**, closing it, or 5 minutes without an answer all mean "no". Claude
 sessions get a deny rule for the dialog tool (`Bash(osascript:*)` and the
 like), so the agent doesn't click its own dialog by accident.
@@ -265,14 +265,19 @@ In supervised mode, when the `tool_gate` classifier is available, Claude
 sessions get a PreToolUse hook that sees every `Bash`, `Write`, `Edit` and
 `NotebookEdit` call (`tool_gate.matcher`). It is told what the session may do
 (review only or not, the push and post rules) plus your `tool_gate.rules`, and
-can deny a call or ask you. See [Classifiers](classifiers.md).
+can deny a call or ask you. Outrider wraps the hook and strips an `allow`
+verdict so it cannot override native permission checks; malformed responses,
+failed hooks and timeouts block the tool. See [Classifiers](classifiers.md).
 
 Codex sessions get the guards, the prompt and the gate's environment, but the
 hook isn't wired: Codex hooks need a one-time trust (`/hooks`).
 
 ## policy.json
 
-Every session writes `policy.json` next to its prompt: repo, PR, whether it is
+Every session writes `policy.json` next to its prompt. Its private `bin/`
+contains copies of the guard executable; each guard finds this policy via
+its executable location, independent of the agent environment. The policy
+includes captured tool paths and approval display settings, as well as: repo, PR, whether it is
 your PR, review only, the push and post modes, the sandbox (`off` or
 `read-only`) and the PR context dir, the scope, the deny rules and the
 tool-gate rules. The prompt points the agent to it, and the tool-gate hook
@@ -285,20 +290,24 @@ From two security reviews of the Go rewrite. The open items are tracked in
 
 | Gap | Why |
 |---|---|
-| The agent can change the guard's mode | The guards read `OUTRIDER_PUSH`, `OUTRIDER_GH_WRITES` and the real binary paths from the environment, which the agent controls. |
-| The agent can call the real `gh` or `git` | By absolute path, or with `curl` and your token. The guards only cover the names on `PATH`. |
+| The agent can call the real `gh` or `git` | Absolute paths and direct HTTP calls bypass PATH guards. |
+| Session metadata is writable without an OS sandbox | File-backed policy is not a security boundary against arbitrary host code. Claude deny rules and the gate discourage edits, but do not replace isolation. |
 | The push trap is incomplete | Git ignores `pushInsteadOf` for a remote with an explicit `pushurl`. |
-| The dialog deny rules are prefixes | `/usr/bin/osascript`, `env osascript` or `pwsh` aren't matched. |
-| A PR's checkout can configure the agent | Its `.claude/settings.json`, `.mcp.json` and `CLAUDE.md` are loaded in the worktree. |
-| The Linux dialog uses the agent's display | The agent could start its own X server and answer the dialog there. |
-| The push dialog shows the session's checkout | A push with `-C`, `--git-dir` or `GIT_DIR` can target something else. |
-| `gh api -X PATCH …/issues/comments/<id>` | In `ask` or `allow` mode it can edit any comment in the session's repo, not only yours. |
-| The guard links are shared | All sessions use `~/.cache/outrider/bin`, which one session could replace. |
-| A review-fork push is checked, then run | The transport and hooks are pinned, but an `ssh` earlier on `PATH`, `http.proxy` together with `http.sslVerify=false`, config changed by a background process between the check and the push, or GitHub redirecting a renamed repo can still send it elsewhere. |
+| The agent can read checkout instructions | `--setting-sources user` and `--strict-mcp-config` exclude project settings and MCP configuration in unsandboxed review-only Claude sessions; repository `CLAUDE.md` remains untrusted input. |
+| GitHub can redirect renamed repositories | A remote service can change identity after local checks; review-fork HTTPS pushes refuse HTTP redirects, but server-side repository identity is still controlled by GitHub. |
+
+Resolved follow-ups: guards ignore policy environment overrides, approval pushes
+refuse global target options and redirecting environment, PATCH edits of existing
+comments are refused, guard binaries are private per session, failed Windows
+replacement fails closed, and hook `allow` does not override permissions.
+Review-fork pushes resolve source commits and use a disposable bare repository
+with only an object-store alternate, a watcher-selected SSH binary (no SSH config),
+verified TLS, no HTTP proxy or redirects, no inherited Git config and no hooks.
+The source repository's config is never read by that network operation.
 
 In a [read-only sandbox](#read-only-sandbox) the gaps above that need a write
 or the network (changing the guards' environment to push or post, the real
-`gh` or `git`, `curl` with your token, a `pushurl`, a shared guard link) are
+`gh` or `git`, `curl` with your token, a `pushurl`, guard metadata) are
 closed by the OS sandbox instead.
 
 ## Data that leaves your machine
