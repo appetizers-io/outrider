@@ -6,6 +6,7 @@ import (
 	"encoding/binary"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -50,7 +51,8 @@ func TestIsolationRefusesUnavailableRuntime(t *testing.T) {
 }
 
 func TestIsolationUsesPrivateCloneWithReadOnlyInputs(t *testing.T) {
-	l, _ := newLauncher(t, "mode: autonomous\npush: never\ngithub_writes: never\nisolation: {enabled: true, read_only: [/reference docs]}\n")
+	reference := filepath.Join(t.TempDir(), "reference docs")
+	l, _ := newLauncher(t, fmt.Sprintf("mode: autonomous\npush: never\ngithub_writes: never\nisolation: {enabled: true, read_only: [%q]}\n", reference))
 	l.Cfg.Agent = "codex"
 	l.CodexHome = t.TempDir()
 	l.Cfg.Isolation.GuardBinary = new(linuxGuard(t))
@@ -63,7 +65,7 @@ func TestIsolationUsesPrivateCloneWithReadOnlyInputs(t *testing.T) {
 	args := isolatedCreateArgs(got.spec)
 	require.Contains(t, args, "--clone")
 	require.Contains(t, args, "off")
-	require.Contains(t, args, "/reference docs:ro")
+	require.Contains(t, args, reference+":ro")
 	require.Contains(t, args, got.spec.Isolation.Inputs+":ro")
 	require.NotContains(t, args, "--privileged")
 	require.NotContains(t, strings.Join(args, " "), "docker.sock")
@@ -95,7 +97,10 @@ func TestIsolationInputsExcludeHistoryAndWatcherSecrets(t *testing.T) {
 	require.Equal(t, []string{"AGENTS.md", "auth.json", "config.toml"}, names)
 	st, err := os.Stat(filepath.Join(input, "agent", "auth.json"))
 	require.NoError(t, err)
-	require.Equal(t, os.FileMode(0o600), st.Mode().Perm())
+	if runtime.GOOS != "windows" {
+		// Windows does not expose Unix permission bits through os.Stat.
+		require.Equal(t, os.FileMode(0o600), st.Mode().Perm())
+	}
 	require.NoError(t, os.Symlink(filepath.Join(source, "history.jsonl"), filepath.Join(source, "settings-link")))
 	require.ErrorContains(t, snapshotFile(filepath.Join(source, "settings-link"), filepath.Join(input, "escaped")), "regular file")
 }
@@ -129,7 +134,8 @@ func TestIsolationGuardRejectsHostExecutable(t *testing.T) {
 	require.NoError(t, os.WriteFile(host, []byte("not a Linux executable"), 0o700))
 	require.ErrorContains(t, checkLinuxGuard(host), "Linux Outrider binary")
 	cfg := config.Default()
-	require.Equal(t, "/app/outrider-linux-runtime", isolationGuard(&cfg, "/app/outrider"))
+	dir := t.TempDir()
+	require.Equal(t, filepath.Join(dir, "outrider-linux-runtime"), isolationGuard(&cfg, filepath.Join(dir, "outrider")))
 }
 
 // Exercise the complete host runner using a fake sbx executable: failures must
