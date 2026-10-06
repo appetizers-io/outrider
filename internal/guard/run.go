@@ -14,8 +14,26 @@ import (
 	"github.com/appetizers-io/outrider/internal/approve"
 )
 
-// Ask shows the owner an approval dialog and tells whether they clicked ok.
-type Ask func(title, body, ok string) bool
+// Ask shows the owner the native approval dialog.
+type Ask func(title, body, ok string) (approve.Decision, error)
+
+func approvalFailure(action string, decision approve.Decision, err error) string {
+	suffix := " Do not retry or work around it; keep the commits local and explain what is ready to push."
+	if action == "post" {
+		suffix = " Do not retry or work around it; keep the text in this session."
+	}
+	if err != nil {
+		return "The Outrider native approval dialog failed: " + err.Error() + "." + suffix
+	}
+	switch decision {
+	case approve.Denied:
+		return "The owner denied the Outrider native approval dialog." + suffix
+	case approve.TimedOut:
+		return "The Outrider native approval dialog timed out." + suffix
+	default:
+		return "The Outrider native approval dialog returned no valid approval." + suffix
+	}
+}
 
 // RunGH is the gh guard: decide, maybe ask, then run the real gh.
 func RunGH(args []string, ask Ask, stderr io.Writer) int {
@@ -27,10 +45,11 @@ func RunGH(args []string, ask Ask, stderr io.Writer) int {
 	ask = trustedAsk(ask, policy.Guard.Display)
 	s := GHSessionFromEnv(getenv)
 	d := DecideGH(args, s)
-	if d.Deny == "" && d.Write && s.Mode == "ask" &&
-		!ask("outrider: post to GitHub?", PostDialog(getenv(EnvSession), d.Args, d.Text), "Post") {
-		d.Deny = s.denyMsg(args, "the owner did not approve this post. Do not retry or work around it; "+
-			"keep the text in this session")
+	if d.Deny == "" && d.Write && s.Mode == "ask" {
+		decision, askErr := ask("outrider: post to GitHub?", PostDialog(getenv(EnvSession), d.Args, d.Text), "Post")
+		if decision != approve.Approved || askErr != nil {
+			d.Deny = s.denyMsg(args, approvalFailure("post", decision, askErr))
+		}
 	}
 	if d.Deny != "" {
 		_, _ = fmt.Fprintln(stderr, d.Deny)
@@ -74,8 +93,9 @@ func RunGit(args []string, ask Ask, stderr io.Writer) int {
 			return rf.Decide(args, getenv(EnvReviewForksPush), env, resolvePush(real, pushEnv))
 		}
 		if d = decide(); d.Ask {
-			if !askPush(real, getenv, ask, args, d) {
-				d.Deny = gitDeny(args, deniedNotApproved)
+			decision, askErr := askPush(real, getenv, ask, args, d)
+			if decision != approve.Approved || askErr != nil {
+				d.Deny = gitDeny(args, approvalFailure("push", decision, askErr))
 			} else if again := decide(); again.Deny != "" || again.URL != d.URL {
 				// the remote's config changed while the dialog was open
 				d.Deny = gitDeny(args, "The push destination changed after approval; refused.")
@@ -95,8 +115,9 @@ func RunGit(args []string, ask Ask, stderr io.Writer) int {
 			}
 		}
 		if d.Ask {
-			if !askPush(real, getenv, ask, args, d) {
-				d.Deny = gitDeny(args, deniedNotApproved)
+			decision, askErr := askPush(real, getenv, ask, args, d)
+			if decision != approve.Approved || askErr != nil {
+				d.Deny = gitDeny(args, approvalFailure("push", decision, askErr))
 			}
 			env = approvedPushEnv(env)
 		}
@@ -111,7 +132,7 @@ func RunGit(args []string, ask Ask, stderr io.Writer) int {
 	return execReal(real, args, env, stderr)
 }
 
-func askPush(real string, getenv func(string) string, ask Ask, args []string, d GitDecision) bool {
+func askPush(real string, getenv func(string) string, ask Ask, args []string, d GitDecision) (approve.Decision, error) {
 	out, _ := exec.Command(real, "rev-parse", "--abbrev-ref", "HEAD").Output()
 	dir, _ := os.Getwd()
 	return ask("outrider: approve push?", PushDialog(getenv(EnvSession), args, strings.TrimSpace(string(out)), dir, d), "Push")
@@ -177,9 +198,8 @@ func resolvePush(real string, env []string) Resolve {
 // Command is the guard a binary called argv0 is (`gh` or `git`, also with
 // `.exe`), or nil for any other name.
 func Command(argv0 string) func(args []string) int {
-	ask := func(title, body, ok string) bool {
-		approved, _ := approve.Ask(context.Background(), title, body, ok)
-		return approved
+	ask := func(title, body, ok string) (approve.Decision, error) {
+		return approve.Ask(context.Background(), title, body, ok)
 	}
 	switch strings.TrimSuffix(strings.ToLower(filepath.Base(argv0)), ".exe") {
 	case "outrider-draft":
@@ -197,7 +217,7 @@ func Command(argv0 string) func(args []string) int {
 // Approval tools see the watcher's display, never a replacement supplied by
 // the agent. Guards are short-lived standalone processes.
 func trustedAsk(ask Ask, display map[string]string) Ask {
-	return func(title, body, ok string) bool {
+	return func(title, body, ok string) (approve.Decision, error) {
 		for _, k := range []string{"DISPLAY", "WAYLAND_DISPLAY", "XAUTHORITY", "XDG_RUNTIME_DIR", "DBUS_SESSION_BUS_ADDRESS"} {
 			_ = os.Setenv(k, display[k])
 		}

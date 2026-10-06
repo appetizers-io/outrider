@@ -296,7 +296,7 @@ func TestReviewForkGuardShowsTheDestination(t *testing.T) {
 	}
 	res := runGuard(t, "git", sess, "push", "fork", "HEAD:review/pr-7")
 	r.Equal(1, res.code)
-	r.Contains(res.stderr, "did not approve")
+	r.Contains(res.stderr, "owner denied the Outrider native approval dialog")
 	r.Contains(res.dialog, "to: github.com/me/fork\nrefs: HEAD:refs/heads/review/pr-7\n")
 
 	res = runGuard(t, "git", sess, "-c", "remote.fork.pushurl=https://github.com/base/repo", "push", "fork", "HEAD:review/x")
