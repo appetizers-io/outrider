@@ -62,6 +62,8 @@ func DenyRules(push, goos, root string) []string {
 		"Bash(git push origin --delete:*)",
 		"Bash(git branch -D:*)",
 	)
+	path := "/" + filepath.ToSlash(root) + "/**"
+	rules = append(rules, "Edit("+path+")", "Write("+path+")")
 	if push == "never" {
 		rules = append(rules, "Bash(git push:*)")
 	}

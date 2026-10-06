@@ -168,6 +168,7 @@ type Policy struct {
 	ToolGate      PolicyGate       `json:"tool_gate"`
 	Config        *string          `json:"config"`
 	Workflow      *config.Workflow `json:"workflow,omitempty"`
+	Guard         guard.Runtime    `json:"guard"`
 	Overrides     []string         `json:"overrides,omitempty"` // the config's overrides that apply, in order
 }
 
@@ -301,12 +302,13 @@ func (l *Launcher) Prepare(r Request, worktree, lock string, sb *Sandbox) (Prepa
 	if err1 != nil || err2 != nil {
 		return Prepared{}, errors.New("gh and git must be installed")
 	}
-	guardBin, err := l.installGuards()
+	guardBin, err := l.installGuards(dir)
 	if err != nil {
 		return Prepared{}, err
 	}
 
 	rules := GateText(&cfg, r.Repo, r.N, author, l.Owner, own, push, ghWrites)
+	rules += " Session metadata and guard binaries in " + dir + " are protected: never edit, replace, delete or redirect them."
 	sandbox := "off"
 	if sb != nil {
 		rules += sandboxGateRule
@@ -337,6 +339,11 @@ func (l *Launcher) Prepare(r Request, worktree, lock string, sb *Sandbox) (Prepa
 	if l.ConfigSource != "" {
 		policy.Config = &l.ConfigSource
 	}
+	policy.Guard = guard.Runtime{Git: gitPath, GH: ghPath, Head: headRepo(r.PR), Display: map[string]string{}}
+	policy.Guard.SSH, _ = l.LookPath("ssh")
+	for _, key := range []string{"DISPLAY", "WAYLAND_DISPLAY", "XAUTHORITY", "XDG_RUNTIME_DIR", "DBUS_SESSION_BUS_ADDRESS"} {
+		policy.Guard.Display[key] = os.Getenv(key)
+	}
 	policy.Workflow = l.workflow(r, &cfg)
 	policy.Overrides = l.Cfg.Applied(r.Repo, own)
 	if err := writeJSON(policyFile, policy); err != nil {
@@ -347,10 +354,20 @@ func (l *Launcher) Prepare(r Request, worktree, lock string, sb *Sandbox) (Prepa
 	if gated {
 		hookEnv = classifier.HookEnv(toolGate, rules, cfg.ToolGate.Threshold, policyFile)
 	}
+	if gated {
+		policy.Guard.Hook, policy.Guard.HookEnv = toolGate.HookCmd, hookEnv
+		if err := writeJSON(policyFile, policy); err != nil {
+			return Prepared{}, err
+		}
+		toolGate = &classifier.Resolved{Name: toolGate.Name, HookCmd: []string{filepath.Join(guardBin, "outrider-gate"+exeSuffix(l.GOOS))}}
+	}
 	name := fmt.Sprintf("PR %s#%d", r.Repo, r.N)
 	agent := []string{agentPath}
 	switch {
 	case cfg.Agent == "claude":
+		if reviewOnly && sb == nil {
+			agent = append(agent, "--setting-sources", "user", "--strict-mcp-config")
+		}
 		// Remote Control lists the session on claude.ai and in Claude Desktop
 		agent = append(agent, "--name", name, "--remote-control", name)
 		if supervised || sb != nil || cfg.NetworkAccess != nil {
@@ -444,28 +461,26 @@ func headRepo(pr github.PR) string {
 	return pr.HeadRepositoryOwner.Login + "/" + pr.HeadRepository.Name
 }
 
-// installGuards links gh and git in <root>/bin to this binary (copies on Windows).
-func (l *Launcher) installGuards() (string, error) {
-	bin := filepath.Join(l.Root, "bin")
+// installGuards copies the binary into each session so os.Executable anchors
+// the policy independently of PATH, argv[0], HOME and OUTRIDER_*.
+func (l *Launcher) installGuards(dir string) (string, error) {
+	bin := filepath.Join(dir, "bin")
 	if err := os.MkdirAll(bin, 0o700); err != nil {
 		return "", fmt.Errorf("guard dir: %w", err)
 	}
-	for _, name := range []string{"gh", "git"} {
-		if l.GOOS == "windows" {
-			if err := copyFile(l.Self, filepath.Join(bin, name+".exe")); err != nil {
-				return "", err
-			}
-			continue
-		}
-		p := filepath.Join(bin, name)
-		if err := os.Remove(p); err != nil && !errors.Is(err, os.ErrNotExist) {
-			return "", fmt.Errorf("replace guard %s: %w", p, err)
-		}
-		if err := os.Symlink(l.Self, p); err != nil {
-			return "", fmt.Errorf("install guard %s: %w", p, err)
+	for _, name := range []string{"gh", "git", "outrider-gate"} {
+		if err := copyFile(l.Self, filepath.Join(bin, name+exeSuffix(l.GOOS))); err != nil {
+			return "", err
 		}
 	}
 	return bin, nil
+}
+
+func exeSuffix(goos string) string {
+	if goos == "windows" {
+		return ".exe"
+	}
+	return ""
 }
 
 func copyFile(src, dst string) error {
@@ -486,12 +501,9 @@ func copyFile(src, dst string) error {
 	if err := out.Close(); err != nil {
 		return fmt.Errorf("copy guard: %w", err)
 	}
-	// a running guard keeps its file open; then the old copy stays
+	// A failed replacement must never leave a stale guard active.
 	if err := os.Rename(tmp, dst); err != nil {
 		_ = os.Remove(tmp)
-		if _, statErr := os.Stat(dst); statErr == nil {
-			return nil
-		}
 		return fmt.Errorf("copy guard: %w", err)
 	}
 	return nil

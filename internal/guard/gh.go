@@ -62,7 +62,6 @@ var apiWrites = []struct {
 	{"POST", regexp.MustCompile(`^pulls/` + n + `/reviews$`)},
 	{"POST", regexp.MustCompile(`^pulls/` + n + `/reviews/` + id + `/events$`)},
 	{"POST", regexp.MustCompile(`^issues/` + n + `/comments$`)},
-	{"PATCH", regexp.MustCompile(`^(issues|pulls)/comments/` + id + `$`)},
 	{"POST", regexp.MustCompile(`^issues/` + n + `/reactions$`)},
 	{"POST", regexp.MustCompile(`^(issues|pulls)/comments/` + id + `/reactions$`)},
 	{"DELETE", regexp.MustCompile(`^issues/` + n + `/reactions/` + id + `$`)},
