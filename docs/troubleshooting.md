@@ -75,6 +75,14 @@ log. A lock left behind by a session that died is removed on the next launch
 
 ## A push or post was denied
 
-In `ask` mode the agent gets `the owner did not approve …` when you clicked
-**Deny**, waited 5 minutes, or no dialog could be shown (Linux without a
-display or without `zenity`/`kdialog`). See [Safety](safety.md#approval-dialogs).
+In `ask` mode, Outrider distinguishes an explicit **Deny**, a 5-minute timeout,
+and a missing or failed native dialog backend. All refuse the operation. A
+backend error includes a bounded, redacted diagnostic. Codex execution approval
+is a separate prompt that must succeed before the Outrider guard can run. See
+[Safety](safety.md#approval-dialogs).
+
+If a push reports `outrider-push-blocked://`, check `command -v git` in the
+agent's shell: it must resolve to the session's private guard directory before
+Homebrew or system Git. A nested login shell can reset `PATH` after Outrider
+prepends the guard; keep the session's guard directory first when starting
+agent shell commands. The push trap refuses an unguarded push.

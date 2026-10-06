@@ -12,6 +12,8 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/appetizers-io/outrider/internal/approve"
+
 	"github.com/kballard/go-shellquote"
 	"github.com/stretchr/testify/require"
 )
@@ -21,11 +23,22 @@ import (
 func TestMain(m *testing.M) {
 	if as := os.Getenv("GUARD_AS"); as != "" {
 		_ = os.Unsetenv("GUARD_AS")
-		ask := func(title, body, ok string) bool {
+		ask := func(title, body, ok string) (approve.Decision, error) {
 			if f := os.Getenv("GUARD_DIALOG"); f != "" {
 				_ = os.WriteFile(f, []byte(title+"\n"+body), 0o600)
 			}
-			return os.Getenv("GUARD_ANSWER") == ok
+			switch os.Getenv("GUARD_ANSWER") {
+			case ok:
+				return approve.Approved, nil
+			case "Deny":
+				return approve.Denied, nil
+			case "Timeout":
+				return approve.TimedOut, nil
+			case "Failure":
+				return approve.Unknown, errors.New("dialog backend failed")
+			default:
+				return approve.Unknown, errors.New("unexpected dialog response")
+			}
 		}
 		run := RunGH
 		if as == "git" {
@@ -418,10 +431,18 @@ func TestGHAskPostsOnlyAfterApproval(t *testing.T) {
 	r.Contains(res.dialog, "outrider: post to GitHub?")
 	r.Contains(res.dialog, "hi there")
 
-	for _, answer := range []string{"Deny", ""} { // denied, or no dialog available
-		res = runGuard(t, "gh", session("ask", answer), "pr", "comment", "7", "-b", "hi")
+	for _, tc := range []struct {
+		answer string
+		want   string
+	}{
+		{answer: "Deny", want: "owner denied the Outrider native approval dialog"},
+		{answer: "Timeout", want: "Outrider native approval dialog timed out"},
+		{answer: "Failure", want: "Outrider native approval dialog failed: dialog backend failed"},
+		{want: "Outrider native approval dialog failed: unexpected dialog response"},
+	} {
+		res = runGuard(t, "gh", session("ask", tc.answer), "pr", "comment", "7", "-b", "hi")
 		r.Equal(1, res.code)
-		r.Contains(res.stderr, "did not approve")
+		r.Contains(res.stderr, tc.want)
 		r.NotContains(res.stdout, "REAL")
 	}
 
@@ -442,8 +463,21 @@ func TestGitGuardAsksAndDropsTheTrap(t *testing.T) {
 	trap["GUARD_ANSWER"] = "Deny"
 	res = runGuard(t, "git", trap, "push", "origin")
 	r.Equal(1, res.code)
-	r.Contains(res.stderr, "did not approve")
+	r.Contains(res.stderr, "owner denied the Outrider native approval dialog")
 	r.NotContains(res.stdout, "REAL")
+	for _, tc := range []struct {
+		answer string
+		want   string
+	}{
+		{answer: "Timeout", want: "Outrider native approval dialog timed out"},
+		{answer: "Failure", want: "Outrider native approval dialog failed: dialog backend failed"},
+	} {
+		trap["GUARD_ANSWER"] = tc.answer
+		res = runGuard(t, "git", trap, "push", "origin")
+		r.Equal(1, res.code)
+		r.Contains(res.stderr, tc.want)
+		r.NotContains(res.stdout, "REAL")
+	}
 
 	res = runGuard(t, "git", trap, "status")
 	r.Equal(0, res.code)

@@ -65,9 +65,6 @@ type GitDecision struct {
 	Flags []string // review forks: the allowed push options given
 }
 
-const deniedNotApproved = "The owner did not approve this push. Do not retry or work around " +
-	"it; keep the commits local and explain what is ready to push."
-
 func gitDeny(args []string, why string) string {
 	return "outrider guard: blocked `git " + strings.Join(args, " ") + "`. " + why
 }

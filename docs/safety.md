@@ -254,8 +254,11 @@ read list. Reads pass: `gh pr view|diff|checks|list|status|checkout`,
 
 The dialog tool is taken from fixed system paths, never from `PATH`. Linux
 display and authorization settings are captured by the watcher and restored
-before approval, so an agent-supplied display cannot redirect the dialog. No dialog,
-**Deny**, closing it, or 5 minutes without an answer all mean "no". Claude
+before approval, so an agent-supplied display cannot redirect the dialog. Only
+an explicit approval permits the operation. **Deny** or closing the dialog is
+reported as a denial; 5 minutes without an answer is reported as a timeout;
+missing or failed dialog backends are reported as errors. All refuse the
+operation. Claude
 sessions get a deny rule for the dialog tool (`Bash(osascript:*)` and the
 like), so the agent doesn't click its own dialog by accident.
 
@@ -271,6 +274,10 @@ failed hooks and timeouts block the tool. See [Classifiers](classifiers.md).
 
 Codex sessions get the guards, the prompt and the gate's environment, but the
 hook isn't wired: Codex hooks need a one-time trust (`/hooks`).
+Codex may also ask for execution approval before running the guarded command.
+Accepting that prompt only lets the command start; the separate Outrider native
+dialog must still approve a push or post in `ask` mode. A guard error identifies
+the Outrider layer; an execution approval failure occurs before the guard runs.
 
 ## policy.json
 
