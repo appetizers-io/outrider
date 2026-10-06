@@ -81,6 +81,7 @@ tool_gate:                    # every tool call in supervised sessions
   threshold: null
   rules:
     - never modify generated/ or vendor/
+  include_profile: false      # playbooks never change gate policy
   include_prompt_extra: true
 
 prompts:

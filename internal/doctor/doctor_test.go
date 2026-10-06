@@ -564,3 +564,11 @@ func TestRunIsReadOnly(t *testing.T) {
 	r.NoError(err)
 	r.Len(entries, 1) // only .cache, which the test made
 }
+
+func TestReviewDoctorReportsDepthAndSingleSlotWarning(t *testing.T) {
+	runCases(t, checkReview, []checkCase{
+		{name: "absent", status: Info, detail: "off (existing prompts)"},
+		{name: "deep", setup: func(m *machine) { m.cfg = "max_agents: 1\nreview: {default: deep}" }, status: Warn, detail: "default: deep"},
+		{name: "standard", setup: func(m *machine) { m.cfg = "review: {default: standard}" }, status: OK, detail: "default: standard"},
+	})
+}

@@ -6,5 +6,5 @@ import "embed"
 
 // FS holds the prompt templates.
 //
-//go:embed *.tmpl
+//go:embed *.tmpl profiles/*.md
 var FS embed.FS

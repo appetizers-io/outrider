@@ -251,3 +251,71 @@ host inputs are read-only. See [setup, credential reuse and results](isolation.m
 | `isolation.enabled` | `false` | Opt into Docker Sandboxes; missing support refuses launch |
 | `isolation.guard_binary` | `null` | Linux Outrider binary; defaults to `outrider-linux-runtime` next to the host executable |
 | `isolation.read_only` | `[]` | Extra absolute host paths mounted read-only |
+
+## Review profiles
+
+`review` is opt-in and applies only to other people's PRs. Without it, prompts
+are byte-for-byte unchanged. `review.default: null` disables the default while
+leaving explicit rules available. Built-ins are `quick` (static summary and top
+risks, no tests), `standard` (correctness, regressions and coverage), and `deep`
+(scope against linked issues, sibling style, gaps, base docs and evidence).
+
+```yaml
+review:
+  default: standard
+  trusted_authors: [alice]        # exact, case-insensitive logins
+  trusted_repos: [my-org/trusted] # explicit repository globs
+  profiles:
+    deep:
+      playbook: profiles/deep.md  # optional, inside the owner config directory
+      model: {claude: opus, codex: gpt-5.5}
+      effort: high               # low | medium | high
+      max_minutes: 120            # 1–1440; absent: no deadline
+      evidence: {tests: local, comments: draft}
+      context: {issues: true, docs: ["docs/**", "AGENTS.md"]}
+  rules:
+    - repos: [my-org/*]
+      triggers: [opt_in]
+      profile: deep
+    - triggers: [mentions, review_replies]
+      profile: quick
+```
+
+Rules are first-match-wins. Repos and triggers within a rule are ANDed; absent
+lists match anything. Triggers are `opt_in`, `on_change`, `mentions` and
+`review_replies`. A default `deep` review becomes `standard` on a discussion
+delta (`on_change`), unless an explicit rule selects another profile. A scoped
+mention or reply remains scoped; the profile does not widen it. Startup logs,
+`policy.json`, `config show` and `doctor` show profile selection or configuration.
+
+Built-in bodies are embedded and golden-tested. A custom profile name requires
+a playbook. Playbooks replace the body, are limited to 64 KiB, must be regular
+files inside the configuration directory, and cannot come from the PR checkout
+or escape via symlinks. The SHA-256 is recorded in policy. Permission sections
+follow the body, and `tool_gate.include_profile` must stay `false`: playbooks
+never become gate rules. Models are passed with Claude `--model` or Codex `-m`;
+effort uses Claude `--effort` or Codex `model_reasoning_effort`. No dollar budget
+is claimed for interactive agents. At `max_minutes`, the runner warns, sends
+Interrupt, then TERM and finally Kill after grace periods, and records
+`ended: timeout`. A timed-out microVM is stopped and retained for inspection.
+
+Evidence tests are `off`, `local` or `e2e`. Automatic execution requires an
+explicit trusted author OR repository; org membership is not inferred. Quick
+reviews never run tests. `e2e` also requires an explicit profile rule and an
+effective `sandbox: off`; conflicting configs fail to load. Local tests in a
+read-only sandbox need warm caches and must not write. Existing PR ownership,
+edit, commit, push, post and sandbox rules always apply. Without a review fork,
+evidence stays local and the PR is never pushed by a review-only session.
+
+Comment output is `off` or `draft`. Drafts go to the session's local
+`outbox/comments.md`; a read-only sandbox keeps them in the transcript. Drafting
+never posts to GitHub. GitHub pending reviews, per-PR reaction escalation,
+external spec repositories and automatic depth selection are deferred.
+
+`context.issues` prefetches closing references, `#N`, `owner/repo#N` and GitHub
+issue URLs in the PR body, plus one parent level. `context.docs` matches paths
+at the PR's immutable base commit, never HEAD. A manifest records source URLs,
+base SHA, availability and truncation; files are untrusted data, never prompt
+instructions. Limits are 20 issues, 20 docs, 2 MiB per file and 8 MiB total.
+Missing linked issues must be reported explicitly. Deep reviews with
+`max_agents: 1` get a doctor warning because they occupy the only slot.
