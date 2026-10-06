@@ -130,13 +130,25 @@ func (l *Launcher) startIsolated(ctx context.Context, r Request, lock string, cf
 		if err != nil {
 			return err
 		}
-		raw = []byte(strings.ReplaceAll(string(raw), p.Dir, isolatedHome))
+		if file == "prompt.txt" {
+			raw = []byte(isolatedPath(string(raw), p.Dir))
+		}
 		if file == "policy.json" {
 			var policy Policy
 			if err := json.Unmarshal(raw, &policy); err != nil {
 				return err
 			}
 			policy.Sandbox = "docker-sandbox"
+			if policy.Config != nil {
+				*policy.Config = isolatedPath(*policy.Config, p.Dir)
+			}
+			if policy.PRContext != nil {
+				*policy.PRContext = isolatedPath(*policy.PRContext, p.Dir)
+			}
+			policy.ToolGate.Rules = isolatedPath(policy.ToolGate.Rules, p.Dir)
+			for i := range policy.DenyRules {
+				policy.DenyRules[i] = isolatedPath(policy.DenyRules[i], p.Dir)
+			}
 			raw, err = json.MarshalIndent(policy, "", "  ")
 			if err != nil {
 				return err
@@ -148,7 +160,7 @@ func (l *Launcher) startIsolated(ctx context.Context, r Request, lock string, cf
 	}
 	// All session references resolve inside the VM, never to writable host metadata.
 	for k, v := range p.Spec.Env {
-		p.Spec.Env[k] = strings.ReplaceAll(v, p.Dir, isolatedHome)
+		p.Spec.Env[k] = isolatedPath(v, p.Dir)
 	}
 	p.Spec.Env[guard.EnvRealGH], p.Spec.Env[guard.EnvRealGit] = "/usr/bin/gh", "/usr/bin/git"
 	p.Spec.Isolation = &IsolatedSpec{Name: name, Inputs: input, Guard: isolationGuard(cfg, l.Self), Agent: cfg.Agent, ReadOnly: cfg.Isolation.ReadOnly, NetworkAccess: cfg.NetworkAccess}
@@ -663,4 +675,10 @@ func forwardGPG(parent context.Context, sbx, name, hostSocket string, env []stri
 			}
 		}
 	}
+}
+
+// Guest paths are always POSIX paths, even when the host runs Windows.
+func isolatedPath(text, hostDir string) string {
+	text = strings.ReplaceAll(text, hostDir+string(filepath.Separator), isolatedHome+"/")
+	return strings.ReplaceAll(text, hostDir, isolatedHome)
 }
