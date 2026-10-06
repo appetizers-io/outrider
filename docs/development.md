@@ -60,7 +60,7 @@ provenance.
 
 GoReleaser writes a cask (`homebrew_casks` in `.goreleaser.yaml`) and pushes
 it to [`appetizers-io/homebrew-tap`](https://github.com/appetizers-io/homebrew-tap),
-so `brew install appetizers-io/tap/outrider` works. `task release:snapshot`
+so `brew tap appetizers-io/tap && brew install --cask appetizers-io/tap/outrider` works. `task release:snapshot`
 writes it to `dist/homebrew/Casks/outrider.rb` without publishing. The cask
 depends on `gh` and `git`; its post-install hook removes the
 `com.apple.quarantine` attribute, since the binaries are not signed or
@@ -80,7 +80,7 @@ The release skips the upload, and still succeeds, while the secret
 3. Add it as a secret named `HOMEBREW_TAP_TOKEN` to this repo, or to the
    `release` environment (`gh secret set HOMEBREW_TAP_TOKEN -R
    appetizers-io/outrider --env release`). Only the GoReleaser step gets it.
-4. Run a release, then check `brew install appetizers-io/tap/outrider` and
+4. Run a release, then check `brew tap appetizers-io/tap && brew install --cask appetizers-io/tap/outrider` and
    `outrider --version`.
 
 ### Build provenance
@@ -108,3 +108,13 @@ when the output changes. After an intended change run `task golden`
 (`go test <package> -run Golden -update`) and review the diff. The fingerprint
 must not change: it is stored in `state.json`, and a different value
 relaunches every watched PR once.
+
+### Homebrew verification
+
+On macOS arm64, a fresh cask install of v0.1.1 and an upgrade from v0.1.0 to
+v0.1.1 were verified on 2026-10-06. Each installed binary printed its matching
+release version. Use `brew upgrade --cask appetizers-io/tap/outrider` for updates.
+The tap README is maintained in the
+[public tap repository](https://github.com/appetizers-io/homebrew-tap).
+Linux cask support and macOS amd64 installation have not been exercised locally;
+use the release archives if your Homebrew version refuses the cask.
