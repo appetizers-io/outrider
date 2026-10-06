@@ -67,8 +67,8 @@ func TestProfileTrustClampingModelArgsAndPlaybook(t *testing.T) {
 		if agent == "claude" {
 			require.Contains(t, got.spec.Agent, "--model")
 			require.Contains(t, got.spec.Agent, "--effort")
-			require.NotContains(t, got.deny(), "Write")
-			require.NotContains(t, got.deny(), "Write(/"+filepath.ToSlash(l.Root)+"/**)")
+			require.Contains(t, got.deny(), "Write")
+
 			require.Contains(t, got.settings["sandbox"].(map[string]any)["filesystem"].(map[string]any)["allowWrite"], got.spec.Review.Outbox)
 		} else {
 			require.Contains(t, got.spec.Agent, "-m")
@@ -136,4 +136,18 @@ func TestReviewTimeoutHelper(t *testing.T) {
 	}
 	signal.Ignore(os.Interrupt, syscall.SIGTERM)
 	time.Sleep(time.Hour)
+}
+
+func TestIsolationProfileGetsOnlyAGuestOutbox(t *testing.T) {
+	l, _ := newLauncher(t, "mode: autonomous\nisolation: {enabled: true}\nreview: {default: standard, profiles: {standard: {evidence: {comments: draft}}}}")
+	l.Cfg.Agent = "codex"
+	l.CodexHome = t.TempDir()
+	l.Cfg.Isolation.GuardBinary = new(linuxGuard(t))
+	got := l.launched(t, "bob")
+	require.NotNil(t, got.spec.Review)
+	require.DirExists(t, filepath.Join(got.spec.Isolation.Inputs, "outbox"))
+	raw, err := os.ReadFile(filepath.Join(got.spec.Isolation.Inputs, "policy.json"))
+	require.NoError(t, err)
+	require.Contains(t, string(raw), `"outbox": "/tmp/outrider/outbox"`)
+	require.NotContains(t, string(raw), got.spec.Review.Outbox)
 }

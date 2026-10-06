@@ -171,6 +171,11 @@ func (l *Launcher) startIsolated(ctx context.Context, r Request, lock string, cf
 			return err
 		}
 	}
+	if p.Spec.Review != nil && p.Spec.Review.Outbox != "" {
+		if err := os.MkdirAll(filepath.Join(input, "outbox"), 0o700); err != nil {
+			return err
+		}
+	}
 	if p.Spec.Review != nil && p.Spec.Review.Context != "" {
 		if err := snapshotTree(p.Spec.Review.Context, filepath.Join(input, "review-context")); err != nil {
 			return err
@@ -400,6 +405,7 @@ if [ -f /tmp/outrider/gitconfig ]; then cp /tmp/outrider/gitconfig "$HOME/.gitco
 sudo chmod 755 /tmp/outrider/outrider
 cp /tmp/outrider/outrider /tmp/outrider/bin/git
 cp /tmp/outrider/outrider /tmp/outrider/bin/gh
+cp /tmp/outrider/outrider /tmp/outrider/bin/outrider-draft
 command -v git >/dev/null
 command -v gh >/dev/null
 

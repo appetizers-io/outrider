@@ -13,7 +13,6 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
-	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -376,19 +375,6 @@ func (l *Launcher) Prepare(r Request, worktree, lock string, sb *Sandbox) (Prepa
 	if review != nil && review.Outbox != "" {
 		rules += " The only local draft exception is " + review.Outbox + "; this permits drafting, never PR edits or GitHub submission."
 		policy.ToolGate.Rules = rules
-		// Restrict review-only edits to the outbox without denying its own path.
-		rootPattern := "/" + filepath.ToSlash(l.Root) + "/**"
-		policy.DenyRules = slices.DeleteFunc(policy.DenyRules, func(rule string) bool { return rule == "Edit("+rootPattern+")" || rule == "Write("+rootPattern+")" })
-		for i, rule := range policy.DenyRules {
-			if rule == "Edit" || rule == "Write" {
-				policy.DenyRules[i] = rule + "(/" + filepath.ToSlash(worktree) + "/**)"
-			}
-		}
-		for _, path := range []string{"policy.json", "session.json", "prompt.txt", "claude-settings.json", "bin/**", "pr-context/**", "review-context/**"} {
-			for _, tool := range []string{"Edit", "Write"} {
-				policy.DenyRules = append(policy.DenyRules, tool+"(/"+filepath.ToSlash(filepath.Join(dir, path))+")")
-			}
-		}
 		if gated {
 			hookEnv["OUTRIDER_GATE_TEXT"] = rules
 			if _, ok := hookEnv["JEV_GATE_STATE"]; ok {
@@ -433,9 +419,6 @@ func (l *Launcher) Prepare(r Request, worktree, lock string, sb *Sandbox) (Prepa
 				}
 				sandboxSettings["filesystem"] = map[string]any{"allowWrite": []string{review.Outbox}}
 				settings["sandbox"] = sandboxSettings
-				permissions := settings["permissions"].(map[string]any)
-				path := "/" + filepath.ToSlash(review.Outbox) + "/**"
-				permissions["allow"] = []string{"Write(" + path + ")", "Edit(" + path + ")"}
 			}
 			sf := filepath.Join(dir, "claude-settings.json")
 			if err := writeJSON(sf, settings); err != nil {
@@ -542,7 +525,7 @@ func (l *Launcher) installGuards(dir string) (string, error) {
 	if err := os.MkdirAll(bin, 0o700); err != nil {
 		return "", fmt.Errorf("guard dir: %w", err)
 	}
-	for _, name := range []string{"gh", "git", "outrider-gate"} {
+	for _, name := range []string{"gh", "git", "outrider-gate", "outrider-draft"} {
 		if err := copyFile(l.Self, filepath.Join(bin, name+exeSuffix(l.GOOS))); err != nil {
 			return "", err
 		}

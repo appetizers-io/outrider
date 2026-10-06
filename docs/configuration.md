@@ -307,8 +307,9 @@ read-only sandbox need warm caches and must not write. Existing PR ownership,
 edit, commit, push, post and sandbox rules always apply. Without a review fork,
 evidence stays local and the PR is never pushed by a review-only session.
 
-Comment output is `off` or `draft`. Drafts go to the session's local
-`outbox/comments.md`; a read-only sandbox keeps them in the transcript. Drafting
+Comment output is `off` or `draft`. The `outrider-draft` helper takes Markdown
+on stdin and writes only the session's `outbox/comments.md` (at most 1 MiB).
+It grants no general Edit/Write permission; a read-only sandbox keeps them in the transcript. Drafting
 never posts to GitHub. GitHub pending reviews, per-PR reaction escalation,
 external spec repositories and automatic depth selection are deferred.
 
