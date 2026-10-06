@@ -143,7 +143,13 @@ func Run(dir string, stdin io.Reader, stdout io.Writer) int {
 	}
 	if timedOut {
 		status = 124
-		_ = writeJSON(filepath.Join(dir, "ended.json"), map[string]any{"ended": "timeout", "status": status})
+	}
+	if spec.Review != nil {
+		reason := "exit"
+		if timedOut {
+			reason = "timeout"
+		}
+		_ = writeJSON(filepath.Join(dir, "ended.json"), map[string]any{"ended": reason, "status": status})
 	}
 	_ = os.Remove(spec.Lock)
 	_, _ = fmt.Fprintf(stdout, "\nagent exited: %d\npress Enter to close\n", status)

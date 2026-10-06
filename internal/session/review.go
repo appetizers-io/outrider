@@ -86,7 +86,7 @@ func (l *Launcher) review(r Request, cfg *config.Config, dir string, readonly bo
 			}
 		}
 	}
-	if p.Evidence.Tests != "off" && len(cfg.OthersPRs.Forks()) == 0 {
+	if p.Evidence.Tests != "" && p.Evidence.Tests != "off" && len(cfg.OthersPRs.Forks()) == 0 {
 		result.Notes = append(result.Notes, "no review fork: evidence stays local; PR edits remain governed by session policy")
 	}
 	if p.Context.Issues || len(p.Context.Docs) > 0 {
