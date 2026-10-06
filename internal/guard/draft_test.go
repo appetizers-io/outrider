@@ -33,6 +33,16 @@ func TestDraftWriterCannotEscapeOutboxOrPost(t *testing.T) {
 	require.ErrorContains(t, saveDraft(self, strings.NewReader("escape")), "no writable")
 	policy.Review.Outbox = outbox
 	write()
+	// A hard link to policy is regular, but atomic replacement must leave the
+	// linked metadata unchanged instead of truncating it.
+	require.NoError(t, os.Remove(filepath.Join(outbox, "comments.md")))
+	require.NoError(t, os.Link(filepath.Join(dir, "policy.json"), filepath.Join(outbox, "comments.md")))
+	before, err := os.ReadFile(filepath.Join(dir, "policy.json"))
+	require.NoError(t, err)
+	require.NoError(t, saveDraft(self, strings.NewReader("replacement draft")))
+	after, err := os.ReadFile(filepath.Join(dir, "policy.json"))
+	require.NoError(t, err)
+	require.Equal(t, before, after)
 	if runtime.GOOS != "windows" {
 		require.NoError(t, os.Remove(filepath.Join(outbox, "comments.md")))
 		outside := filepath.Join(t.TempDir(), "secret")
