@@ -108,6 +108,13 @@ func (l *Launcher) startIsolated(ctx context.Context, r Request, lock string, cf
 	portable := *l
 	portable.GOOS = "linux"
 	portable.LookPath = func(name string) (string, error) { return name, nil }
+	review, err := l.review(r, cfg, sessionDir(l.Root, r.Repo, r.N), false, source)
+	if err != nil {
+		return err
+	}
+	if err := l.reviewContext(ctx, r, cfg, review, source, sessionDir(l.Root, r.Repo, r.N)); err != nil {
+		return err
+	}
 	p, err := portable.Prepare(r, source, lock, nil)
 	if err != nil {
 		return err
@@ -141,6 +148,10 @@ func (l *Launcher) startIsolated(ctx context.Context, r Request, lock string, cf
 			policy.Sandbox = "docker-sandbox"
 			policy.Guard.Git, policy.Guard.GH, policy.Guard.SSH = "/usr/bin/git", "/usr/bin/gh", "/usr/bin/ssh"
 			policy.Guard.Display = map[string]string{}
+			if policy.Review != nil {
+				policy.Review.Context = isolatedPath(policy.Review.Context, p.Dir)
+				policy.Review.Outbox = isolatedPath(policy.Review.Outbox, p.Dir)
+			}
 			if policy.Config != nil {
 				*policy.Config = isolatedPath(*policy.Config, p.Dir)
 			}
@@ -157,6 +168,16 @@ func (l *Launcher) startIsolated(ctx context.Context, r Request, lock string, cf
 			}
 		}
 		if err := os.WriteFile(filepath.Join(input, file), raw, 0o600); err != nil {
+			return err
+		}
+	}
+	if p.Spec.Review != nil && p.Spec.Review.Outbox != "" {
+		if err := os.MkdirAll(filepath.Join(input, "outbox"), 0o700); err != nil {
+			return err
+		}
+	}
+	if p.Spec.Review != nil && p.Spec.Review.Context != "" {
+		if err := snapshotTree(p.Spec.Review.Context, filepath.Join(input, "review-context")); err != nil {
 			return err
 		}
 	}
@@ -384,6 +405,7 @@ if [ -f /tmp/outrider/gitconfig ]; then cp /tmp/outrider/gitconfig "$HOME/.gitco
 sudo chmod 755 /tmp/outrider/outrider
 cp /tmp/outrider/outrider /tmp/outrider/bin/git
 cp /tmp/outrider/outrider /tmp/outrider/bin/gh
+cp /tmp/outrider/outrider /tmp/outrider/bin/outrider-draft
 command -v git >/dev/null
 command -v gh >/dev/null
 
@@ -536,12 +558,18 @@ func runIsolated(spec Spec, watcher []string, stdin io.Reader, stdout io.Writer)
 	cmd := exec.Command(args[0], args[1:]...)
 	cmd.Env, cmd.Stdin, cmd.Stdout, cmd.Stderr = env, os.Stdin, os.Stdout, os.Stderr
 	status := 0
-	if err := cmd.Run(); err != nil {
+	timedOut, err := runAgent(cmd, reviewBudget(spec.Review), 15*time.Second, stdout)
+	if err != nil {
 		status = 1
 		var ee *exec.ExitError
 		if errors.As(err, &ee) {
 			status = ee.ExitCode()
 		}
+	}
+	if timedOut {
+		_ = run([]string{sbx, "stop", cs.Name}, nil)
+		status = 124
+		_ = writeJSON(filepath.Join(filepath.Dir(spec.PromptFile), "ended.json"), map[string]any{"ended": "timeout", "status": status})
 	}
 	_ = os.Remove(spec.Lock)
 	_, _ = fmt.Fprintf(stdout, "\nagent exited: %d\nsandbox retained: %s\ninspect with: sbx exec -it %s bash\npress Enter to close\n", status, cs.Name, cs.Name)

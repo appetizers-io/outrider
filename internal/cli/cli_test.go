@@ -553,7 +553,7 @@ func TestDoctorJSON(t *testing.T) {
 	r.Equal(0, o.code, o.stdout+o.stderr)
 	var results []map[string]string
 	r.NoError(json.Unmarshal([]byte(o.stdout), &results))
-	r.Len(results, 14)
+	r.Len(results, 15)
 	for _, res := range results {
 		r.ElementsMatch([]string{"name", "status", "detail", "fix"}, slices.Collect(maps.Keys(res)))
 	}

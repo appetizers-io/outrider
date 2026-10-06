@@ -13,6 +13,7 @@ import (
 	"runtime"
 	"strings"
 	"syscall"
+	"time"
 )
 
 // watcherEnvFile holds the watcher's environment (KEY=value lines as a JSON
@@ -130,7 +131,8 @@ func Run(dir string, stdin io.Reader, stdout io.Writer) int {
 	cmd.Dir, cmd.Env = spec.Dir, env
 	cmd.Stdin, cmd.Stdout, cmd.Stderr = os.Stdin, os.Stdout, os.Stderr
 	status := 0
-	if err := cmd.Run(); err != nil {
+	timedOut, err := runAgent(cmd, reviewBudget(spec.Review), 15*time.Second, stdout)
+	if err != nil {
 		status = 1
 		var exitErr *exec.ExitError
 		if errors.As(err, &exitErr) {
@@ -138,6 +140,16 @@ func Run(dir string, stdin io.Reader, stdout io.Writer) int {
 		} else {
 			_, _ = fmt.Fprintf(stdout, "outrider: cannot run %s: %v\n", spec.Agent[0], err)
 		}
+	}
+	if timedOut {
+		status = 124
+	}
+	if spec.Review != nil {
+		reason := "exit"
+		if timedOut {
+			reason = "timeout"
+		}
+		_ = writeJSON(filepath.Join(dir, "ended.json"), map[string]any{"ended": reason, "status": status})
 	}
 	_ = os.Remove(spec.Lock)
 	_, _ = fmt.Fprintf(stdout, "\nagent exited: %d\npress Enter to close\n", status)

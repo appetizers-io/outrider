@@ -13,13 +13,14 @@ import (
 // Policy is the guard's trusted subset of the session policy. It is loaded
 // beside the running guard, never from agent-controlled environment variables.
 type Policy struct {
-	Repo         string   `json:"repo"`
-	PR           int      `json:"pr"`
-	Push         string   `json:"push"`
-	ReviewOnly   bool     `json:"review_only"`
-	ReviewForks  []string `json:"review_forks"`
-	GitHubWrites string   `json:"github_writes"`
-	Guard        Runtime  `json:"guard"`
+	Review       *DraftPolicy `json:"review,omitempty"`
+	Repo         string       `json:"repo"`
+	PR           int          `json:"pr"`
+	Push         string       `json:"push"`
+	ReviewOnly   bool         `json:"review_only"`
+	ReviewForks  []string     `json:"review_forks"`
+	GitHubWrites string       `json:"github_writes"`
+	Guard        Runtime      `json:"guard"`
 }
 
 // Runtime is captured by the watcher before any agent runs.
@@ -69,4 +70,10 @@ func trustedEnv() (func(string) string, Policy, error) {
 		EnvReviewForksPush: p.Push, EnvSession: fmt.Sprintf("PR %s#%d", p.Repo, p.PR),
 	}
 	return func(k string) string { return values[k] }, p, nil
+}
+
+// DraftPolicy exposes only the explicitly configured local outbox.
+type DraftPolicy struct {
+	Comments string `json:"comments"`
+	Outbox   string `json:"outbox"`
 }

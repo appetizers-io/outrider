@@ -182,6 +182,8 @@ func Command(argv0 string) func(args []string) int {
 		return approved
 	}
 	switch strings.TrimSuffix(strings.ToLower(filepath.Base(argv0)), ".exe") {
+	case "outrider-draft":
+		return func(_ []string) int { return RunDraft(os.Stdin, os.Stderr) }
 	case "outrider-gate":
 		return func(_ []string) int { return RunGate(os.Stdin, os.Stdout, os.Stderr) }
 	case "gh":

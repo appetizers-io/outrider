@@ -329,3 +329,20 @@ The agent can use the shared identities remotely. Desktop approval dialogs are
 unavailable, so configurations requiring them are refused. Runtime setup failures
 never fall back to host agent execution. See the isolation guide for authentication,
 network policy limitations and how to inspect results before importing them.
+
+## Evidence review profiles
+
+Evidence profiles run code from the PR as you. A trusted-author or repository
+allowlist is a decision to execute that code, not a proof that it is safe.
+Use static profiles for unknown authors. Org membership does not confer trust.
+`e2e` needs an explicit rule and sandbox off; Docker access gives arbitrary host
+capability. Outrider does not add infrastructure secrets, and the prompt asks
+before external infrastructure. Profiles cannot change push/post permissions,
+PR ownership rules or the sandbox. Local comment drafts never submit a review.
+
+Playbooks come only from your configuration directory and are excluded from
+the tool gate. Linked issues and base-branch docs are capped, labelled untrusted
+and passed as files with provenance. A PR cannot replace the docs against which
+it is checked. A draft outbox is the only requested local write exception;
+PR edits, commits and pushes still follow the session policy. Read-only Codex
+and Claude sessions retain drafts in the transcript.

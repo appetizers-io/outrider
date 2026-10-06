@@ -351,6 +351,17 @@
           "minItems": 1,
           "description": "PRs this override applies to: any of these identities."
         },
+        "review": {
+          "oneOf": [
+            {
+              "$ref": "#/$defs/Review",
+              "description": "Opt-in review profiles for other people’s PRs; absent preserves existing prompts."
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
         "workflows": {
           "items": {
             "$ref": "#/$defs/Workflow"
@@ -500,6 +511,127 @@
       "additionalProperties": false,
       "type": "object"
     },
+    "Review": {
+      "properties": {
+        "default": {
+          "oneOf": [
+            {
+              "type": "string",
+              "minLength": 1,
+              "description": "Default profile; null disables it. Built-ins: quick, standard, deep."
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "profiles": {
+          "additionalProperties": {
+            "$ref": "#/$defs/ReviewProfile"
+          },
+          "type": "object"
+        },
+        "rules": {
+          "items": {
+            "$ref": "#/$defs/ReviewRule"
+          },
+          "type": "array"
+        },
+        "trusted_authors": {
+          "items": {
+            "type": "string",
+            "minLength": 1
+          },
+          "type": "array"
+        },
+        "trusted_repos": {
+          "items": {
+            "type": "string",
+            "minLength": 1
+          },
+          "type": "array",
+          "description": "Repository globs whose code may run automatically; org membership is not inferred."
+        }
+      },
+      "additionalProperties": false,
+      "type": "object"
+    },
+    "ReviewContext": {
+      "properties": {
+        "issues": {
+          "type": "boolean"
+        },
+        "docs": {
+          "items": {
+            "type": "string",
+            "minLength": 1
+          },
+          "type": "array",
+          "description": "Base-branch path globs; the head cannot rewrite its specification."
+        }
+      },
+      "additionalProperties": false,
+      "type": "object"
+    },
+    "ReviewEvidence": {
+      "properties": {
+        "tests": {
+          "type": "string",
+          "enum": [
+            "off",
+            "local",
+            "e2e"
+          ]
+        },
+        "comments": {
+          "type": "string",
+          "enum": [
+            "off",
+            "draft"
+          ],
+          "description": "Drafts are local files; pending GitHub reviews are deferred."
+        }
+      },
+      "additionalProperties": false,
+      "type": "object"
+    },
+    "ReviewProfile": {
+      "properties": {
+        "playbook": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Owner-authored Markdown within the configuration directory, never the PR checkout."
+        },
+        "model": {
+          "additionalProperties": {
+            "type": "string"
+          },
+          "type": "object",
+          "description": "Per-agent model name: claude or codex."
+        },
+        "effort": {
+          "type": "string",
+          "enum": [
+            "low",
+            "medium",
+            "high"
+          ]
+        },
+        "max_minutes": {
+          "type": "integer",
+          "maximum": 1440,
+          "minimum": 1
+        },
+        "evidence": {
+          "$ref": "#/$defs/ReviewEvidence"
+        },
+        "context": {
+          "$ref": "#/$defs/ReviewContext"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object"
+    },
     "ReviewReplies": {
       "properties": {
         "enabled": {
@@ -536,6 +668,39 @@
       "additionalProperties": false,
       "type": "object"
     },
+    "ReviewRule": {
+      "properties": {
+        "repos": {
+          "items": {
+            "type": "string",
+            "minLength": 1
+          },
+          "type": "array"
+        },
+        "triggers": {
+          "items": {
+            "type": "string",
+            "enum": [
+              "opt_in",
+              "on_change",
+              "mentions",
+              "review_replies"
+            ],
+            "minLength": 1
+          },
+          "type": "array"
+        },
+        "profile": {
+          "type": "string",
+          "minLength": 1
+        }
+      },
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "profile"
+      ]
+    },
     "Terminal": {
       "anyOf": [
         {
@@ -569,6 +734,10 @@
     },
     "ToolGate": {
       "properties": {
+        "include_profile": {
+          "type": "boolean",
+          "description": "Profile bodies never enter the gate; must stay false."
+        },
         "classifier": {
           "oneOf": [
             {
@@ -760,6 +929,17 @@
       ],
       "description": "supervised: Claude sessions get deny rules for risky tools and, when its classifier is available, the tool_gate on every call; other people's PRs are review only. autonomous: no tool gating, and pushing to other people's PRs follows others_prs.allow_push (default: allowed).",
       "default": "supervised"
+    },
+    "review": {
+      "oneOf": [
+        {
+          "$ref": "#/$defs/Review",
+          "description": "Opt-in review profiles for other people’s PRs; absent preserves existing prompts."
+        },
+        {
+          "type": "null"
+        }
+      ]
     },
     "workflows": {
       "items": {

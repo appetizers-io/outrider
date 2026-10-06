@@ -53,6 +53,7 @@ type Config struct {
 // PRSettings are the keys that can differ per PR; overrides set them for
 // the PRs they match.
 type PRSettings struct {
+	Review        *Review     `yaml:"review,omitempty" jsonschema:"nullable" jsonschema_description:"Opt-in review profiles for other people’s PRs; absent preserves existing prompts."`
 	Workflows     []Workflow  `yaml:"workflows,omitempty" jsonschema_description:"Ordered agent workflows selected by PR metadata. First matching activity workflow wins; conditional workflows watch discovered PRs."`
 	Push          *string     `yaml:"push" jsonschema:"enum=ask,enum=never,enum=allow,nullable" jsonschema_description:"Pushes in sessions that may push (your own PRs, others' PRs with others_prs.allow_push). ask: every git push opens a dialog and runs only after you click Push (without a dialog it is refused). never: commits stay local. allow: no question. null: ask in supervised mode, allow in autonomous mode."`
 	GitHubWrites  *string     `yaml:"github_writes" jsonschema:"enum=ask,enum=never,enum=allow,nullable" jsonschema_description:"Comments, review comments and replies, reviews and reactions the agent posts with gh on the session's PR. ask: each one opens a dialog showing the text and runs only after you click Post (without a dialog it is refused). never: GitHub stays read-only. allow: no question. null: ask in supervised mode, allow in autonomous mode."`
@@ -136,6 +137,7 @@ type LaunchCheck struct {
 
 // ToolGate checks every tool call in supervised agent sessions (PreToolUse hook).
 type ToolGate struct {
+	IncludeProfile     bool     `yaml:"include_profile" jsonschema_description:"Profile bodies never enter the gate; must stay false."`
 	Classifier         *string  `yaml:"classifier" jsonschema:"minLength=1,nullable" jsonschema_description:"Name from classifiers; null: no tool gate."`
 	Matcher            string   `yaml:"matcher" jsonschema:"minLength=1" jsonschema_description:"Tools the gate sees."`
 	Threshold          *float64 `yaml:"threshold" jsonschema:"minimum=0,maximum=1,nullable" jsonschema_description:"Confidence below which the gate asks instead of deciding. null: the classifier's own default."`
@@ -315,7 +317,10 @@ func JevBackendConfigured() bool {
 
 // crossCheck validates what spans several keys, which the schema can't.
 func (c *Config) crossCheck() []string {
-	errs := c.checkWorkflows()
+	errs := append(c.checkWorkflows(), c.checkReview()...)
+	if c.ToolGate.IncludeProfile {
+		errs = append(errs, "tool_gate.include_profile must be false: playbooks cannot change gate policy")
+	}
 	if c.Isolation.Enabled {
 		if c.Mode != "autonomous" {
 			errs = append(errs, "isolation.enabled requires mode: autonomous; the VM replaces host tool approval gating")

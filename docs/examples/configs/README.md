@@ -5,6 +5,7 @@ rest stay at their defaults. Replace `my-org/*` with your repos.
 
 | File | Use it when you want to |
 |---|---|
+| [`review-profiles.yaml`](review-profiles.yaml) | choose static/standard/deep review profiles and explicit trust for tests |
 | [`minimal.yaml`](minimal.yaml) | start with the smallest useful config |
 | [`reviewer.yaml`](reviewer.yaml) | mostly review others' PRs (👀 and @mentions, review only, posts ask) |
 | [`own-prs.yaml`](own-prs.yaml) | fix CI and review feedback on your own PRs (push and posts ask) |
