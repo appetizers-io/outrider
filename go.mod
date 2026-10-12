@@ -4,6 +4,7 @@ go 1.27
 
 require (
 	github.com/cenkalti/backoff/v5 v5.0.3
+	github.com/chainguard-dev/git-urls v1.0.2
 	github.com/dlclark/regexp2 v1.12.0
 	github.com/gobwas/glob v1.0.0
 	github.com/invopop/jsonschema v0.14.0
@@ -12,14 +13,13 @@ require (
 	github.com/spf13/cobra v1.10.2
 	github.com/stretchr/testify v1.12.1
 	go.yaml.in/yaml/v3 v3.0.5
-	golang.org/x/mod v0.41.0
+	golang.org/x/mod v0.42.0
 	gotest.tools/v3 v3.5.2
 )
 
 require (
 	github.com/bahlo/generic-list-go v0.2.0 // indirect
 	github.com/buger/jsonparser v1.1.2 // indirect
-	github.com/chainguard-dev/git-urls v1.0.2 // indirect
 	github.com/google/go-cmp v0.5.9 // indirect
 	github.com/inconshreveable/mousetrap v1.1.0 // indirect
 	github.com/pb33f/ordered-map/v2 v2.3.1 // indirect
