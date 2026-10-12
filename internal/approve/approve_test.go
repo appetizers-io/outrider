@@ -31,6 +31,9 @@ func TestMacOSUsesOsascript(t *testing.T) {
 	d, err := platform("darwin", nil, "/usr/bin/osascript").dialogFor(`t "x"`, "body", "Push")
 	r.NoError(err)
 	r.Equal("/usr/bin/osascript", d.args[0])
+	// macOS 27 leaves the implicit `result` undefined after display dialog
+	r.Contains(d.args[2], "set reply to display dialog")
+	r.NotContains(d.args[2], "of result")
 	r.Contains(d.args[2], `with title (item 2 of argv)`)
 	r.Contains(d.args[2], `buttons {"Deny", (item 3 of argv)} default button "Deny" cancel button "Deny"`)
 	r.Equal([]string{"--", "body", `t "x"`, "Push"}, d.args[3:]) // texts are arguments only
