@@ -97,13 +97,14 @@ func (p Platform) dialogFor(title, body, ok string) (dialog, error) {
 		if !p.Exists(osascriptPath) {
 			return dialog{}, ErrNoDialog
 		}
-		// every text is an argument, never part of the script
+		// every text is an argument, never part of the script; the reply goes
+		// into a variable: macOS 27 no longer sets `result` here (-2753)
 		script := "on run argv\ntry\n" +
-			"display dialog (item 1 of argv) with title (item 2 of argv)" +
+			"set reply to display dialog (item 1 of argv) with title (item 2 of argv)" +
 			" buttons {\"Deny\", (item 3 of argv)} default button \"Deny\" cancel button \"Deny\"" +
 			" with icon caution giving up after 300\n" +
-			"if gave up of result then return \"timeout\"\n" +
-			"return button returned of result\n" +
+			"if gave up of reply then return \"timeout\"\n" +
+			"return button returned of reply\n" +
 			"on error number -128\nreturn \"Deny\"\nend try\nend run"
 		return dialog{
 			args:   []string{osascriptPath, "-e", script, "--", body, title, ok}, // "--": a body starting with "-" is no option
