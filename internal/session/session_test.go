@@ -387,6 +387,13 @@ func TestGateTextAllowsPostsOnlyThroughGH(t *testing.T) {
 	require.NotContains(t, Rules("o/r", 7, "bob", "Matthias", false, "review-only", "never"), "with plain `gh`")
 }
 
+func TestGateTextAllowsGitHubReads(t *testing.T) {
+	for _, push := range []string{"review-only", "review-forks", "ask", "never"} {
+		require.Contains(t, Rules("o/r", 7, "bob", "Matthias", push == "ask", push, "ask"),
+			"gh api graphql queries (not mutations)", push)
+	}
+}
+
 func TestCodexSessionHasNoSettings(t *testing.T) {
 	l, _ := newLauncher(t, "")
 	l.Cfg.Agent = "codex"
