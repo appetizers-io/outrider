@@ -5,7 +5,7 @@ go 1.27
 require (
 	github.com/cenkalti/backoff/v5 v5.0.3
 	github.com/chainguard-dev/git-urls v1.0.2
-	github.com/dlclark/regexp2 v1.11.0
+	github.com/dlclark/regexp2 v1.12.0
 	github.com/dlclark/regexp2/v2 v2.8.4
 	github.com/gobwas/glob v1.0.0
 	github.com/invopop/jsonschema v0.14.0
