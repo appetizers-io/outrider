@@ -95,6 +95,11 @@ var ghWriteGateRules = map[string]string{
 		"close, labels, edits of the PR) and writes by any other route.",
 }
 
+// readGateRule keeps the deny wording above (API calls, graphql mutations)
+// from making the gate doubt plain GitHub reads.
+const readGateRule = " Reading GitHub is always fine: gh pr view/diff/checks, gh api GET " +
+	"requests and gh api graphql queries (not mutations), piped through jq, head or grep."
+
 // sandboxGateRule is added to the rules of a read-only sandboxed session.
 const sandboxGateRule = " READ-ONLY SANDBOX: the operating system's sandbox blocks writes and " +
 	"network for this session. Deny any attempt to get around it (another tool, " +
@@ -129,7 +134,7 @@ func Rules(repo string, n int, author, owner string, own bool, push, ghWrites st
 			"rewrites, pushes to other branches and any GitHub write not " +
 			"allowed below."
 	}
-	rules += pushGateRules[push] + ghWriteGateRules[ghWrites]
+	rules += pushGateRules[push] + ghWriteGateRules[ghWrites] + readGateRule
 	return fmt.Sprintf("Automated coding-agent session for GitHub PR %s#%d by %s, "+
 		"launched by outrider for %s. Nobody is watching live. ", repo, n, author, owner) + rules
 }
