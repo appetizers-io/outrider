@@ -32,6 +32,12 @@ PRs. Pushes and posts depend on your task policies and Crew's permissions.
 
 ## Get started
 
+Outrider runs a Python backend and an MCP server on the machine running Crew.
+Enable third-party app execution in **Settings → Security → Third-party apps**
+before enabling Outrider. This is Crew's `agent.apps_allow_third_party` setting;
+without the grant, Crew can report `app_execution_denied`. Outrider does not change
+this security setting for you.
+
 Open Outrider in Crew and follow the setup wizard:
 
 1. **Check readiness.** Doctor checks Outrider, Git, and GitHub CLI authentication.
@@ -153,6 +159,13 @@ to app-owned chats.
 Windows queue storage flushes files but cannot guarantee directory durability
 after power loss. A crashed scan can leave `inbox/scan.lock`; stop any remaining
 scan before removing that lock. Doctor never removes it automatically.
+
+## App preview
+
+![Outrider queue with a linked Crew review session](assets/screenshots/queue.png)
+
+This preview renders the app's queue components with sample repository and PR
+data; it contains no private queue information.
 
 ## Development and support
 

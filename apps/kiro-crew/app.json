@@ -83,7 +83,7 @@
     "Engineering"
   ],
   "repo": "https://github.com/appetizers-io/outrider",
-  "iconPath": "assets/icon.png",
+  "iconPath": "assets/store-icon.png",
   "heroImageDetail": "assets/banner.png",
   "heroImageDetailDark": "assets/banner.png",
   "highlights": [
@@ -93,5 +93,9 @@
     "Keep your own PRs moving with sessions that help address review feedback",
     "Make your review process repeatable with workflows tailored to each repository",
     "Stay in control of who reviews, how many sessions run, and which actions need your approval"
+  ],
+  "heroImage": "assets/screenshots/queue.png",
+  "screenshots": [
+    "assets/screenshots/queue.png"
   ]
 }
