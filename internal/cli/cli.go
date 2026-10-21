@@ -99,7 +99,7 @@ func newRoot(d watch.Deps, stdout, stderr io.Writer) *cobra.Command {
 	root.SetOut(stdout)
 	root.SetErr(stderr)
 	f.register(root)
-	root.AddCommand(configCmd(stdout, stderr, migrateDirs), doctorCmd(d, stdout), sessionCmd(stdout))
+	root.AddCommand(configCmd(stdout, stderr, migrateDirs), doctorCmd(d, stdout), sessionCmd(stdout), crewCmd(d))
 	return root
 }
 

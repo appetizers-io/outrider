@@ -1,0 +1,47 @@
+{
+  "name": "outrider",
+  "version": "0.1.0",
+  "displayName": "Outrider",
+  "description": "Turn GitHub PR activity into a review inbox and read-only snapshot reviews.",
+  "author": "appetizers-io",
+  "agents": [
+    "agents/reviewer.json"
+  ],
+  "ui": {
+    "entry": "index.mjs",
+    "pages": [
+      {
+        "route": "/apps/outrider",
+        "label": "Outrider",
+        "icon": "GitPullRequest"
+      }
+    ]
+  },
+  "backend": {
+    "entryPoint": "backend/server.py",
+    "type": "python",
+    "port": "auto",
+    "healthCheck": "/health"
+  },
+  "permissions": {
+    "api": [
+      "/apps/outrider/api",
+      "/api/spawn"
+    ],
+    "network": true,
+    "storage": true
+  },
+  "dependencies": {
+    "commands": [
+      "outrider",
+      "gh",
+      "python3"
+    ]
+  },
+  "platform": {
+    "os": [
+      "macos",
+      "linux"
+    ]
+  }
+}
