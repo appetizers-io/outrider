@@ -365,3 +365,19 @@ Closed/deleted unfinished chats become **stopped**, release capacity, and offer
 **Retry session** or **Dismiss**. Retry is explicit, uses a new chat/worktree, and
 retains the previous attempt. Completed work remains in history. Connection and
 permission failures keep capacity reserved until the session can be reconciled.
+
+### UI code organization
+
+The UI remains build-free ES modules served by Crew, using its React and app SDK.
+`ui/index.mjs` composes the layout and selects a view. `ui/views/` contains Queue,
+Repositories, Settings, Add repository, and Activity log. `ui/components/` owns
+shared layout, session controls, queue cards, configuration panels and the import
+dialog. `ui/hooks/` separates gateway polling/actions, repository drafts, and
+AI/import drafts from view rendering. The controller coordinates saved settings
+and preserves drafts across navigation; view-specific props are passed explicitly.
+`ui/queue.mjs` contains pure queue selection and deduplication display logic.
+
+Run `task crew:test` for backend lifecycle regressions and the Node UI tests.
+The UI harness loads the entire ES module graph with host React/SDK substitutes,
+renders every view, and checks key actions and save boundaries. It requires no
+npm install or bundle step; it does not replace visual checks in Crew.

@@ -26,10 +26,10 @@ tasks:
       - go test -race ./...
 
   crew:test:
-    desc: Verify the Kiro Crew app backend and frontend syntax (Python 3, Node.js)
+    desc: Verify the Kiro Crew backend and UI module contracts (Python 3, Node.js)
     cmds:
       - python3 -m unittest discover -s apps/kiro-crew/tests -v
-      - node --check apps/kiro-crew/ui/index.mjs
+      - node --experimental-vm-modules --test apps/kiro-crew/tests/test_ui.mjs
 
   build:
     desc: Build the binary into bin/
