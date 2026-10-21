@@ -25,8 +25,6 @@ export function AppHeader({
         width: 44,
         height: 44,
         style: {
-          float: "left",
-          marginRight: 14,
           padding: 4,
           boxSizing: "border-box",
           borderRadius: 10,
@@ -36,32 +34,40 @@ export function AppHeader({
       h(
         "h1",
         { style: { margin: "0 0 6px", fontSize: 28 } },
-        view === "doctor"
-          ? "Doctor"
-          : view === "welcome"
-            ? "Welcome to Outrider"
-            : view === "settings"
-              ? "Settings"
-              : view === "activity"
-                ? "Activity log"
-                : view === "setup"
-                  ? "Add repository"
-                  : view === "repositories"
-                    ? "Repositories"
-                    : "Outrider",
+        view === "manual"
+          ? "Review PR"
+          : view === "doctor"
+            ? "Doctor"
+            : view === "welcome"
+              ? "Welcome to Outrider"
+              : view === "settings"
+                ? "Settings"
+                : view === "activity"
+                  ? "Activity log"
+                  : view === "setup"
+                    ? "Add repository"
+                    : view === "repositories"
+                      ? "Repositories"
+                      : "Outrider",
       ),
       h(
         "p",
         { style: { margin: 0, opacity: 0.7 } },
-        view === "settings"
-          ? "Global session defaults, polling, and limits."
-          : view === "activity"
-            ? "Polling, session progress, and errors."
-            : view === "inbox"
-              ? "Keep reviews moving while you focus on your work."
-              : view === "setup"
-                ? "Choose a repository to watch and where its reviews belong."
-                : "Configure triggers and workflows for each repository.",
+        view === "manual"
+          ? "Start a review from a GitHub pull request URL."
+          : view === "doctor"
+            ? "Check your setup and runtime."
+            : view === "welcome"
+              ? "Connect your repositories and choose how reviews run."
+              : view === "settings"
+                ? "Global session defaults, polling, and limits."
+                : view === "activity"
+                  ? "Polling, session progress, and errors."
+                  : view === "inbox"
+                    ? "Keep reviews moving while you focus on your work."
+                    : view === "setup"
+                      ? "Choose a repository to watch and where its reviews belong."
+                      : "Configure triggers and workflows for each repository.",
       ),
     ),
     data &&
