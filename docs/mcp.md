@@ -1,6 +1,6 @@
 # Outrider MCP server
 
-Outrider includes a portable, read-only MCP server using the
+Outrider includes a portable MCP server using the
 [official Go SDK](https://github.com/modelcontextprotocol/go-sdk). The server
 runs over stdio in the same binary as the CLI; no Python or Node MCP framework
 is needed. Keep stdout reserved for protocol messages; diagnostics use stderr.
@@ -46,6 +46,10 @@ implementation is `internal/mcpserver` in Outrider.
   push/post task restrictions and review-fork settings are supported. Save the
   reviewed draft yourself through Crew or the appropriate CLI config file.
 
-No MCP tool applies a draft, changes trust, scans GitHub, marks notifications,
-starts sessions or posts to GitHub. Missing Crew settings/queue files produce
+The portable MCP server remains read-only. Crew-specific folder discovery,
+checkout inspection and repository registration are implemented by the app's
+Python adapter in `apps/kiro-crew/backend/mcp_launcher.py` and `mcp_setup.py`.
+They are not CLI tools or flags. See the [Crew app guide](../apps/kiro-crew/README.md#add-a-project-from-a-crew-conversation).
+
+No portable MCP tool applies drafts, changes trust or posts to GitHub. Missing Crew settings/queue files produce
 an empty instance; malformed files are reported rather than silently ignored.

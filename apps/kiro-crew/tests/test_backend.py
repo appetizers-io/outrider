@@ -534,6 +534,92 @@ class InboxTest(unittest.TestCase):
         with self.assertRaises(ValueError):
             self.inbox.request_review('../state')
 
+    def test_mcp_add_preserves_defaults_and_is_idempotent(self):
+        self.inbox.config.update(interval=123, paused=True, automatic_default=True, session_trust_default='trust_reads', reviewer_default='chosen')
+        checkout = {'checkout': '/project', 'remotes': [{'name': 'origin', 'repo': 'o/r'}, {'name': 'upstream', 'repo': 'o/r'}]}
+        with patch.object(self.inbox, 'checkout', return_value=checkout):
+            result = self.inbox.add_repository({'repo': 'o/r', 'folder_id': 'folder'})
+            self.assertTrue(result['added'])
+            self.assertEqual(result['remote'], 'upstream')
+            self.assertFalse(result['polling_active'])
+            self.assertTrue(result['automatic_sessions'])
+            before = json.loads(json.dumps(self.inbox.config))
+            self.assertFalse(self.inbox.add_repository({'repo': 'o/r', 'folder_id': 'folder'})['added'])
+            self.assertEqual(self.inbox.config, before)
+            self.assertEqual(self.inbox.config['interval'], 123)
+            self.assertEqual(self.inbox.config['reviewer_default'], 'chosen')
+            self.assertEqual(self.inbox.config['session_trust_default'], 'trust_reads')
+            with self.assertRaises(ValueError):
+                self.inbox.add_repository({'repo': 'o/wrong', 'folder_id': 'folder'})
+            with self.assertRaises(ValueError):
+                self.inbox.add_repository({'repo': 'o/r', 'folder_id': 'folder', 'session_trust_default': 'trust'})
+            self.assertEqual(self.inbox.config, before)
+
+    def test_mcp_duplicate_does_not_require_checkout(self):
+        self.inbox.config.update(repos=['o/r'], folders={'o/r': 'old'}, validation_remotes={'o/r': 'origin'})
+        with patch.object(self.inbox, 'checkout', side_effect=RuntimeError('checkout removed')) as checkout:
+            result = self.inbox.add_repository({'repo': 'O/R', 'folder_id': 'missing'})
+        self.assertFalse(result['added'])
+        self.assertEqual(result['folder_id'], 'old')
+        checkout.assert_not_called()
+
+    def test_mcp_add_inspects_once_outside_lock_and_keeps_concurrent_settings(self):
+        self.inbox.config.update(repos=['existing/repo'], folders={'existing/repo': 'old'}, validation_remotes={'existing/repo': 'origin'})
+        def inspect(folder):
+            completed = threading.Event()
+            def concurrent_save():
+                with self.inbox.lock:
+                    self.inbox.config['interval'] = 456
+                completed.set()
+            thread = threading.Thread(target=concurrent_save)
+            thread.start()
+            self.assertTrue(completed.wait(1), 'checkout must not hold the settings lock')
+            thread.join()
+            return {'remotes': [{'name': 'origin', 'repo': 'o/r'}]}
+        with patch.object(self.inbox, 'checkout', side_effect=inspect) as checkout:
+            result = self.inbox.add_repository({'repo': 'o/r', 'folder_id': 'new'})
+            checkout.assert_called_once_with('new')
+        self.assertTrue(result['added'])
+        self.assertEqual(self.inbox.config['interval'], 456)
+        self.assertEqual(self.inbox.config['folders']['existing/repo'], 'old')
+
+    def test_mcp_add_rechecks_registration_after_inspection(self):
+        def inspect(folder):
+            self.inbox.config.update(repos=['o/r'], folders={'o/r': 'concurrent'}, validation_remotes={'o/r': 'upstream'})
+            return {'remotes': [{'name': 'origin', 'repo': 'o/r'}]}
+        with patch.object(self.inbox, 'checkout', side_effect=inspect):
+            result = self.inbox.add_repository({'repo': 'o/r', 'folder_id': 'new'})
+        self.assertFalse(result['added'])
+        self.assertEqual(result['folder_id'], 'concurrent')
+
+    def test_mcp_add_enforces_repository_limit(self):
+        self.inbox.config['repos'] = [f'o/r{i}' for i in range(50)]
+        with patch.object(self.inbox, 'checkout', return_value={'remotes': [{'name': 'origin', 'repo': 'o/new'}]}):
+            with self.assertRaisesRegex(ValueError, '50'):
+                self.inbox.add_repository({'repo': 'o/new', 'folder_id': 'new'})
+        self.assertEqual(len(self.inbox.config['repos']), 50)
+
+    def test_mcp_token_is_restricted_to_setup_routes(self):
+        server = backend.ThreadingHTTPServer(('127.0.0.1', 0), backend.Handler)
+        server.inbox, server.secret, server.mcp_token = self.inbox, 'proxy-secret', 'setup-token'
+        threading.Thread(target=server.serve_forever, daemon=True).start()
+        self.addCleanup(server.server_close)
+        self.addCleanup(server.shutdown)
+        origin = f'http://127.0.0.1:{server.server_port}'
+        with self.assertRaises(HTTPError) as caught:
+            urlopen(origin + '/mcp/folders')
+        self.assertEqual(caught.exception.code, 401)
+        caught.exception.close()
+        headers = {'Authorization': 'Bearer setup-token'}
+        with patch.object(self.inbox, 'folders', return_value=[{'id': 'folder'}]):
+            with urlopen(Request(origin + '/mcp/folders', headers=headers)) as response:
+                self.assertEqual(json.load(response), [{'id': 'folder'}])
+        for path, status in [('/api/config', 401), ('/mcp/config', 404)]:
+            with self.assertRaises(HTTPError) as caught:
+                urlopen(Request(origin + path, data=b'{}', headers=headers))
+            self.assertEqual(caught.exception.code, status)
+            caught.exception.close()
+
     def test_proxy_signatures_and_http_routes(self):
         server = backend.ThreadingHTTPServer(('127.0.0.1', 0), backend.Handler)
         server.inbox, server.secret = self.inbox, 'test-secret'
