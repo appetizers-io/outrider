@@ -31,9 +31,10 @@ MAX_POLL_FAILURES = 5
 class GatewayRejected(RuntimeError):
     """An HTTP response from Crew, retaining its status for recovery decisions."""
 
-    def __init__(self, status):
+    def __init__(self, status, path=None):
         self.status = status
-        super().__init__(f"Crew returned HTTP {status}; check the app grant and gateway")
+        location = f" at {path.split('?')[0]}" if path else ""
+        super().__init__(f"Crew returned HTTP {status}{location}; check the app grant and gateway")
 
 
 def normalize_repo(value):
@@ -170,18 +171,30 @@ class Gateway:
     def authenticate(self):
         """Acquire credentials before a review enters the dispatching state."""
         if not self.token:
-            response = self._request(f"/api/apps/{APP}/token", {}, {"X-App-Secret": self.secret})
+            path = f"/api/apps/{APP}/token"
+            try:
+                response = self._request(path, {}, {"X-App-Secret": self.secret})
+            except HTTPError as error:
+                error.close()
+                raise GatewayRejected(error.code, path) from error
             self.token = response["token"]
 
     def call(self, path, payload=None):
-        self.authenticate()
-        try:
-            return self._request(path, payload, {"Cookie": self.cookie_name + "=" + self.token})
-        except HTTPError as error:
-            error.close()
-            if error.code == 401:
-                self.token = ""  # refresh on the NEXT call; never retry a spawn
-            raise GatewayRejected(error.code) from error
+        # Only reads can be replayed safely. A rejected write clears the cached
+        # credential for the next call, but must never duplicate a spawn/send.
+        for attempt in range(2):
+            self.authenticate()
+            token = self.token
+            try:
+                return self._request(path, payload, {"Cookie": self.cookie_name + "=" + token})
+            except HTTPError as error:
+                error.close()
+                if error.code in (401, 403):
+                    if self.token == token:
+                        self.token = ""
+                    if payload is None and attempt == 0:
+                        continue
+                raise GatewayRejected(error.code, path) from error
 
 
 def no_tools_policy_matches(actual, expected):

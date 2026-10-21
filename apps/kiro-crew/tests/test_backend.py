@@ -677,6 +677,52 @@ class InboxTest(unittest.TestCase):
         self.assertEqual(len(calls), 2)
         self.assertEqual({k.lower(): v for k, v in calls[0][1].items()}['x-app-secret'], 'secret')
         self.assertEqual(calls[1][1]['Cookie'], f'mc_token_{server.server_port}=test-token')
+        self.assertEqual(client.token, '')
+
+    def test_gateway_refreshes_expired_credentials_for_reads(self):
+        for status in (401, 403):
+            with self.subTest(status=status):
+                client = backend.Gateway('http://127.0.0.1:1234', 'secret')
+                client.token = 'stale'
+                denied = HTTPError('http://127.0.0.1:1234/api/chat/folders', status, 'denied', {}, None)
+                with patch.object(client, '_request', side_effect=[denied, {'token': 'fresh'}, {'folders': []}]) as request:
+                    self.assertEqual(client.call('/api/chat/folders'), {'folders': []})
+                self.assertEqual([c.args[0] for c in request.call_args_list],
+                                 ['/api/chat/folders', '/api/apps/outrider/token', '/api/chat/folders'])
+                self.assertEqual(request.call_args_list[-1].args[2], {'Cookie': 'mc_token_1234=fresh'})
+
+    def test_gateway_persistent_denial_is_bounded(self):
+        client = backend.Gateway('http://127.0.0.1:1234', 'secret')
+        client.token = 'stale'
+        def deny(path, payload=None, headers=None):
+            if path.endswith('/token'):
+                return {'token': 'fresh'}
+            raise HTTPError(client.origin + path, 403, 'denied', {}, None)
+        with patch.object(client, '_request', side_effect=deny) as request:
+            with self.assertRaisesRegex(backend.GatewayRejected, '403 at /api/chat/folders'):
+                client.call('/api/chat/folders')
+        self.assertEqual(request.call_count, 3)
+        self.assertEqual(client.token, '')
+
+    def test_gateway_never_replays_rejected_writes(self):
+        for status in (401, 403, 500):
+            with self.subTest(status=status):
+                client = backend.Gateway('http://127.0.0.1:1234', 'secret')
+                client.token = 'cached'
+                error = HTTPError(client.origin + '/api/chat', status, 'denied', {}, None)
+                with patch.object(client, '_request', side_effect=error) as request:
+                    with self.assertRaises(backend.GatewayRejected):
+                        client.call('/api/chat?ws=1', {})
+                self.assertEqual(request.call_count, 1)
+                self.assertEqual(client.token, '' if status in (401, 403) else 'cached')
+
+    def test_gateway_token_endpoint_denial_is_not_retried(self):
+        client = backend.Gateway('http://127.0.0.1:1234', 'secret')
+        error = HTTPError(client.origin, 403, 'denied', {}, None)
+        with patch.object(client, '_request', side_effect=error) as request:
+            with self.assertRaisesRegex(backend.GatewayRejected, '403 at /api/apps/outrider/token'):
+                client.call('/api/chat/folders')
+        self.assertEqual(request.call_count, 1)
 
     def test_scan_error_does_not_erase_queue(self):
         self.inbox.configure({'repos': ['o/r']})
