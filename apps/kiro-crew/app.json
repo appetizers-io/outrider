@@ -1,6 +1,6 @@
 {
   "name": "outrider",
-  "version": "0.2.0",
+  "version": "0.2.1",
   "displayName": "Outrider",
   "description": "AI writes code faster. Keep your reviews moving. Outrider watches GitHub and automatically starts PR reviews in Kiro Crew, helping you catch issues and follow up on feedback while you focus on your work.",
   "author": "appetizers-io",
