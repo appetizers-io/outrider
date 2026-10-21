@@ -257,7 +257,7 @@ class InboxTest(unittest.TestCase):
         calls = []
         def run(args, **kwargs):
             calls.append(args)
-            return type('Result', (), {'returncode': 0, 'stdout': '--state-dir --config-format --crew-control --pr'})()
+            return type('Result', (), {'returncode': 0, 'stdout': '--state-dir --config-format --pr'})()
         with patch.dict(backend.os.environ, {'USERPROFILE': str(Path.home())}, clear=True), patch.object(backend.runtime.shutil, 'which', return_value='/host/outrider'), patch.object(Path, 'is_file', return_value=True):
             self.assertEqual(backend.find_scanner(run), str(Path('/host/outrider').resolve()))
         self.assertEqual(len(calls), 4)

@@ -169,5 +169,7 @@ Ask **“Add this project to Outrider.”** The MCP setup tools discover Crew fo
 inspect their checkouts and remotes, then register the repository through the
 running app. Ambiguous projects require a choice. Existing registrations and
 session preferences are preserved; new repositories inherit your polling and
-automatic-session defaults. Update the Outrider binary and restart/reload the
-app's MCP server after installing this version to expose the new tools.
+automatic-session defaults. Reload the app's MCP server after updating the plugin to expose the new tools.
+No new CLI capability or binary upgrade is required: these tools live entirely
+in the Crew app. The adapter forwards the existing read-only protocol traffic
+to the portable MCP server and handles Crew setup calls itself.

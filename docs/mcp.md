@@ -46,25 +46,10 @@ implementation is `internal/mcpserver` in Outrider.
   push/post task restrictions and review-fork settings are supported. Save the
   reviewed draft yourself through Crew or the appropriate CLI config file.
 
-Standalone MCP remains read-only. With `--config-format crew --crew-control`
-(the app launcher supplies both), three additional tools use the running app:
+The portable MCP server remains read-only. Crew-specific folder discovery,
+checkout inspection and repository registration are implemented by the app's
+Python adapter in `apps/kiro-crew/backend/mcp_launcher.py` and `mcp_setup.py`.
+They are not CLI tools or flags. See the [Crew app guide](../apps/kiro-crew/README.md#add-a-project-from-a-crew-conversation).
 
-- `list_crew_folders`: discover folder IDs and project directories.
-- `inspect_crew_folder`: resolve inherited checkout paths and GitHub remotes.
-- `add_repository`: register an owner/repo with a Crew folder and matching remote.
-  Existing registrations are unchanged; unrelated settings and Crew permissions
-  are preserved. New repositories inherit polling and automatic-session defaults,
-  so adding one can lead to reviews under the user's existing configuration.
-
-For example: **“Add this project to Outrider.”** The agent discovers the matching
-Crew folder, checks its remotes, and calls `add_repository`. If there are multiple
-possible projects or upstream repositories, it asks which one to use. No UI
-automation or manual configuration-file edits are needed.
-
-Setup tools require an enabled, running app and a compatible Outrider binary.
-The backend exposes only these setup routes via a rotating local bearer token
-in its private data directory. The MCP client connects only to 127.0.0.1, does
-not forward credentials through proxies or redirects, and never retries writes.
-The token cannot access other backend APIs. No tool changes trust, applies an
-arbitrary draft, marks GitHub notifications or posts to GitHub. Missing Crew settings/queue files produce
+No portable MCP tool applies drafts, changes trust or posts to GitHub. Missing Crew settings/queue files produce
 an empty instance; malformed files are reported rather than silently ignored.

@@ -15,7 +15,7 @@ func (noCloseWriter) Close() error { return nil }
 
 func mcpCmd() *cobra.Command {
 	var o mcpserver.Options
-	cmd := &cobra.Command{Use: "mcp", Short: "Serve MCP tools for an explicitly selected Outrider instance", Args: cobra.NoArgs, RunE: func(cmd *cobra.Command, _ []string) error {
+	cmd := &cobra.Command{Use: "mcp", Short: "Serve read-only MCP tools for an explicitly selected Outrider instance", Args: cobra.NoArgs, RunE: func(cmd *cobra.Command, _ []string) error {
 		o.Version = Version
 		server, err := mcpserver.New(o)
 		if err != nil {
@@ -26,6 +26,5 @@ func mcpCmd() *cobra.Command {
 	cmd.Flags().StringVar(&o.ConfigPath, "config", "", "explicit CLI YAML or Crew settings JSON path (required)")
 	cmd.Flags().StringVar(&o.StateDir, "state-dir", "", "explicit queue state root; no host fallback (required)")
 	cmd.Flags().StringVar(&o.Format, "config-format", "cli", "configuration format: cli or crew")
-	cmd.Flags().BoolVar(&o.CrewControl, "crew-control", false, "enable setup tools through the running Crew app backend")
 	return cmd
 }
