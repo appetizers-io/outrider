@@ -46,7 +46,7 @@ func crewCmd(d watch.Deps) *cobra.Command {
 	scan.Flags().StringVar(&source, "config", "", "optional Outrider YAML config (otherwise built-in defaults)")
 	scan.Flags().StringArrayVar(&repos, "repo", nil, "repository allowlist, owner/repo or glob (repeatable)")
 	scan.Flags().BoolVar(&existing, "process-existing", false, "queue existing activity on the first scan")
-	cmd.AddCommand(scan)
+	cmd.AddCommand(scan, crewImportSettingsCmd())
 	cmd.AddCommand(&cobra.Command{Use: "settings", Short: "Validate and convert Crew repository YAML from stdin", Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			raw, err := io.ReadAll(io.LimitReader(cmd.InOrStdin(), 131073))
@@ -73,7 +73,22 @@ func crewCmd(d watch.Deps) *cobra.Command {
 			if err != nil {
 				return err
 			}
-			if _, err := config.Parse(encoded, "repository settings"); err != nil {
+			cfg, err := config.Parse(encoded, "repository settings")
+			if err != nil {
+				return err
+			}
+			// Show the same effective trigger values as the assisted form.
+			triggerData, err := yaml.Marshal(cfg.Triggers)
+			if err != nil {
+				return err
+			}
+			var triggers map[string]any
+			if err := yaml.Unmarshal(triggerData, &triggers); err != nil {
+				return err
+			}
+			settings["triggers"] = triggers
+			encoded, err = yaml.Marshal(settings)
+			if err != nil {
 				return err
 			}
 			return json.NewEncoder(cmd.OutOrStdout()).Encode(map[string]any{"settings": settings, "yaml": string(encoded)})

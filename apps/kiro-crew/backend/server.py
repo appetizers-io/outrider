@@ -505,6 +505,19 @@ class Handler(BaseHTTPRequestHandler):
             if self.path == "/api/setup":
                 self.reply(202, inbox.generate_setup(payload))
                 return
+            if self.path == "/api/settings/import":
+                content = payload.get("content")
+                if not isinstance(content, str):
+                    raise ValueError("CLI YAML is required")
+                repo = normalize_repo(payload.get("repo"))
+                profile = payload.get("profile", "common")
+                if profile not in {"common", "own", "others"}:
+                    raise ValueError("Invalid import profile")
+                result = subprocess.run([find_scanner(), "crew", "import-settings", "--repo", repo, "--profile", profile], input=content, env=scanner_environment(), capture_output=True, text=True, timeout=15, check=False)
+                if result.returncode:
+                    raise ValueError(result.stderr[-6000:] or "Invalid CLI configuration")
+                self.reply(200, {"repo": repo, **json.loads(result.stdout)})
+                return
             if self.path == "/api/settings/convert":
                 content = payload.get("content")
                 if not isinstance(content, str):

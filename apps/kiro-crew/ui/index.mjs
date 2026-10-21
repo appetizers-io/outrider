@@ -4,6 +4,8 @@ import { useAppApi } from '@kirocrew/app-sdk';
 const base = '/apps/outrider/api';
 const box = { border: '1px solid var(--border, #8885)', borderRadius: 12, padding: 20, marginBottom: 16 };
 const button = { padding: '8px 14px', border: '1px solid var(--border, #8886)', borderRadius: 8, cursor: 'pointer', background: 'transparent', color: 'inherit' };
+const selectedButton = { ...button, background: '#b4a0ff', color: '#211b32', borderColor: '#b4a0ff', fontWeight: 650 };
+const reactions = [['eyes', '👀 Eyes'], ['+1', '👍 Thumbs up'], ['-1', '👎 Thumbs down'], ['laugh', '😄 Laugh'], ['confused', '😕 Confused'], ['heart', '❤️ Heart'], ['hooray', '🎉 Hooray'], ['rocket', '🚀 Rocket']];
 const input = { display: 'block', width: '100%', background: 'transparent', color: 'inherit', border: '1px solid #8886', borderRadius: 8, padding: 10, boxSizing: 'border-box', margin: '8px 0 12px' };
 
 export default function Outrider() {
@@ -22,6 +24,9 @@ export default function Outrider() {
   const [editor, setEditor] = useState('form');
   const [yaml, setYaml] = useState('');
   const [setup, setSetup] = useState({});
+  const [cliConfig, setCliConfig] = useState('');
+  const [importProfile, setImportProfile] = useState('common');
+  const [importPreview, setImportPreview] = useState(null);
   const [intent, setIntent] = useState('');
   const [newRepo, setNewRepo] = useState('');
   const [newFolder, setNewFolder] = useState('');
@@ -38,6 +43,17 @@ export default function Outrider() {
     poll(); const timer = setInterval(poll, 4000);
     return () => { disposed = true; clearInterval(timer); };
   }, [api, setup.status]);
+  async function previewImport() {
+    setBusy(true); setError(''); setImportPreview(null);
+    try { setImportPreview(await api.post(base + '/settings/import', { repo: selectedRepo, content: cliConfig, profile: importProfile })); }
+    catch (e) { setError(e.message); }
+    finally { setBusy(false); }
+  }
+  function useImport() {
+    setAdvanced(JSON.stringify(importPreview.settings, null, 2)); setYaml(importPreview.yaml);
+    setRepoSettings({ ...repoSettings, [selectedRepo]: importPreview.settings }); setEditor('yaml'); setImportPreview(null);
+    setNotice('CLI settings loaded into the editor. Review and save to apply them.');
+  }
   async function generateSetup() {
     setBusy(true); setError('');
     try {
@@ -89,7 +105,7 @@ export default function Outrider() {
     try {
       const next = selectedRepo ? { ...repoSettings, [selectedRepo]: await draft() } : repoSettings;
       const converted = await api.post(base + '/settings/convert', { content: JSON.stringify(next[repo] || {}) });
-      setRepoSettings(next); setSelectedRepo(repo);
+      setRepoSettings({ ...next, [repo]: converted.settings }); setSelectedRepo(repo);
       setAdvanced(JSON.stringify(converted.settings, null, 2)); setYaml(converted.yaml);
     } catch (e) { setError(e.message); }
     finally { setBusy(false); }
@@ -138,10 +154,10 @@ export default function Outrider() {
     h('header', { style: { display: 'flex', gap: 20, justifyContent: 'space-between', alignItems: 'start', flexWrap: 'wrap', marginBottom: 24 } },
       h('div', null, h('img', { src: '/apps/outrider/ui/logo.svg', alt: 'Outrider', width: 44, height: 44, style: { float: 'left', marginRight: 14 } }), h('h1', { style: { margin: '0 0 6px', fontSize: 28 } }, view === 'setup' ? 'Add repository' : view === 'repositories' ? 'Repositories' : 'Outrider'), h('p', { style: { margin: 0, opacity: .7 } }, view === 'inbox' ? 'Your PR review inbox.' : view === 'setup' ? 'Choose a repository to watch and where its reviews belong.' : 'Configure triggers and workflows for each repository.')),
       data && h('nav', { 'aria-label': 'Outrider views', style: { display: 'flex', gap: 8, flexWrap: 'wrap' } },
-        h('button', { style: button, disabled: busy, 'aria-current': view === 'inbox' ? 'page' : undefined, onClick: () => { setView('inbox'); setNotice(''); setError(''); } }, 'Inbox'),
-        h('button', { style: button, disabled: busy, 'aria-current': view === 'repositories' ? 'page' : undefined, onClick: () => configure() }, 'Repositories'),
-        view !== 'setup' && h('button', { style: button, disabled: busy, onClick: () => configure('setup') }, 'Add repository'),
-        view === 'inbox' && h('button', { style: button, disabled: busy || data.scanning || !data.config.repos.length, onClick: () => action('/scan') }, data.scanning ? 'Scanning…' : 'Scan now'))),
+        h('button', { style: view === 'inbox' ? selectedButton : button, disabled: busy, 'aria-current': view === 'inbox' ? 'page' : undefined, onClick: () => { setView('inbox'); setNotice(''); setError(''); } }, 'Inbox'),
+        h('button', { style: view === 'repositories' ? selectedButton : button, disabled: busy, 'aria-current': view === 'repositories' ? 'page' : undefined, onClick: () => configure() }, 'Repositories'),
+        h('button', { style: view === 'setup' ? selectedButton : button, 'aria-current': view === 'setup' ? 'page' : undefined, disabled: busy, onClick: () => configure('setup') }, 'Add repository'),
+        h('button', { style: button, disabled: busy || data.scanning || !data.config.repos.length, onClick: () => action('/scan') }, data.scanning ? 'Scanning…' : 'Scan now'))),
     (error || (view === 'inbox' && data?.error)) && h('p', { role: 'alert', style: { ...box, borderColor: '#c66' } }, error || data.error),
     notice && h('p', { role: 'status' }, notice),
     !data && !error && h('p', { role: 'status' }, 'Loading…'),
@@ -155,6 +171,20 @@ export default function Outrider() {
       h('section', { style: box },
         h('label', null, 'Repository', h('select', { style: input, disabled: busy, value: selectedRepo, onChange: e => selectRepo(e.target.value) }, ...data.config.repos.map(repo => h('option', { key: repo, value: repo }, repo)))),
         h('label', null, 'Review folder', folderSelect(mapping[selectedRepo] || '', e => setMapping({ ...mapping, [selectedRepo]: e.target.value })))),
+      h('details', { style: box }, h('summary', { style: { cursor: 'pointer' } }, 'Import CLI configuration'),
+        h('p', null, 'Choose your existing Outrider YAML file or paste it below. Preview the effective settings for this repository before importing.'),
+        h('label', null, 'CLI config file', h('input', { style: input, type: 'file', accept: '.yaml,.yml,.json', onChange: async e => { const file = e.target.files?.[0]; if (!file) return; if (file.size > 100000) { setError('Choose a config smaller than 100 KB'); return; } try { setCliConfig(await file.text()); setImportPreview(null); } catch (e) { setError(e.message); } } })),
+        h('label', null, 'CLI YAML', h('textarea', { style: { ...input, fontFamily: 'monospace' }, rows: 8, value: cliConfig, onChange: e => { setCliConfig(e.target.value); setImportPreview(null); } })),
+        h('label', null, 'Settings to import', h('select', { style: input, value: importProfile, onChange: e => { setImportProfile(e.target.value); setImportPreview(null); } }, h('option', { value: 'common' }, 'Common to my PRs and other PRs'), h('option', { value: 'own' }, 'Use my-PR settings for this repository'), h('option', { value: 'others' }, 'Use other-PR settings for this repository'))),
+        h('p', { style: { opacity: .7 } }, 'Imports apply repository-wide. Ownership-specific differences require an explicit profile choice. Crew keeps its session settings.'),
+        h('button', { style: button, type: 'button', disabled: busy || !cliConfig.trim(), onClick: previewImport }, 'Preview import'),
+        importPreview && h('div', null,
+          h('h3', null, 'Import preview · ' + importPreview.repo),
+          ...importPreview.warnings.map((warning, index) => h('p', { key: index }, warning)),
+          importPreview.skipped.length > 0 && h('p', null, 'Not imported: ' + importPreview.skipped.join(', ')),
+          importPreview.applied_overrides.length > 0 && h('p', null, 'Applied CLI overrides: ' + importPreview.applied_overrides.join('; ')),
+          h('pre', { style: { whiteSpace: 'pre-wrap', overflowWrap: 'anywhere' } }, importPreview.yaml),
+          h('button', { style: button, type: 'button', disabled: busy || importPreview.repo !== selectedRepo, onClick: useImport }, 'Use import draft'))),
       h('details', { style: box }, h('summary', { style: { cursor: 'pointer' } }, 'Set up with AI'),
         h('p', null, 'Describe what you want to watch. Crew drafts settings for you to review before saving.'),
         h('label', null, 'What should Outrider do?', h('textarea', { style: input, rows: 3, maxLength: 6000, value: intent, placeholder: 'Review dependency updates when CI passes; ignore bot comments.', onChange: e => setIntent(e.target.value) })),
@@ -162,14 +192,18 @@ export default function Outrider() {
         setup.error && h('p', { role: 'alert' }, setup.error),
         setup.status === 'uncertain' && h('p', null, 'The request may still be running. Check Crew tasks before generating again.'),
         setup.status === 'completed' && h('div', null, h('p', null, 'Draft for ' + setup.repo), h('pre', { style: { whiteSpace: 'pre-wrap' } }, setup.proposal.yaml), h('button', { style: button, type: 'button', disabled: busy || setup.repo !== selectedRepo, onClick: useProposal }, 'Use draft'))),
-      h('div', { role: 'group', 'aria-label': 'Configuration editor', style: { display: 'flex', gap: 8, marginBottom: 16 } }, ...[['form', 'Form'], ['yaml', 'YAML']].map(([mode, label]) => h('button', { key: mode, style: button, type: 'button', disabled: busy, 'aria-pressed': editor === mode, onClick: () => switchEditor(mode) }, label))),
+      h('div', { role: 'group', 'aria-label': 'Configuration editor', style: { display: 'flex', gap: 8, marginBottom: 16 } }, ...[['form', 'Form'], ['yaml', 'YAML']].map(([mode, label]) => h('button', { key: mode, style: editor === mode ? selectedButton : button, type: 'button', disabled: busy, 'aria-pressed': editor === mode, onClick: () => switchEditor(mode) }, label))),
       editor === 'yaml' ? h('section', { style: box },
         h('label', null, 'Repository YAML', h('textarea', { style: { ...input, fontFamily: 'monospace' }, rows: 18, value: yaml, spellCheck: false, onChange: e => { setYaml(e.target.value); setNotice(''); } })),
         h('p', { style: { opacity: .7 } }, 'Uses the standalone configuration fields for this repository. Switching to Form validates and reformats YAML; comments are not preserved.')) : h('section', { style: box },
         h('h2', { style: { marginTop: 0 } }, 'Triggers'),
-        ...[['own_prs', 'My PR activity'], ['opt_in', 'Reaction opt-in'], ['review_replies', 'Replies to my reviews'], ['mentions', 'Mentions']].map(([key, label]) => h('label', { key, style: { display: 'block', marginBottom: 8 } }, h('input', { type: 'checkbox', checked: repoSettings[selectedRepo]?.triggers?.[key]?.enabled !== false, onChange: e => {
-          editOptions(current => ({ ...current, triggers: { ...current.triggers, [key]: { ...current.triggers?.[key], enabled: e.target.checked } } }));
-        } }), ' ' + label)),
+        ...[['own_prs', 'My PR activity'], ['opt_in', 'Reaction opt-in'], ['review_replies', 'Replies to my reviews'], ['mentions', 'Mentions']].map(([key, label]) => h('div', { key, style: { marginBottom: 12 } },
+          h('label', { style: { display: 'block' } }, h('input', { type: 'checkbox', checked: repoSettings[selectedRepo]?.triggers?.[key]?.enabled !== false, onChange: e => {
+            editOptions(current => ({ ...current, triggers: { ...current.triggers, [key]: { ...current.triggers?.[key], enabled: e.target.checked } } }));
+          } }), ' ' + label),
+          key === 'opt_in' && h('div', { style: { margin: '10px 0 18px 24px' } },
+            h('label', null, 'Opt-in reaction', h('select', { style: { ...input, maxWidth: 260 }, disabled: repoSettings[selectedRepo]?.triggers?.opt_in?.enabled === false, value: repoSettings[selectedRepo]?.triggers?.opt_in?.reaction || 'eyes', onChange: e => editOptions(current => ({ ...current, triggers: { ...current.triggers, opt_in: { ...current.triggers?.opt_in, reaction: e.target.value } } })) }, ...reactions.map(([value, name]) => h('option', { key: value, value }, name)))),
+            h('p', { style: { opacity: .7, margin: 0 } }, 'Your selected reaction opts someone else’s PR into watching. Removing it stops the watch.')))),
         h('h2', { style: { marginTop: 28 } }, 'Workflows'),
         ...(Array.isArray(repoSettings[selectedRepo]?.workflows) ? repoSettings[selectedRepo].workflows : []).map((workflow, index) => h('fieldset', { style: box, key: index },
           h('legend', null, 'Workflow ' + (index + 1)),

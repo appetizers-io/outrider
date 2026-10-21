@@ -210,3 +210,22 @@ Crew's Python interpreter resolution and installed app-directory lookup so it
 works independently of the GUI PATH.
 
 The app ships a vector logo at `ui/logo.svg`, used in its header and sidebar.
+
+### Reactions and CLI migration
+
+The navigation stays visible in every view, with the active view highlighted.
+The Form editor shows **Opt-in reaction**, defaulting to 👀 Eyes. Select any of
+GitHub's eight reactions; your chosen reaction opts someone else's PR into the
+watch. Form/YAML conversion expands the effective trigger defaults, so all four
+trigger switches and the selected reaction are explicit in YAML.
+
+For an existing standalone configuration, open **Repositories → Import CLI
+configuration**, choose a YAML file or paste its content, then **Preview import**.
+The preview resolves repository overrides using Outrider's own config loader and
+lists skipped keys. If own-PR and other-PR settings differ, choose a profile
+explicitly; its values apply repository-wide in Crew. **Use import draft** loads
+the preview into the YAML editor, and **Save settings** applies it. The original
+CLI file is never changed or linked. Session settings remain with Crew; custom
+classifier definitions are not imported, and a selected custom launch classifier
+is disabled in the draft with a warning. Review profiles, tool-based workflow
+execution, and standalone process settings are outside this import's scope.
