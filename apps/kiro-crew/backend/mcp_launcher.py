@@ -21,6 +21,27 @@ class Adapter:
             self.output.write(json.dumps(message) + '\n')
             self.output.flush()
 
+    def receive_line(self, line):
+        try:
+            message = json.loads(line)
+        except json.JSONDecodeError:
+            self.emit({'jsonrpc': '2.0', 'id': None, 'error': {'code': -32700, 'message': 'Parse error'}})
+            return
+        if not isinstance(message, dict) or not isinstance(message.get('params', {}), dict) or ('id' in message and not isinstance(message['id'], (str, int, type(None)))):
+            self.emit({'jsonrpc': '2.0', 'id': None, 'error': {'code': -32600, 'message': 'Invalid request'}})
+            return
+        self.receive(message)
+
+    def relay_line(self, line):
+        try:
+            message = json.loads(line)
+            if not isinstance(message, dict) or ('id' in message and not isinstance(message['id'], (str, int, type(None)))):
+                raise ValueError('Invalid upstream message')
+            self.relay(message)
+        except (ValueError, KeyError, TypeError, AttributeError):
+            # Do not echo upstream text: it could contain sensitive data.
+            print('Outrider MCP: ignored malformed upstream message', file=sys.stderr)
+
     def receive(self, message):
         """Handle app tools locally; forward all other MCP protocol traffic."""
         method, params = message.get('method'), message.get('params') or {}
@@ -61,12 +82,12 @@ def launch():
         adapter = Adapter(data, child.stdin, sys.stdout)
         def relay():
             for line in child.stdout:
-                adapter.relay(json.loads(line))
+                adapter.relay_line(line)
         reader = threading.Thread(target=relay, daemon=True)
         reader.start()
         try:
             for line in sys.stdin:
-                adapter.receive(json.loads(line))
+                adapter.receive_line(line)
         finally:
             child.stdin.close()
             try:

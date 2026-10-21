@@ -34,6 +34,25 @@ class MCPAdapterTest(unittest.TestCase):
             adapter.receive({'id': 3, 'method': 'tools/call', 'params': {'name': 'list_crew_folders'}})
         self.assertTrue(json.loads(output.getvalue().splitlines()[-1])['result']['isError'])
 
+    def test_malformed_stdio_does_not_stop_later_messages(self):
+        upstream, output = io.StringIO(), io.StringIO()
+        adapter = launcher.Adapter(Path('/instance/data'), upstream, output)
+        adapter.receive_line('not json')
+        self.assertEqual(json.loads(output.getvalue())['error']['code'], -32700)
+        adapter.receive_line('[]')
+        self.assertEqual(json.loads(output.getvalue().splitlines()[-1])['error']['code'], -32600)
+        request = {'jsonrpc': '2.0', 'id': 9, 'method': 'tools/list'}
+        adapter.receive_line(json.dumps(request))
+        self.assertEqual(json.loads(upstream.getvalue()), request)
+        with patch.object(launcher.sys, 'stderr', io.StringIO()) as errors:
+            adapter.relay_line('secret malformed text')
+            adapter.relay_line('[]')
+        self.assertNotIn('secret', errors.getvalue())
+        adapter.relay_line(json.dumps({'jsonrpc': '2.0', 'id': 9, 'result': {'tools': []}}))
+        reply = json.loads(output.getvalue().splitlines()[-1])
+        self.assertEqual(reply['id'], 9)
+        self.assertEqual(len(reply['result']['tools']), 3)
+
     def test_app_client_authenticates_and_never_follows_redirects(self):
         calls = []
         class Handler(BaseHTTPRequestHandler):

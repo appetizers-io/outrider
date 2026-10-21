@@ -340,14 +340,25 @@ class Inbox:
         self.log_event('Repository settings saved; max sessions: ' + str(maximum))
         self.wake.set()
 
+    def existing_registration(self, repo):
+        """Caller holds self.lock."""
+        existing = next((r for r in self.config['repos'] if r.lower() == repo.lower()), None)
+        if existing:
+            return {'added': False, 'repo': existing, 'folder_id': self.config.get('folders', {}).get(existing), 'remote': self.config.get('validation_remotes', {}).get(existing), 'message': 'Already registered; existing settings preserved'}
+        return None
+
     def add_repository(self, payload):
-        """Add one repository without replacing settings or changing Crew permissions."""
+        """Validate only the new mapping, then atomically extend current settings."""
         if set(payload) - {'repo', 'folder_id', 'remote'}:
             raise ValueError('Only repo, folder_id and remote are accepted')
         repo = normalize_repo(payload.get('repo', ''))
+        with self.lock:
+            existing = self.existing_registration(repo)
+            if existing:
+                return existing
         folder = payload.get('folder_id')
         remote = payload.get('remote')
-        if not isinstance(folder, str) or not folder:
+        if not isinstance(folder, str) or not folder or len(folder) > 200:
             raise ValueError('Choose a Crew folder with a project directory')
         context = self.checkout(folder)
         matches = [r for r in context['remotes'] if r['repo'].lower() == repo.lower()]
@@ -356,15 +367,31 @@ class Inbox:
         if not matches:
             raise ValueError('No matching GitHub remote in this Crew folder')
         selected = next((r for r in matches if r['name'] == 'upstream'), None) or next((r for r in matches if r['name'] == 'origin'), None) or matches[0]
+        if not re.fullmatch(r'[A-Za-z0-9_.-]{1,100}', selected['name']) or selected['name'].startswith('-'):
+            raise ValueError('Invalid validation remote')
         with self.lock:
-            existing = next((r for r in self.config['repos'] if r.lower() == repo.lower()), None)
+            # Another request may have registered it during checkout inspection.
+            existing = self.existing_registration(repo)
             if existing:
-                return {'added': False, 'repo': existing, 'folder_id': self.config.get('folders', {}).get(existing), 'remote': self.config.get('validation_remotes', {}).get(existing), 'message': 'Already registered; existing settings preserved'}
-            self.configure({**self.config, 'repos': [*self.config['repos'], repo],
-                            'folders': {**self.config.get('folders', {}), repo: folder},
-                            'validation_remotes': {**self.config.get('validation_remotes', {}), repo: selected['name']}})
-            return {'added': True, 'repo': repo, 'folder_id': folder, 'remote': selected['name'],
-                    'automatic_sessions': self.automatic_enabled(repo), 'polling_active': not self.config.get('paused', False)}
+                return existing
+            if len(self.config['repos']) >= 50:
+                raise ValueError('Enter up to 50 repositories')
+            updated = {**self.config, 'repos': sorted([*self.config['repos'], repo]),
+                       'folders': {**self.config.get('folders', {}), repo: folder},
+                       'validation_remotes': {**self.config.get('validation_remotes', {}), repo: selected['name']}}
+            automatic = self.automatic_enabled(repo)
+            if automatic:
+                updated['automatic_since'] = {**self.config.get('automatic_since', {}), repo: datetime.now(timezone.utc).isoformat()}
+            # Existing settings are already validated. Do not re-inspect other
+            # checkouts or launch config-validation subprocesses under this lock.
+            atomic_json(self.data / 'settings.json', updated)
+            self.config = updated
+            self.scan_requested = not updated.get('paused', False)
+            result = {'added': True, 'repo': repo, 'folder_id': folder, 'remote': selected['name'],
+                      'automatic_sessions': automatic, 'polling_active': not updated.get('paused', False)}
+        self.log_event('Repository added: ' + repo)
+        self.wake.set()
+        return result
 
     def finish_onboarding(self, draft):
         if not runtime.doctor(self.data)['ready']:
