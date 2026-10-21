@@ -216,6 +216,26 @@ class InboxTest(unittest.TestCase):
         self.assertFalse((self.inbox.data / 'onboarding.json').exists())
         self.assertEqual(self.inbox.config['repos'], [])
 
+    def test_manual_review_rejects_invalid_urls_and_unconfigured_repos(self):
+        for url in ['https://evil.test/o/r/pull/1', 'https://github.com/o/r/issues/1', 'https://github.com/o/r/pull/0', 'https://github.com/unknown/repo/pull/1']:
+            with self.assertRaises(ValueError):
+                self.inbox.request_manual({'url': url})
+
+    def test_manual_review_reuses_capture_and_honors_capacity(self):
+        item = self.inbox.items()[0]
+        self.inbox.config.update(repos=[item['repo']], folders={item['repo']: 'folder'}, validation_remotes={item['repo']: 'upstream'})
+        result = type('Result', (), {'returncode': 0, 'stdout': json.dumps({'id': item['id']})})()
+        self.inbox.runner = lambda *a, **kw: result
+        with patch.object(self.inbox, 'active_sessions', return_value=1), patch.object(self.inbox, 'request_validation') as start:
+            self.inbox.capture_manual(item['repo'], item['pr'], backend.scan_config(self.inbox.config))
+            self.assertEqual(self.inbox.manual['status'], 'queued')
+            start.assert_not_called()
+        self.inbox.validations[item['id']] = {'status': 'completed'}
+        with patch.object(self.inbox, 'request_validation') as start:
+            self.inbox.capture_manual(item['repo'], item['pr'], backend.scan_config(self.inbox.config))
+            self.assertEqual(self.inbox.manual['status'], 'existing')
+            start.assert_not_called()
+
     def test_repository_urls(self):
         self.inbox.configure({'repos': ['https://github.com/org/repo.git/', 'org/repo']})
         self.assertEqual(self.inbox.config['repos'], ['org/repo'])
@@ -228,16 +248,16 @@ class InboxTest(unittest.TestCase):
         calls = []
         def run(args, **kwargs):
             calls.append(args)
-            return type('Result', (), {'returncode': 0, 'stdout': '--state-dir --config-format'})()
-        with patch.dict(backend.os.environ, {}, clear=True), patch.object(backend.runtime.shutil, 'which', return_value='/host/outrider'), patch.object(Path, 'is_file', return_value=True):
+            return type('Result', (), {'returncode': 0, 'stdout': '--state-dir --config-format --pr'})()
+        with patch.dict(backend.os.environ, {'USERPROFILE': str(Path.home())}, clear=True), patch.object(backend.runtime.shutil, 'which', return_value='/host/outrider'), patch.object(Path, 'is_file', return_value=True):
             self.assertEqual(backend.find_scanner(run), str(Path('/host/outrider').resolve()))
-        self.assertEqual(len(calls), 3)
+        self.assertEqual(len(calls), 4)
         with patch.dict(backend.os.environ, {'OUTRIDER_BIN': '/missing/out'}, clear=True):
             with self.assertRaisesRegex(RuntimeError, 'No compatible'):
                 backend.find_scanner(lambda *a, **kw: type('Result', (), {'returncode': 0, 'stdout': 'old CLI'})())
 
     def test_gui_path_includes_cli_directories_and_preserves_auth_environment(self):
-        original = {'PATH': backend.os.pathsep.join(['/crew/bin', '/usr/bin']), 'GH_CONFIG_DIR': '/custom/gh', 'GH_TOKEN': 'test-only'}
+        original = {'USERPROFILE': str(Path.home()), 'PATH': backend.os.pathsep.join(['/crew/bin', '/usr/bin']), 'GH_CONFIG_DIR': '/custom/gh', 'GH_TOKEN': 'test-only'}
         with patch.dict(backend.os.environ, original, clear=True):
             env = backend.scanner_environment()
             self.assertEqual(backend.os.environ['PATH'], original['PATH'])

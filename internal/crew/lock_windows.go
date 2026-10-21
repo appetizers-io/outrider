@@ -6,7 +6,7 @@ import (
 	"path/filepath"
 )
 
-// Crew's app currently targets macOS/Linux; standalone scans also work on Windows.
+// Windows scans use a directory lock; an interrupted process can leave it behind.
 func scanLock(dir string) (func(), error) {
 	path := filepath.Join(dir, "scan.lock")
 	if err := os.Mkdir(path, 0o700); err != nil {

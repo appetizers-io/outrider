@@ -101,6 +101,16 @@ export function AppHeader({
         h(
           "button",
           {
+            style: view === "manual" ? selectedButton : button,
+            "aria-current": view === "manual" ? "page" : undefined,
+            disabled: busy,
+            onClick: () => setView("manual"),
+          },
+          "Review PR",
+        ),
+        h(
+          "button",
+          {
             style: view === "repositories" ? selectedButton : button,
             disabled: busy,
             "aria-current": view === "repositories" ? "page" : undefined,

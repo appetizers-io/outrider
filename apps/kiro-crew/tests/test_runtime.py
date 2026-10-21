@@ -15,7 +15,7 @@ import runtime
 
 class RuntimeTests(unittest.TestCase):
     def test_host_wins_without_download(self):
-        with patch.dict(runtime.os.environ, {}, clear=True), patch.object(runtime.shutil, 'which', return_value='/host/outrider'), patch.object(Path, 'is_file', return_value=True), patch.object(runtime, 'compatible', return_value=True), patch.object(runtime, 'urlopen') as download:
+        with patch.dict(runtime.os.environ, {'USERPROFILE': str(Path.home())}, clear=True), patch.object(runtime.shutil, 'which', return_value='/host/outrider'), patch.object(Path, 'is_file', return_value=True), patch.object(runtime, 'compatible', return_value=True), patch.object(runtime, 'urlopen') as download:
             self.assertEqual(runtime.install()['source'], 'host')
             download.assert_not_called()
 

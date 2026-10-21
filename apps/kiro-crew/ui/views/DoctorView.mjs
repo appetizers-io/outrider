@@ -2,7 +2,14 @@ import { createElement as h, useEffect, useState, useRef } from "react";
 import { base } from "../api.mjs";
 import { box, button } from "../styles.mjs";
 
-export function DoctorView({ api, onReady, onSetup, autoProvision = false }) {
+export function DoctorView({
+  api,
+  onReady,
+  onSetup,
+  autoProvision = false,
+  readOnly = false,
+  setupLabel = "Open setup wizard",
+}) {
   const attempted = useRef(false);
   const [report, setReport] = useState(null),
     [busy, setBusy] = useState(false),
@@ -40,6 +47,7 @@ export function DoctorView({ api, onReady, onSetup, autoProvision = false }) {
   }, [report, autoProvision]);
   const installing = report?.installation?.status === "running";
   async function install() {
+    if (readOnly) return;
     setBusy(true);
     setError("");
     try {
@@ -105,8 +113,8 @@ export function DoctorView({ api, onReady, onSetup, autoProvision = false }) {
                     "button",
                     {
                       style: button,
-                      disabled: busy || installing,
                       onClick: install,
+                      disabled: busy || installing || readOnly,
                     },
                     report.runtime.status === "incompatible"
                       ? "Use private runtime"
@@ -148,7 +156,7 @@ export function DoctorView({ api, onReady, onSetup, autoProvision = false }) {
             h(
               "button",
               { style: button, disabled: busy || installing, onClick: onSetup },
-              "Open setup wizard",
+              setupLabel,
             ),
         ),
       ),

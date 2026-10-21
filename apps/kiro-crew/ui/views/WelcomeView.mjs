@@ -9,7 +9,7 @@ import {
 } from "../components/SessionControls.mjs";
 import { ImportPreviewDialog } from "../components/ImportPreviewDialog.mjs";
 
-export function WelcomeView({ api, data, onDone }) {
+export function WelcomeView({ api, data, onDone, previewOnly = false }) {
   const [step, setStep] = useState(0),
     [draft, setDraft] = useState({
       repo: "",
@@ -31,7 +31,7 @@ export function WelcomeView({ api, data, onDone }) {
   useEffect(() => {
     let live = true;
     Promise.all([
-      api.get(base + "/onboarding"),
+      previewOnly ? Promise.resolve({}) : api.get(base + "/onboarding"),
       api.get(base + "/folders"),
       api.get(base + "/members"),
     ])
@@ -47,12 +47,13 @@ export function WelcomeView({ api, data, onDone }) {
     return () => {
       live = false;
     };
-  }, [api]);
+  }, [api, previewOnly]);
   async function move(next) {
     setBusy(true);
     setError("");
     try {
-      await api.post(base + "/onboarding", { draft, step: next });
+      if (!previewOnly)
+        await api.post(base + "/onboarding", { draft, step: next });
       setStep(next);
     } catch (e) {
       setError(e.message);
@@ -108,7 +109,7 @@ export function WelcomeView({ api, data, onDone }) {
     setBusy(true);
     setError("");
     try {
-      await api.post(base + "/onboarding/finish", { draft });
+      if (!previewOnly) await api.post(base + "/onboarding/finish", { draft });
       await onDone();
     } catch (e) {
       setError(e.message);
@@ -120,7 +121,13 @@ export function WelcomeView({ api, data, onDone }) {
   return h(
     "section",
     null,
-    h("h2", null, "Set up Outrider"),
+    h("h2", null, previewOnly ? "Preview setup wizard" : "Set up Outrider"),
+    previewOnly &&
+      h(
+        "p",
+        { role: "status" },
+        "Preview only. Your settings stay unchanged; this wizard will not install a runtime, start polling, or launch sessions.",
+      ),
     h(
       "p",
       null,
@@ -130,7 +137,12 @@ export function WelcomeView({ api, data, onDone }) {
     !loaded && h("p", null, "Loading setup…"),
     loaded &&
       step === 0 &&
-      h(DoctorView, { api, autoProvision: true, onReady: () => move(1) }),
+      h(DoctorView, {
+        api,
+        readOnly: previewOnly,
+        autoProvision: !previewOnly,
+        onReady: () => move(1),
+      }),
     loaded &&
       step === 1 &&
       h(
@@ -285,7 +297,13 @@ export function WelcomeView({ api, data, onDone }) {
           null,
           `Automatic sessions ${draft.automatic ? "on" : "off"} · maximum ${draft.maximum} · trust ${draft.trust} · reviewer ${draft.reviewer || "Crew default"}`,
         ),
-        h("p", null, "Finishing saves your configuration and starts polling."),
+        h(
+          "p",
+          null,
+          previewOnly
+            ? "Close the preview to return to your queue. Nothing will be saved."
+            : "Finishing saves your configuration and starts polling.",
+        ),
       ),
     loaded &&
       step > 0 &&
@@ -304,7 +322,11 @@ export function WelcomeView({ api, data, onDone }) {
             disabled: busy || !draft.repo,
             onClick: () => (step === 3 ? finish() : move(step + 1)),
           },
-          step === 3 ? "Save and start polling" : "Continue",
+          step === 3
+            ? previewOnly
+              ? "Close preview"
+              : "Save and start polling"
+            : "Continue",
         ),
       ),
     preview &&

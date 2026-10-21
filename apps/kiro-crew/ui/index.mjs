@@ -1,3 +1,4 @@
+import { ManualReviewView } from "./views/ManualReviewView.mjs";
 import { DoctorView } from "./views/DoctorView.mjs";
 import { WelcomeView } from "./views/WelcomeView.mjs";
 import { createElement as h } from "react";
@@ -45,6 +46,7 @@ export default function Outrider() {
         onDismiss: () => state.setImportPreview(null),
         onUse: state.useImport,
       }),
+    data && view === "manual" && h(ManualReviewView, state.manual),
     data && view === "doctor" && h(DoctorView, state.doctor),
     data && view === "welcome" && h(WelcomeView, state.welcome),
     data && view === "inbox" && h(QueueView, state.queue),

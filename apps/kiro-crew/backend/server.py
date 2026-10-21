@@ -199,6 +199,10 @@ class Inbox:
         self.agent_path = agent_path or Path.home() / ".kiro/agents/outrider--outrider-reviewer.json"
         self.lock = threading.RLock()
         self.events = read_json(self.data / 'events.json', [])[-200:]
+        self.manual = read_json(self.data / 'manual-request.json', {})
+        if self.manual.get('status') == 'running':
+            self.manual.update(status='failed', error='Request interrupted. Check the queue and linked sessions before retrying.')
+            atomic_json(self.data / 'manual-request.json', self.manual)
         self.dismissed = read_json(self.data / 'dismissed.json', {})
         self.wake, self.stop = threading.Event(), threading.Event()
         self.config = read_json(self.data / "settings.json", {"repos": [], "interval": 60})
@@ -577,6 +581,69 @@ class Inbox:
                 self.save_runs()
             raise
 
+    def request_manual(self, payload):
+        url = payload.get('url', '')
+        if not isinstance(url, str):
+            raise ValueError('Paste a GitHub PR URL')
+        parsed = urlsplit(url.strip())
+        match = re.fullmatch(r'/([A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+)/pull/([1-9][0-9]*)/?', parsed.path)
+        if parsed.scheme != 'https' or parsed.netloc != 'github.com' or not match:
+            raise ValueError('Use https://github.com/owner/repo/pull/123')
+        repo, number = normalize_repo(match[1]), int(match[2])
+        with self.lock:
+            repo = next((r for r in self.config['repos'] if r.lower() == repo.lower()), repo)
+            if repo not in self.config['repos']:
+                raise ValueError('Add this repository first, then paste its PR URL here')
+            if not self.config.get('folders', {}).get(repo) or not self.config.get('validation_remotes', {}).get(repo):
+                raise ValueError('Choose a Crew folder and matching remote in Repositories first')
+            if self.manual.get('status') == 'running':
+                if self.manual.get('repo') == repo and self.manual.get('pr') == number:
+                    return dict(self.manual)
+                raise ValueError('Another PR is being prepared; wait for it to finish')
+            if self.pr_active({'repo': repo, 'pr': number}):
+                raise ValueError('This PR already has active work. Open its session from the queue.')
+            self.manual = {'status': 'running', 'repo': repo, 'pr': number}
+            atomic_json(self.data / 'manual-request.json', self.manual)
+            config = scan_config(self.config)
+        threading.Thread(target=self.capture_manual, args=(repo, number, config), daemon=True).start()
+        return dict(self.manual)
+
+    def capture_manual(self, repo, number, config):
+        try:
+            # Separate config file avoids racing a scheduled scan's config write.
+            path = self.data / 'manual-config.json'
+            atomic_json(path, config)
+            result = self.runner([find_scanner(), 'crew', 'capture', '--repo', repo, '--pr', str(number), '--config', str(path), '--state-dir', str(self.data / 'inbox')], env=scanner_environment(), capture_output=True, text=True, timeout=150, check=False)
+            if result.returncode:
+                raise ValueError(result.stderr[-3000:] or 'PR capture failed')
+            captured = json.loads(result.stdout)
+            with self.lock:
+                item = self.item(captured['id'])
+                if item['repo'] != repo or item['pr'] != number:
+                    raise ValueError('Captured PR identity did not match the request')
+                if item['id'] in self.dismissed:
+                    del self.dismissed[item['id']]
+                    atomic_json(self.data / 'dismissed.json', self.dismissed)
+                previous = self.validations.get(item['id'], {})
+                if previous:
+                    self.manual.update(status='existing', id=item['id'])
+                elif self.pr_active(item):
+                    self.manual.update(status='queued', id=item['id'])
+                elif self.active_sessions() >= self.config.get('max_sessions', 1):
+                    self.manual.update(status='queued', id=item['id'])
+                else:
+                    self.request_validation(item['id'])
+                    self.manual.update(status='started', id=item['id'])
+            self.log_event(f'Manual review {repo}#{number}: ' + self.manual['status'])
+        except Exception as error:
+            with self.lock:
+                self.manual.update(status='failed', error=str(error))
+            self.log_event('Manual review failed: ' + str(error), 'error')
+        finally:
+            with self.lock:
+                atomic_json(self.data / 'manual-request.json', self.manual)
+            self.wake.set()
+
     def items(self):
         return [read_json(p, {}) for p in sorted((self.data / "inbox/queue").glob("*.json"))]
 
@@ -584,7 +651,7 @@ class Inbox:
         with self.lock:
             items = [{k: v for k, v in item.items() if k != "prompt"} | {"dismissed": item["id"] in self.dismissed, "validation": self.validations.get(item["id"]), "run": self.runs.get(item["id"], {"status": "pending"})} for item in self.items()]
             items.sort(key=lambda x: x["created"], reverse=True)
-            return {"config": self.config, "items": items, "scanning": self.scanning, "last_scan": self.last_scan, "error": self.error, "events": list(reversed(self.events)), "active_sessions": self.active_sessions(), "scan_partial": self.scan_partial, "scan_started": self.scan_started, "scan_requested": self.scan_requested, "next_scan": self.next_scan}
+            return {"manual": dict(self.manual), "config": self.config, "items": items, "scanning": self.scanning, "last_scan": self.last_scan, "error": self.error, "events": list(reversed(self.events)), "active_sessions": self.active_sessions(), "scan_partial": self.scan_partial, "scan_started": self.scan_started, "scan_requested": self.scan_requested, "next_scan": self.next_scan}
 
     def item(self, item_id):
         if not ID.fullmatch(item_id):
@@ -899,6 +966,9 @@ class Handler(BaseHTTPRequestHandler):
             payload = json.loads(body or b"{}")
             if not isinstance(payload, dict):
                 raise ValueError("Expected an object")
+            if self.path == "/api/manual":
+                self.reply(202, inbox.request_manual(payload))
+                return
             if self.path == "/api/onboarding":
                 if not isinstance(payload.get('draft'), dict) or type(payload.get('step')) is not int or not 0 <= payload['step'] <= 3:
                     raise ValueError('Invalid setup progress')

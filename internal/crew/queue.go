@@ -132,47 +132,53 @@ func (s *Scanner) Enqueue(ctx context.Context, r session.Request) error {
 }
 
 func (s *Scanner) enqueue(ctx context.Context, r session.Request, cfg config.Config) error {
+	_, err := s.Capture(ctx, r, cfg)
+	return err
+}
+
+// Capture creates or reuses an immutable item and returns its stable identity.
+func (s *Scanner) Capture(ctx context.Context, r session.Request, cfg config.Config) (Item, error) {
 	if !poll.RepoName.MatchString(r.Repo) || r.N <= 0 {
-		return errors.New("invalid PR reference")
+		return Item{}, errors.New("invalid PR reference")
 	}
 	if err := os.MkdirAll(s.Dir, 0o700); err != nil {
-		return err
+		return Item{}, err
 	}
 	tmp, err := os.MkdirTemp(s.Dir, ".snapshot-")
 	if err != nil {
-		return err
+		return Item{}, err
 	}
 	defer func() { _ = os.RemoveAll(tmp) }()
 	if err := s.GH.SaveContext(ctx, r.Repo, r.N, tmp); err != nil {
-		return err
+		return Item{}, err
 	}
 	raw, err := os.ReadFile(filepath.Join(tmp, "pr.json"))
 	if err != nil {
-		return err
+		return Item{}, err
 	}
 	var meta struct {
 		Head  string `json:"headRefOid"`
 		State string `json:"state"`
 	}
 	if err := json.Unmarshal(raw, &meta); err != nil {
-		return fmt.Errorf("snapshot metadata: %w", err)
+		return Item{}, fmt.Errorf("snapshot metadata: %w", err)
 	}
 	if meta.Head == "" || meta.State != "OPEN" {
-		return errors.New("PR is closed or has no head commit; leaving event pending")
+		return Item{}, errors.New("PR is closed or has no head commit; leaving event pending")
 	}
 	// The head may move while gh fetches the diff and comments. Retry next poll.
 	current, err := github.JSON[struct {
 		Head string `json:"headRefOid"`
 	}](ctx, s.GH, "pr", "view", fmt.Sprint(r.N), "--repo", r.Repo, "--json", "headRefOid")
 	if err != nil {
-		return err
+		return Item{}, err
 	}
 	if current.Head != meta.Head {
-		return errors.New("PR head changed during snapshot; retry next poll")
+		return Item{}, errors.New("PR head changed during snapshot; retry next poll")
 	}
 	scope, err := json.Marshal(r.Scope)
 	if err != nil {
-		return err
+		return Item{}, err
 	}
 	prompt := fmt.Sprintf("%s\nPR: %s#%d\nHead: %s\nTrigger: %s\nComment scope (null = whole PR): %s\n", instructions, r.Repo, r.N, meta.Head, r.Trigger, scope)
 	workflowName := ""
@@ -193,7 +199,7 @@ func (s *Scanner) enqueue(ctx context.Context, r session.Request, cfg config.Con
 	}{{"pr.diff", 20000}, {"pr.json", 7000}, {"review-comments.json", 4000}, {"failing-checks.json", 2000}} {
 		data, err := os.ReadFile(filepath.Join(tmp, part.Name))
 		if err != nil {
-			return err
+			return Item{}, err
 		}
 		text := strings.ToValidUTF8(string(data), "�")
 		// Byte caps are conservative relative to the gateway's character limit.
@@ -204,35 +210,35 @@ func (s *Scanner) enqueue(ctx context.Context, r session.Request, cfg config.Con
 		prompt += "\n--- UNTRUSTED " + part.Name + " ---\n" + text + "\n--- END ---\n"
 	}
 	if len(prompt) > 39000 {
-		return errors.New("snapshot scope exceeds the Crew prompt limit")
+		return Item{}, errors.New("snapshot scope exceeds the Crew prompt limit")
 	}
 	id := fmt.Sprintf("%x", sha256.Sum256([]byte(prompt)))
 	item := Item{Scope: r.Scope, ScopeWhy: r.ScopeWhy, ID: id, Repo: r.Repo, PR: r.N, Title: r.PR.Title, URL: fmt.Sprintf("https://github.com/%s/pull/%d", r.Repo, r.N), Head: meta.Head, Trigger: r.Trigger, Created: time.Now().UTC().Format(time.RFC3339), Prompt: prompt, Truncated: truncated, Workflow: workflowName}
 	queue := filepath.Join(s.Dir, "queue")
 	if err := os.MkdirAll(queue, 0o700); err != nil {
-		return err
+		return Item{}, err
 	}
 	dest := filepath.Join(queue, id+".json")
 	if _, err := os.Stat(dest); err == nil {
-		return syncSnapshot(dest, queue, s.Dir)
+		return item, syncSnapshot(dest, queue, s.Dir)
 	} else if !errors.Is(err, os.ErrNotExist) {
-		return err
+		return Item{}, err
 	}
 	encoded, err := json.Marshal(item)
 	if err != nil {
-		return err
+		return Item{}, err
 	}
 	staged := filepath.Join(tmp, "item.json")
 	if err := os.WriteFile(staged, encoded, 0o600); err != nil {
-		return err
+		return Item{}, err
 	}
 	if err := syncFile(staged); err != nil {
-		return err
+		return Item{}, err
 	}
 	if err := os.Rename(staged, dest); err != nil {
-		return err
+		return Item{}, err
 	}
-	return syncSnapshot(dest, queue, s.Dir)
+	return item, syncSnapshot(dest, queue, s.Dir)
 }
 
 // syncSnapshot also covers retries after an earlier directory sync failed.

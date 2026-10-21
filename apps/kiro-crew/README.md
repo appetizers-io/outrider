@@ -49,7 +49,9 @@ Open Outrider in Crew and follow the setup wizard:
 Wizard progress is saved when moving between steps. Existing installations keep
 opening the queue; **Doctor** remains available for troubleshooting. Add more
 repositories with **Add repository**, then customize them under **Repositories**.
-Global defaults live in **Settings**.
+Global defaults live in **Settings**. To try the onboarding screens on an existing
+installation, open **Doctor → Preview setup wizard**. Preview does not save
+settings, install a runtime, start polling, or launch sessions.
 
 Git and authenticated [GitHub CLI](https://cli.github.com/) are required on the
 machine running Crew. Doctor explains what is missing. Run `gh auth login` there
@@ -66,6 +68,21 @@ request. [Release preparation](release/README.md) describes the marketplace gate
 The plugin targets macOS, Linux, and Windows. Automated tests cover the backend
 and UI contracts; a fresh-profile live Crew check is still required per platform
 before claiming end-to-end release validation.
+
+## Review a PR right now
+
+Choose **Review PR**, paste `https://github.com/owner/repo/pull/123`, and submit.
+The repository must already have a Crew folder and matching remote configured.
+Outrider captures current context and requests a local session, even if automatic
+sessions are off. Manual requests use matching `opt_in` workflows without adding
+a GitHub reaction or changing your subscriptions. The usual ownership rules,
+reviewer, trust, and session limit apply.
+
+An active session for the PR prevents a duplicate. Repeating an unchanged manual
+capture reuses its queue item; completed or failed work remains linked for explicit
+inspection/retry. If the session limit is reached, the item stays queued; start it
+from the queue when capacity is available (automatic scheduling still follows your
+configured rules). Preparation errors appear in the Review PR view and activity log.
 
 ## How the queue works
 

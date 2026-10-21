@@ -57,7 +57,7 @@ func crewCmd(d watch.Deps) *cobra.Command {
 	scan.Flags().StringVar(&source, "config", "", "optional Outrider YAML config (otherwise built-in defaults)")
 	scan.Flags().StringArrayVar(&repos, "repo", nil, "repository allowlist, owner/repo or glob (repeatable)")
 	scan.Flags().BoolVar(&existing, "process-existing", false, "queue existing activity on the first scan")
-	cmd.AddCommand(crewPromptCmd(d), scan, crewImportSettingsCmd(), crewDefaultConfigCmd())
+	cmd.AddCommand(crewCaptureCmd(d), crewPromptCmd(d), scan, crewImportSettingsCmd(), crewDefaultConfigCmd())
 	cmd.AddCommand(&cobra.Command{Use: "settings", Short: "Validate and convert Crew repository YAML from stdin", Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			raw, err := io.ReadAll(io.LimitReader(cmd.InOrStdin(), 131073))

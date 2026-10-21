@@ -153,7 +153,12 @@ async function mount(data = fixture()) {
     return expand(entry.namespace.default());
   };
   await controller().feedback.refresh();
-  return { controller, render, requests, data };
+  function renderView(file, name, props, state) {
+    values.splice(0, values.length, ...state);
+    cursor = 0;
+    return expand(modules.get(path.join(root, file)).namespace[name](props));
+  }
+  return { controller, render, requests, data, renderView };
 }
 function nodes(tree) {
   return tree.flatMap((n) =>
@@ -175,6 +180,7 @@ test("every view renders through the complete module graph", async () => {
     ["setup", "Review folder"],
     ["activity", "Polling restored: active"],
     ["doctor", "Check your setup"],
+    ["manual", "Review a pull request"],
   ]) {
     await app.controller().header.configure(view);
     const tree = app.render();
@@ -275,4 +281,44 @@ test("adding a Crew folder suggests upstream and persists its remote", async () 
   const save = app.requests.find((r) => r.url.endsWith("/config"));
   assert.equal(save.payload.folders["upstream/repo"], "folder");
   assert.equal(save.payload.validation_remotes["upstream/repo"], "upstream");
+});
+
+test("wizard preview never saves progress or starts polling", async () => {
+  const app = await mount();
+  let done = false;
+  const api = {
+    post: async () => {
+      throw Error("preview must not write");
+    },
+  };
+  const draft = {
+    repo: "o/r",
+    folder: "folder",
+    remote: "upstream",
+    automatic: true,
+    maximum: 2,
+    trust: "inherit",
+  };
+  for (const step of [1, 3]) {
+    const tree = app.renderView(
+      "views/WelcomeView.mjs",
+      "WelcomeView",
+      {
+        api,
+        previewOnly: true,
+        onDone: () => {
+          done = true;
+        },
+      },
+      [step, draft, true, [], [], null, false, "", null],
+    );
+    const next = nodes(tree).find(
+      (n) =>
+        n.type === "button" &&
+        text(n.children) === (step === 3 ? "Close preview" : "Continue"),
+    );
+    assert.ok(next);
+    await next.props.onClick();
+  }
+  assert.equal(done, true);
 });

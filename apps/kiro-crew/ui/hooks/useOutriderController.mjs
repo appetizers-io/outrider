@@ -346,18 +346,27 @@ export function useOutriderController() {
     (data?.active_sessions || 0) >= (data?.config.max_sessions || 1);
 
   return {
+    manual: { data, action, busy, setView },
     doctor: {
       api,
-      onSetup: data?.config.repos.length ? undefined : () => setView("welcome"),
+      onSetup: () => setView("welcome"),
+      setupLabel: data?.config.repos.length
+        ? "Preview setup wizard"
+        : "Open setup wizard",
     },
     welcome: {
+      previewOnly: !!data?.config.repos.length,
       api,
       data,
       onDone: async () => {
         await refresh();
         setInitialized(false);
         setView("inbox");
-        setNotice("Setup saved. Polling is active.");
+        setNotice(
+          data?.config.repos.length
+            ? "Setup preview closed. Settings unchanged."
+            : "Setup saved. Polling is active.",
+        );
       },
     },
     header: {
