@@ -148,3 +148,41 @@ func TestCrewDefaultConfigUsesCLILocationsWithoutWriting(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, "# my config\ntriggers: {}\n", string(contents))
 }
+
+func TestCrewImportDropsExecutionSettingsBeforeValidation(t *testing.T) {
+	cmd := crewCmd(watch.Deps{})
+	cmd.SetIn(strings.NewReader(`agent: retired-agent
+mode: retired-mode
+sandbox: read-only
+push: allow
+isolation: {enabled: true}
+triggers: {opt_in: {reaction: rocket}}
+workflows:
+  - name: inspect
+    match: [{}]
+    steps: [Inspect APIs]
+overrides:
+  - match: [{repo: o/r, prs: own}]
+    agent: another-retired-agent
+    tool_gate: {matcher: stale}
+`))
+	var out bytes.Buffer
+	cmd.SetOut(&out)
+	cmd.SetArgs([]string{"import-settings", "--repo", "o/r"})
+	require.NoError(t, cmd.Execute())
+	var result struct {
+		Settings map[string]any `json:"settings"`
+		YAML     string         `json:"yaml"`
+		Skipped  []string       `json:"skipped"`
+	}
+	require.NoError(t, json.Unmarshal(out.Bytes(), &result))
+	for _, key := range []string{"agent", "mode", "sandbox", "push", "isolation"} {
+		require.NotContains(t, result.Settings, key)
+		require.NotContains(t, result.YAML, key+":")
+		require.Contains(t, result.Skipped, key)
+	}
+	require.Contains(t, result.Skipped, "overrides[0].agent")
+	require.Contains(t, result.Skipped, "overrides[0].tool_gate")
+	require.Contains(t, result.YAML, "reaction: rocket")
+	require.Contains(t, result.YAML, "name: inspect")
+}

@@ -63,7 +63,8 @@ export default function Outrider() {
   function useImport() {
     setAdvanced(JSON.stringify(importPreview.settings, null, 2)); setYaml(importPreview.yaml);
     setRepoSettings({ ...repoSettings, [selectedRepo]: importPreview.settings }); setEditor('yaml'); setImportPreview(null);
-    setNotice('CLI settings loaded into the editor. Review and save to apply them.');
+    setCliConfig(importPreview.yaml); setConfigSource('Imported repository settings (Crew-owned fields removed)');
+    setNotice('Imported settings loaded. Agent, mode and other execution settings were removed; Crew trust and session settings are unchanged. Review and save to apply.');
   }
   async function generateSetup() {
     setBusy(true); setError('');
@@ -183,7 +184,7 @@ export default function Outrider() {
         h('label', null, 'Repository', h('select', { style: input, disabled: busy, value: selectedRepo, onChange: e => selectRepo(e.target.value) }, ...data.config.repos.map(repo => h('option', { key: repo, value: repo }, repo)))),
         h('label', null, 'Review folder', folderSelect(mapping[selectedRepo] || '', e => setMapping({ ...mapping, [selectedRepo]: e.target.value })))),
       h('details', { style: box }, h('summary', { style: { cursor: 'pointer' } }, 'Import CLI configuration'),
-        h('p', null, 'Load your default Outrider config, choose another file, or paste YAML. Preview the settings before importing.'),
+        h('p', null, 'Load your default Outrider config, choose another file, or paste YAML. The preview contains only supported Outrider settings. Agent, mode and other session settings are removed; Crew controls trust and execution.'),
         h('button', { style: button, type: 'button', disabled: busy, onClick: loadDefaultConfig }, 'Load default config'),
         h('p', { style: { opacity: .7 } }, 'Normally ~/.config/outrider/config.yaml. Respects OUTRIDER_CONFIG, the legacy config variable, and XDG_CONFIG_HOME as seen by Crew.'),
         configSource && h('p', { style: { overflowWrap: 'anywhere' } }, 'Loaded from: ' + configSource),
@@ -195,7 +196,7 @@ export default function Outrider() {
         importPreview && h('div', null,
           h('h3', null, 'Import preview · ' + importPreview.repo),
           ...importPreview.warnings.map((warning, index) => h('p', { key: index }, warning)),
-          importPreview.skipped.length > 0 && h('p', null, 'Not imported: ' + importPreview.skipped.join(', ')),
+          importPreview.skipped.length > 0 && h('p', null, 'Removed from imported YAML (not applied): ' + importPreview.skipped.join(', ')),
           importPreview.applied_overrides.length > 0 && h('p', null, 'Applied CLI overrides: ' + importPreview.applied_overrides.join('; ')),
           h('pre', { style: { whiteSpace: 'pre-wrap', overflowWrap: 'anywhere' } }, importPreview.yaml),
           h('button', { style: button, type: 'button', disabled: busy || importPreview.repo !== selectedRepo, onClick: useImport }, 'Use import draft'))),

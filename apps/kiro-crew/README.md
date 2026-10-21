@@ -229,7 +229,10 @@ its content, then **Preview import**. Default loading follows the CLI: first
 These variables are read from Crew’s environment. The resolved path is shown;
 a missing file leaves the current import text unchanged. Loading is read-only.
 The preview resolves repository overrides using Outrider's own config loader and
-lists skipped keys. If own-PR and other-PR settings differ, choose a profile
+lists removed keys. Agent, mode, launcher, permissions, sandbox and other execution
+settings are stripped before validation, including inside overrides. `mode` is
+not mapped to Crew trust. The preview and imported YAML omit these fields; the
+source editor is replaced with the cleaned YAML when you use the draft. If own-PR and other-PR settings differ, choose a profile
 explicitly; its values apply repository-wide in Crew. **Use import draft** loads
 the preview into the YAML editor, and **Save settings** applies it. The original
 CLI file is never changed or linked. Session settings remain with Crew; custom

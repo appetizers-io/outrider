@@ -36,7 +36,34 @@ func crewImportSettingsCmd() *cobra.Command {
 			if len(raw) > 131072 {
 				return errors.New("CLI configuration exceeds 128 KiB")
 			}
-			cfg, err := config.Parse(raw, "CLI import")
+			var source map[string]any
+			if err := yaml.Unmarshal(raw, &source); err != nil {
+				return err
+			}
+			skipped := []string{}
+			// Crew owns execution and trust. Strip these before standalone validation,
+			// including override layers, so irrelevant CLI values cannot block import.
+			dropSession := func(layer map[string]any, prefix string) {
+				for _, key := range []string{"agent", "mode", "launcher", "terminal", "max_agents", "stale_lock_hours", "push", "github_writes", "sandbox", "isolation", "network_access", "others_prs", "tool_gate", "review", "owner_name"} {
+					if _, exists := layer[key]; exists {
+						skipped = append(skipped, prefix+key)
+						delete(layer, key)
+					}
+				}
+			}
+			dropSession(source, "")
+			if overrides, ok := source["overrides"].([]any); ok {
+				for i, entry := range overrides {
+					if layer, ok := entry.(map[string]any); ok {
+						dropSession(layer, fmt.Sprintf("overrides[%d].", i))
+					}
+				}
+			}
+			filtered, err := yaml.Marshal(source)
+			if err != nil {
+				return err
+			}
+			cfg, err := config.Parse(filtered, "CLI import")
 			if err != nil {
 				return err
 			}
@@ -48,7 +75,7 @@ func crewImportSettingsCmd() *cobra.Command {
 			if profile == "common" && !reflect.DeepEqual(settings, extract(false)) {
 				return errors.New("this CLI config has different own-PR and other-PR settings; choose which profile to import. The chosen settings apply repository-wide in Crew")
 			}
-			warnings := []string{"Only repository behavior is imported. Crew keeps its model, agent, permissions, and session settings.", "This imports a snapshot of effective settings, not a live link to the CLI file."}
+			warnings := []string{"Only Outrider repository behavior is imported. Agent, mode, and other execution settings are removed; mode is not mapped to trust. Crew keeps its model, trust level, permissions, and session settings.", "This imports a snapshot of effective settings, not a live link to the CLI file."}
 			if profile != "common" {
 				warnings = append(warnings, fmt.Sprintf("Selected %s-PR settings will apply to all PRs in this repository.", profile))
 			}
@@ -65,11 +92,6 @@ func crewImportSettingsCmd() *cobra.Command {
 			if layer.Workflows == nil {
 				delete(settings, "workflows")
 			}
-			var source map[string]any
-			if err := yaml.Unmarshal(raw, &source); err != nil {
-				return err
-			}
-			skipped := []string{}
 			for key := range source {
 				if _, ok := settings[key]; !ok && key != "overrides" {
 					skipped = append(skipped, key)
