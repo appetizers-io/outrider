@@ -15,5 +15,5 @@ class MCPLauncherTest(unittest.TestCase):
         binary, args, env = execute.call_args.args
         data = Path(launcher.__file__).resolve().parents[1] / 'data'
         self.assertEqual(binary, '/bin/outrider')
-        self.assertEqual(args, [binary, 'mcp', '--config-format', 'crew', '--config', str(data / 'settings.json'), '--state-dir', str(data)])
+        self.assertEqual(args, [binary, 'mcp', '--crew-control', '--config-format', 'crew', '--config', str(data / 'settings.json'), '--state-dir', str(data)])
         self.assertEqual(env['OUTRIDER_CONFIG'], '/host/config.yaml')

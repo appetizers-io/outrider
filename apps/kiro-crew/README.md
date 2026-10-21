@@ -139,14 +139,14 @@ and save; it does not apply changes automatically.
 
 ## MCP and privacy
 
-The app exposes four read-only MCP tools: `list_repositories`,
+The app exposes these four read-only MCP tools, alongside the setup tools below: `list_repositories`,
 `configuration_schema`, `list_reviews`, and `propose_repository_config`. The
 portable Go MCP server receives explicit app config and state paths. It does not
-load host CLI configuration or start reviews. [Use MCP with other clients](../../docs/mcp.md).
+load host CLI configuration. Registering a repository can start reviews if your existing automatic-session defaults enable them. [Use MCP with other clients](../../docs/mcp.md).
 
 PR context is stored locally in the app data directory and sent to your configured
 Crew model when a review starts. GitHub notifications remain unread. Backend
-requests require Crew's signature; findings render as text. For existing personal
+UI requests require Crew's signature; MCP setup requests use a separate local credential restricted to setup routes. Findings render as text. For existing personal
 chats, copy findings and paste them yourself; direct transcript writes are limited
 to app-owned chats.
 
@@ -162,3 +162,12 @@ flow so code, agent definitions, and permissions stay in sync.
 
 [Source](https://github.com/appetizers-io/outrider) ·
 [Report a problem or suggest an improvement](https://github.com/appetizers-io/outrider/issues)
+
+### Add a project from a Crew conversation
+
+Ask **“Add this project to Outrider.”** The MCP setup tools discover Crew folders,
+inspect their checkouts and remotes, then register the repository through the
+running app. Ambiguous projects require a choice. Existing registrations and
+session preferences are preserved; new repositories inherit your polling and
+automatic-session defaults. Update the Outrider binary and restart/reload the
+app's MCP server after installing this version to expose the new tools.

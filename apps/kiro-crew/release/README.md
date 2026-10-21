@@ -69,7 +69,7 @@ creates chats in selected Crew folders, and can prepare isolated Git worktrees.
 Optional automatic sessions consume the selected Crew model. Session trust changes
 use Crew's explicit session-approval grant; the plugin cannot silently grant it.
 Push/post policies constrain session tasks, while Crew controls tool approvals.
-The shipped MCP tools only read state or return configuration drafts.
+MCP can read state, draft configuration and register repositories in existing Crew folders on request. Registration inherits the current polling and automatic-session settings; it cannot change trust.
 
 ## Release notes
 
