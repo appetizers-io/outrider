@@ -13,12 +13,14 @@ APP = ROOT / 'apps/kiro-crew'
 OUT = ROOT / 'build/crew'
 parser = argparse.ArgumentParser()
 parser.add_argument('--marketplace', action='store_true', help='Require pinned runtimes for every supported platform')
+parser.add_argument('--app-dir', type=Path, default=APP, help='Staged release app; source provenance still comes from this checkout')
 args = parser.parse_args()
+APP = args.app_dir.resolve()
 if args.marketplace:
     lock = json.loads((APP / 'release/runtime.json').read_text())
     expected = {f'{system}_{arch}' for system in ('darwin', 'linux', 'windows') for arch in ('amd64', 'arm64')}
     if not lock.get('version') or set(lock.get('artifacts', {})) != expected:
-        raise SystemExit('Marketplace packaging requires pinned runtimes. Run scripts/pin_crew_runtime.py after publishing the CLI release.')
+        raise SystemExit('Marketplace packaging requires pinned runtimes. Run scripts/pin_crew_runtime.py or prepare_crew_release.py with a published CLI release.')
 manifest = json.loads((APP / 'app.json').read_text())
 files = [APP / name for name in ('app.json', 'README.md', 'LICENSE')]
 for directory, extensions in {'agents': {'.json'}, 'backend': {'.py'}, 'ui': {'.mjs', '.svg'}, 'assets': {'.png', '.svg'}, 'release': {'.md', '.json'}}.items():
@@ -33,11 +35,11 @@ for resource in [manifest['backend']['entryPoint'], 'ui/' + manifest['ui']['entr
         raise SystemExit(f'Manifest resource is absent from package: {resource}')
 commit = subprocess.check_output(['git', 'rev-parse', 'HEAD'], cwd=ROOT, text=True).strip()
 dirty = bool(subprocess.check_output(['git', 'status', '--porcelain', '--untracked-files=normal'], cwd=ROOT, text=True).strip())
-provenance = json.dumps({'app_version': manifest['version'], 'source_commit': commit, 'dirty': dirty, 'external_commands': manifest['dependencies'].get('commands', [])}, indent=2).encode() + b'\n'
+provenance = json.dumps({'app_version': manifest['version'], 'source_commit': commit, 'dirty': dirty, 'runtime_version': json.loads((APP / 'release/runtime.json').read_text()).get('version'), 'external_commands': manifest['dependencies'].get('commands', [])}, indent=2).encode() + b'\n'
 OUT.mkdir(parents=True, exist_ok=True)
 archive = OUT / f'outrider-crew-{manifest["version"]}.tar.gz'
 with archive.open('wb') as raw, gzip.GzipFile(fileobj=raw, mode='wb', filename='', mtime=0) as compressed, tarfile.open(fileobj=compressed, mode='w') as tar:
-    entries = [(str(path.relative_to(APP)), path.read_bytes()) for path in files] + [('release-info.json', provenance)]
+    entries = [(path.relative_to(APP).as_posix(), path.read_bytes()) for path in files] + [('release-info.json', provenance)]
     for name, data in sorted(entries):
         info = tarfile.TarInfo('outrider/' + name)
         info.size = len(data)

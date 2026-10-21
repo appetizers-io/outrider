@@ -1,7 +1,8 @@
 """Pin a published CLI release for marketplace distribution (no system install).
 
 Usage: python scripts/pin_crew_runtime.py v0.2.0 /path/to/checksums.txt
-Review and commit the generated lock before submitting/updating the marketplace.
+Manual recovery helper. Normal releases use prepare_crew_release.py and open
+a source-update PR automatically.
 """
 import argparse
 import json

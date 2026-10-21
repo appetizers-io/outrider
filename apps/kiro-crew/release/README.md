@@ -16,23 +16,36 @@ and [manifest](https://kiro.dev/docs/crew/apps/manifest/).
   sidecar. Only runtime files are included; user state, credentials, tests and
   caches are excluded. `release-info.json` records the source commit and whether
   the checkout was dirty. Publish only an artifact marked `dirty: false`.
-- The existing Release workflow tests the Crew app, packages it, and attaches
-  the archive/checksum beside the CLI binaries in the same GitHub release.
+- The Release workflow publishes the CLI with GoReleaser first, then calls
+  **Publish Crew app**. It downloads all six published runtime archives and
+  verifies their SHA-256 checksums, stages the matching app version and runtime
+  lock outside the checkout, tests the app, and packages it with `--marketplace`.
+  The pinned archive and its checksum are attached to the same release.
+- Only after package upload succeeds, automation opens a signed bot PR updating
+  `app.json` and `release/runtime.json` on main. The marketplace installs Git
+  source, so this PR must be reviewed and merged before source installs update.
+  The package records the release commit and pinned runtime version; generating
+  the lock does not mark the release checkout dirty.
 
 ## Requirements and release gates
 
-1. Merge PR #77 after all CI checks pass. Produce a normal Outrider CLI release
-   from that commit using the existing Release workflow. Published CLI v0.1.1
-   predates this integration and is not a compatible prerequisite.
-2. Download that release's `checksums.txt` and pin all six platform archives:
-   `python scripts/pin_crew_runtime.py vX.Y.Z /path/to/checksums.txt`.
-   Review and commit `release/runtime.json`, then run
-   `python scripts/package_crew.py --marketplace`. This gate refuses an unpinned
-   build. Never submit the current empty development lock to the marketplace.
-   The first CLI release can carry an unpinned development app archive; publish
-   the pinned app archive from the subsequent app commit, after the CLI exists.
-   The registry follows that pinned source commit on main. No runtime version or
-   checksum should be guessed before publishing the CLI.
+1. Run **Release** from main. No manual checksum copying or pin commits are
+   needed. CLI and Homebrew publication completes before Crew packaging; if the
+   Crew job fails, the CLI remains published but no source-update PR is opened.
+2. Enable **Allow GitHub Actions to create and approve pull requests** in the
+   repository's Actions settings (organization policy must also allow it).
+   The workflow requests contents and pull-request write permissions and uses
+   GitHub-signed bot commits. It never approves or merges the resulting PR.
+   With the default `GITHUB_TOKEN`, the bot PR does not trigger PR CI: a
+   maintainer must close and reopen it to run required checks before merging.
+   Review the pin/version diff before merging. Existing live-install validation
+   is still required; checksum verification is not an end-to-end Crew test.
+   To recover a failed Crew step, dispatch **Publish Crew app** on main with the
+   same published version. It uses that tag's source, replaces the deterministic
+   package assets, and updates the same version-specific PR. It refuses draft,
+   prerelease, malformed versions and source-version downgrades. Use only tags
+   containing this release automation. Release assets must remain mutable for
+   the post-publication attachment; immutable releases need a different flow.
    Test with no host Outrider: the wizard downloads the pinned archive, verifies
    its SHA-256 against the committed lock, and stores only its executable under
    app data. Git and authenticated GitHub CLI remain external prerequisites.

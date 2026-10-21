@@ -1,10 +1,10 @@
 name: Kiro Crew app
 on:
   pull_request:
-    paths: ['apps/kiro-crew/**', 'Taskfile.yml', 'scripts/package_crew.py', 'scripts/pin_crew_runtime.py', '.github/workflows/crew.yml']
+    paths: ['apps/kiro-crew/**', 'Taskfile.yml', 'scripts/package_crew.py', 'scripts/pin_crew_runtime.py', 'scripts/prepare_crew_release.py', '.github/workflows/crew-release.yml', '.github/workflows/release.yml', '.github/workflows/crew.yml']
   push:
     branches: [main]
-    paths: ['apps/kiro-crew/**', 'Taskfile.yml', 'scripts/package_crew.py', 'scripts/pin_crew_runtime.py', '.github/workflows/crew.yml']
+    paths: ['apps/kiro-crew/**', 'Taskfile.yml', 'scripts/package_crew.py', 'scripts/pin_crew_runtime.py', 'scripts/prepare_crew_release.py', '.github/workflows/crew-release.yml', '.github/workflows/release.yml', '.github/workflows/crew.yml']
 permissions:
   contents: read
 jobs:
