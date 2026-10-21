@@ -9,6 +9,7 @@ from pathlib import Path
 import re
 import shutil
 import subprocess
+import tempfile
 import threading
 import time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -71,6 +72,33 @@ def find_scanner(runner=subprocess.run):
         except (OSError, subprocess.TimeoutExpired):
             continue
     raise RuntimeError("No compatible Outrider binary found. Install this branch with task install (requires crew scan --state-dir), or set OUTRIDER_BIN to its absolute path, then scan again.")
+
+
+REPO_SETTINGS = {"triggers", "ignore_authors", "launch_check", "prompts", "workflows"}
+
+
+def scan_config(settings):
+    return {"repos": {"include": settings["repos"]}, "overrides": [
+        {"match": [{"repo": repo}], **options}
+        for repo, options in settings.get("repo_settings", {}).items() if repo in settings["repos"]
+    ]}
+
+
+def validate_repo_settings(options):
+    if not isinstance(options, dict) or len(options) > 50:
+        raise ValueError("Repository settings must be an object keyed by owner/repo")
+    for repo, values in options.items():
+        if normalize_repo(repo) != repo:
+            raise ValueError("Repository settings keys must use owner/repo")
+        if not isinstance(values, dict) or set(values) - REPO_SETTINGS:
+            raise ValueError("Repository settings support triggers, ignore_authors, launch_check, prompts and workflows. Session settings belong to Crew.")
+    # Use the standalone schema, including workflow match and trigger validation.
+    with tempfile.TemporaryDirectory(prefix="outrider-config-") as directory:
+        path = Path(directory) / "config.json"
+        atomic_json(path, scan_config({"repos": list(options), "repo_settings": options}))
+        result = subprocess.run([find_scanner(), "config", "check", str(path)], env=scanner_environment(), capture_output=True, text=True, timeout=15, check=False)
+        if result.returncode:
+            raise ValueError(result.stderr[-6000:] or "Invalid repository settings")
 
 
 def atomic_json(path, value):
@@ -178,8 +206,13 @@ class Inbox:
         folders = body.get("folders", self.config.get("folders", {}))
         if not isinstance(folders, dict) or any(not isinstance(k, str) or not isinstance(v, str) or len(v) > 200 for k, v in folders.items()):
             raise ValueError("Invalid folder mapping")
+        options = body.get("repo_settings", self.config.get("repo_settings", {}))
+        if options:
+            validate_repo_settings(options)
+        elif not isinstance(options, dict):
+            raise ValueError("Repository settings must be an object")
         with self.lock:
-            self.config = {"repos": sorted(set(repos)), "interval": interval, "folders": {r: folders[r] for r in repos if folders.get(r)}}
+            self.config = {"repos": sorted(set(repos)), "interval": interval, "folders": {r: folders[r] for r in repos if folders.get(r)}, "repo_settings": {r: options[r] for r in repos if r in options}}
             atomic_json(self.data / "settings.json", self.config)
             self.scan_requested = bool(repos)
         self.wake.set()
@@ -265,11 +298,14 @@ class Inbox:
     def scan(self):
         with self.lock:
             repos = list(self.config["repos"])
+            settings = scan_config(self.config)
             self.scanning = True
         try:
             if not repos:
                 return
-            args = [find_scanner(), "crew", "scan", "--state-dir", str(self.data / "inbox"), "--process-existing"]
+            config_path = self.data / "scan-config.json"
+            atomic_json(config_path, settings)
+            args = [find_scanner(), "crew", "scan", "--config", str(config_path), "--state-dir", str(self.data / "inbox"), "--process-existing"]
             for repo in repos:
                 args += ["--repo", repo]
             result = self.runner(args, cwd=self.data, env=scanner_environment(), capture_output=True, text=True, timeout=180, check=False)
@@ -370,7 +406,7 @@ class Handler(BaseHTTPRequestHandler):
             return
         try:
             length = int(self.headers.get("Content-Length", "0"))
-            if not 0 <= length <= 16384:
+            if not 0 <= length <= 131072:
                 self.reply(413, {"error": "Request too large"})
                 return
             body = self.rfile.read(length)

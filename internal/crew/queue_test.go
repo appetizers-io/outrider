@@ -132,3 +132,37 @@ func TestScannerAcknowledgesOnlyDurableSnapshots(t *testing.T) {
 	require.NoError(t, err)
 	require.Len(t, paths, 1)
 }
+
+func TestWorkflowAndRepositoryInstructionsAreCaptured(t *testing.T) {
+	s := fixture(t, "diff", false)
+	cfg, err := config.Parse([]byte(`overrides:
+  - match: [{repo: "o/r"}]
+    prompts: {extra: "Focus on backwards compatibility."}
+    workflows:
+      - name: compatibility
+        match: [{prs: others}]
+        steps: ["Inspect changed APIs", "Explain migration risks"]
+        post: true
+`), "test")
+	require.NoError(t, err)
+	effective := cfg.For("o/r", false)
+	r := request()
+	r.Workflow = effective.ActivityWorkflow(session.WorkflowMetadata(r, false))
+	require.NotNil(t, r.Workflow)
+	require.NoError(t, s.enqueue(t.Context(), r, effective))
+	paths, err := filepath.Glob(filepath.Join(s.Dir, "queue", "*.json"))
+	require.NoError(t, err)
+	require.Len(t, paths, 1)
+	raw, err := os.ReadFile(paths[0])
+	require.NoError(t, err)
+	var item Item
+	require.NoError(t, json.Unmarshal(raw, &item))
+	require.Equal(t, "compatibility", item.Workflow)
+	require.Contains(t, item.Prompt, "1. Inspect changed APIs\n2. Explain migration risks")
+	require.Contains(t, item.Prompt, "Focus on backwards compatibility.")
+	require.Contains(t, item.Prompt, "GitHub posts remain drafts")
+	require.Contains(t, item.Prompt, "You have no tools")
+	other := cfg.For("other/repo", false)
+	require.Empty(t, other.Prompts.Extra)
+	require.Empty(t, other.Workflows)
+}

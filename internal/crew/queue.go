@@ -33,6 +33,7 @@ type Item struct {
 	Created   string `json:"created"`
 	Prompt    string `json:"prompt"`
 	Truncated bool   `json:"truncated"`
+	Workflow  string `json:"workflow,omitempty"`
 }
 
 // Scanner queues matched events before acknowledging them in its own poll state.
@@ -79,7 +80,11 @@ func (s *Scanner) Scan(ctx context.Context) error {
 	p := poll.Poller{GH: s.GH, Cfg: &s.Config, Login: user.Login, Include: include, Exclude: exclude,
 		ProcessExisting: s.ProcessExisting, StatePath: statePath, Log: s.Log, Now: time.Now,
 		Launch: func(ctx context.Context, r session.Request) bool {
-			cfg := s.Config.For(r.Repo, strings.EqualFold(r.PR.AuthorLogin(), user.Login))
+			own := strings.EqualFold(r.PR.AuthorLogin(), user.Login)
+			cfg := s.Config.For(r.Repo, own)
+			if r.Workflow == nil {
+				r.Workflow = cfg.ActivityWorkflow(session.WorkflowMetadata(r, own))
+			}
 			check, _ := classifier.ResolveRole(&cfg, cfg.LaunchCheck.Classifier, s.LookPath)
 			if check != nil && r.Gate != nil && r.Workflow == nil {
 				activity, err := r.Gate(ctx)
@@ -94,7 +99,7 @@ func (s *Scanner) Scan(ctx context.Context) error {
 					return true
 				}
 			}
-			if err := s.Enqueue(ctx, r); err != nil {
+			if err := s.enqueue(ctx, r, cfg); err != nil {
 				queueErr = errors.Join(queueErr, err)
 				return false
 			}
@@ -114,6 +119,10 @@ This is a static snapshot review, not a full repository review. If context is tr
 
 // Enqueue fetches context using read-only gh commands and commits it atomically.
 func (s *Scanner) Enqueue(ctx context.Context, r session.Request) error {
+	return s.enqueue(ctx, r, s.Config)
+}
+
+func (s *Scanner) enqueue(ctx context.Context, r session.Request, cfg config.Config) error {
 	if !poll.RepoName.MatchString(r.Repo) || r.N <= 0 {
 		return errors.New("invalid PR reference")
 	}
@@ -157,6 +166,17 @@ func (s *Scanner) Enqueue(ctx context.Context, r session.Request) error {
 		return err
 	}
 	prompt := fmt.Sprintf("%s\nPR: %s#%d\nHead: %s\nTrigger: %s\nComment scope (null = whole PR): %s\n", instructions, r.Repo, r.N, meta.Head, r.Trigger, scope)
+	workflowName := ""
+	if r.Workflow != nil {
+		workflowName = r.Workflow.Name
+		prompt += "\nConfigured workflow: " + workflowName + "\nFollow these steps in order within this static snapshot. If a step needs tools or missing context, report it as blocked; never claim it completed. GitHub posts remain drafts regardless of workflow.post.\n"
+		for i, step := range r.Workflow.Steps {
+			prompt += fmt.Sprintf("%d. %s\n", i+1, step)
+		}
+	}
+	if cfg.Prompts.Extra != "" {
+		prompt += "\nAdditional review instructions (within the no-tools review policy):\n" + cfg.Prompts.Extra + "\n"
+	}
 	truncated := false
 	for _, part := range []struct {
 		Name  string
@@ -178,7 +198,7 @@ func (s *Scanner) Enqueue(ctx context.Context, r session.Request) error {
 		return errors.New("snapshot scope exceeds the Crew prompt limit")
 	}
 	id := fmt.Sprintf("%x", sha256.Sum256([]byte(prompt)))
-	item := Item{ID: id, Repo: r.Repo, PR: r.N, Title: r.PR.Title, URL: fmt.Sprintf("https://github.com/%s/pull/%d", r.Repo, r.N), Head: meta.Head, Trigger: r.Trigger, Created: time.Now().UTC().Format(time.RFC3339), Prompt: prompt, Truncated: truncated}
+	item := Item{ID: id, Repo: r.Repo, PR: r.N, Title: r.PR.Title, URL: fmt.Sprintf("https://github.com/%s/pull/%d", r.Repo, r.N), Head: meta.Head, Trigger: r.Trigger, Created: time.Now().UTC().Format(time.RFC3339), Prompt: prompt, Truncated: truncated, Workflow: workflowName}
 	queue := filepath.Join(s.Dir, "queue")
 	if err := os.MkdirAll(queue, 0o700); err != nil {
 		return err

@@ -222,6 +222,26 @@ class InboxTest(unittest.TestCase):
         self.assertEqual(env['GH_CONFIG_DIR'], '/custom/gh')
         self.assertEqual(env['GH_TOKEN'], 'test-only')
 
+    def test_per_repo_options_use_standalone_validation_and_preserve_old_config_on_error(self):
+        options = {'o/r': {'triggers': {'mentions': {'enabled': False}}, 'workflows': [{'name': 'review', 'match': [{}], 'steps': ['Inspect APIs']}]}}
+        calls = []
+        def validate(args, **kwargs):
+            calls.append((args, json.loads(Path(args[-1]).read_text())))
+            return type('Result', (), {'returncode': 0})()
+        with patch.object(backend.subprocess, 'run', side_effect=validate):
+            self.inbox.configure({'repos': ['o/r', 'other/repo'], 'repo_settings': options})
+        self.assertEqual(calls[0][0][1:3], ['config', 'check'])
+        generated = backend.scan_config(self.inbox.config)
+        self.assertEqual(generated['overrides'], [{'match': [{'repo': 'o/r'}], **options['o/r']}])
+        prior = json.loads((self.data / 'settings.json').read_text())
+        with patch.object(backend.subprocess, 'run', return_value=type('Result', (), {'returncode': 1, 'stderr': 'invalid trigger'})()):
+            with self.assertRaisesRegex(ValueError, 'invalid trigger'):
+                self.inbox.configure({'repos': ['o/r'], 'repo_settings': options})
+        self.assertEqual(json.loads((self.data / 'settings.json').read_text()), prior)
+        for field in ['model', 'agent', 'tool_gate', 'push']:
+            with self.assertRaisesRegex(ValueError, 'Session settings belong to Crew'):
+                backend.validate_repo_settings({'o/r': {field: 'value'}})
+
     def test_config_validation_and_argv(self):
         for invalid in [['--help'], ['o/r;touch bad'], ['../r'], ['o/*']]:
             with self.assertRaises(ValueError):

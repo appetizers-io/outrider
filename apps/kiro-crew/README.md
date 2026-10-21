@@ -85,8 +85,9 @@ policy check.
 Diffs are capped at 20 KB; metadata at 7 KB; inline comments at 4 KB; failed
 checks at 2 KB. Truncation is visible in the app and prompt. A review applies to
 the displayed captured commit, which may no longer be the PR's latest head.
-Review profiles, custom playbooks, test evidence, and multi-step session
-workflows are not executed by this first adapter. The regular terminal/tmux
+Review profiles, custom playbooks, and test evidence are not executed by this
+adapter. Configured workflows supply ordered snapshot-review instructions; steps
+requiring tools are reported as blocked. The regular terminal/tmux
 workflow remains available for full repository reviews.
 
 The backend accepts only gateway-signed requests, binds to loopback, and
@@ -154,3 +155,35 @@ The scanner subprocess also inherits Crew’s environment with missing user and
 Homebrew executable directories appended to PATH, so `gh` is available in
 GUI-launched Crew. Existing PATH precedence and GitHub authentication variables
 are preserved; no shell startup files are sourced.
+
+### Per-repository behavior
+
+After saving repositories, reopen **Repositories** and select a repository under
+**Per-repository triggers and workflows**. Toggle own-PR activity, reaction opt-in,
+review replies, and mentions. **Add workflow** provides a name, condition, and
+ordered steps. Advanced JSON supports the same `triggers`, `ignore_authors`,
+`launch_check`, `prompts`, and `workflows` fields as standalone Outrider, including
+workflow match rules, reaction selection, thread/comment scope, and freshness.
+Save validates against the standalone schema before replacing settings.
+
+```json
+{
+  "triggers": {"opt_in": {"reaction": "eyes"}, "mentions": {"scope": "comment"}},
+  "ignore_authors": ["*[bot]"],
+  "prompts": {"extra": "Pay particular attention to backwards compatibility."},
+  "workflows": [{
+    "name": "dependency-review",
+    "match": [{"authors": ["renovate[bot]", "dependabot[bot]"]}],
+    "on": "ci_passed",
+    "steps": ["Inspect dependency changes in the snapshot.", "Summarize compatibility risks."]
+  }]
+}
+```
+
+Settings are translated to exact-repository overrides; omitted fields use the
+standalone defaults. The first matching activity workflow wins. Conditional
+workflows use the standalone poller's transition detection. Snapshots retain the
+workflow instructions at capture time; changing settings affects future snapshots.
+Execution remains a no-tools snapshot review: unavailable steps are reported as
+blocked, and `post` does not authorize GitHub writes in Crew. Launcher, agent,
+model, permissions, and tool policy are not imported from standalone settings.
