@@ -1,4 +1,29 @@
 {
-  "version": "",
-  "artifacts": {}
+  "version": "v0.2.0",
+  "artifacts": {
+    "darwin_amd64": {
+      "name": "outrider_0.2.0_darwin_amd64.tar.gz",
+      "sha256": "95b5c86e824a561768ac2e6f61ab97ee1e3e211146b62ad530824ed7c41c3733"
+    },
+    "darwin_arm64": {
+      "name": "outrider_0.2.0_darwin_arm64.tar.gz",
+      "sha256": "afc5e9e4cc5150a2106f8f5ac4128e482ae7cda4b4761020e1ee1471c630f90b"
+    },
+    "linux_amd64": {
+      "name": "outrider_0.2.0_linux_amd64.tar.gz",
+      "sha256": "833b4f09d5b20b696b990d82089504b37e0f57408a5d0007c8777553c8ef1cb4"
+    },
+    "linux_arm64": {
+      "name": "outrider_0.2.0_linux_arm64.tar.gz",
+      "sha256": "d6b82d65c16e92abf731685f6720bd19f6156fda07581c6cd4afa60b267f5d46"
+    },
+    "windows_amd64": {
+      "name": "outrider_0.2.0_windows_amd64.zip",
+      "sha256": "72e8c3381c18d1f779344eee7d7de5ceec28259cd487ca9d0cbb0b7cf632e69d"
+    },
+    "windows_arm64": {
+      "name": "outrider_0.2.0_windows_arm64.zip",
+      "sha256": "5ac620061edbffe8d17d4cba0a1fc6a05f37149c6ffae9c62539ad5aa066b049"
+    }
+  }
 }
