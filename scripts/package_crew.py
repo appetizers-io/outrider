@@ -8,6 +8,8 @@ from pathlib import Path
 import subprocess
 import tarfile
 
+from prepare_crew_release import validate_registry
+
 ROOT = Path(__file__).resolve().parents[1]
 APP = ROOT / 'apps/kiro-crew'
 OUT = ROOT / 'build/crew'
@@ -16,6 +18,7 @@ parser.add_argument('--marketplace', action='store_true', help='Require pinned r
 parser.add_argument('--app-dir', type=Path, default=APP, help='Staged release app; source provenance still comes from this checkout')
 args = parser.parse_args()
 APP = args.app_dir.resolve()
+validate_registry(ROOT, APP)
 if args.marketplace:
     lock = json.loads((APP / 'release/runtime.json').read_text())
     expected = {f'{system}_{arch}' for system in ('darwin', 'linux', 'windows') for arch in ('amd64', 'arm64')}

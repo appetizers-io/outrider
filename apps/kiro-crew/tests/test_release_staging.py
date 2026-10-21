@@ -10,10 +10,30 @@ import unittest
 
 ROOT = Path(__file__).resolve().parents[3]
 sys.path.insert(0, str(ROOT / 'scripts'))
-from prepare_crew_release import stage_app
+from prepare_crew_release import stage_app, validate_registry
 
 
 class ReleaseStagingTests(unittest.TestCase):
+    def test_canonical_registry_matches_source(self):
+        validate_registry(ROOT, ROOT / 'apps/kiro-crew')
+
+    def test_registry_rejects_duplicate_identity_and_wrong_source(self):
+        entry = json.loads((ROOT / 'app-registry.json').read_text())[0]
+        invalid = [
+            [entry, entry],
+            [{**entry, 'name': 'kiro-crew'}],
+            [{**entry, 'subdirectory': 'apps/missing'}],
+            [{**entry, 'branch': 'other'}],
+            [{**entry, 'gitUrl': 'https://github.com/example/other'}],
+        ]
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            for entries in invalid:
+                with self.subTest(entries=entries):
+                    (root / 'app-registry.json').write_text(json.dumps(entries))
+                    with self.assertRaises(ValueError):
+                        validate_registry(root, ROOT / 'apps/kiro-crew')
+
     def fixture(self, directory):
         lines = []
         for system in ('darwin', 'linux', 'windows'):

@@ -1,9 +1,10 @@
 # Outrider for Kiro Crew 0.1.0 — release preparation
 
-The app is distributed from `apps/kiro-crew` in this repository. The App Store
-entry is in [registry-entry.json](registry-entry.json), ready to add to
-`src/kiro_crew/apps/app-registry.json` in `kirodotdev/KiroCrew` after the release
-is available on main. This file is a submission draft, not a published listing.
+The app is distributed from `apps/kiro-crew` in this repository. The canonical
+App Store index is [app-registry.json](../../../app-registry.json) at the repository
+root. It explicitly maps the `outrider` identity to that directory; without it,
+Crew infers the incompatible identity `kiro-crew` from the directory name.
+Use this same entry for an official-store submission; do not keep a second copy.
 
 Official references: [publishing](https://kiro.dev/docs/crew/apps/publishing/)
 and [manifest](https://kiro.dev/docs/crew/apps/manifest/).
@@ -22,7 +23,8 @@ and [manifest](https://kiro.dev/docs/crew/apps/manifest/).
   lock outside the checkout, tests the app, and packages it with `--marketplace`.
   The pinned archive and its checksum are attached to the same release.
 - Only after package upload succeeds, automation opens a signed bot PR updating
-  `app.json` and `release/runtime.json` on main. The marketplace installs Git
+  `app.json` and `release/runtime.json` on main. Packaging, release staging and
+  the source-update workflow validate the canonical registry against the manifest. The marketplace installs Git
   source, so this PR must be reviewed and merged before source installs update.
   The package records the release commit and pinned runtime version; generating
   the lock does not mark the release checkout dirty.
