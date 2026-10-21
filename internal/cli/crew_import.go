@@ -26,8 +26,8 @@ func crewImportSettingsCmd() *cobra.Command {
 			if !poll.RepoName.MatchString(repo) {
 				return errors.New("--repo must be owner/repo")
 			}
-			if profile != "common" && profile != "own" && profile != "others" {
-				return errors.New("--profile must be common, own or others")
+			if profile != "preserve" && profile != "common" && profile != "own" && profile != "others" {
+				return errors.New("--profile must be preserve, own or others")
 			}
 			raw, err := io.ReadAll(io.LimitReader(cmd.InOrStdin(), 131073))
 			if err != nil {
@@ -67,30 +67,35 @@ func crewImportSettingsCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
+			warnings := []string{"Crew-owned execution settings are removed; Crew keeps its trust and session settings.", "This imports a snapshot of repository behavior, not a live link to the CLI file."}
 			extract := func(own bool) map[string]any {
 				effective := cfg.For(repo, own)
+				if effective.LaunchCheck.Classifier != nil && *effective.LaunchCheck.Classifier != "jev" {
+					effective.LaunchCheck.Classifier = nil
+					warnings = append(warnings, "Custom launch classifier is not imported; launch checking is disabled for that profile.")
+				}
+				// Explicit empty lists clear inherited values in ownership overrides.
+				if effective.IgnoreAuthors == nil {
+					effective.IgnoreAuthors = []string{}
+				}
+				if effective.Workflows == nil {
+					effective.Workflows = []config.Workflow{}
+				}
 				return map[string]any{"triggers": effective.Triggers, "ignore_authors": effective.IgnoreAuthors, "launch_check": effective.LaunchCheck, "prompts": effective.Prompts, "workflows": effective.Workflows}
 			}
-			settings := extract(profile != "others")
-			if profile == "common" && !reflect.DeepEqual(settings, extract(false)) {
-				return errors.New("this CLI config has different own-PR and other-PR settings; choose which profile to import. The chosen settings apply repository-wide in Crew")
+			own, others := extract(true), extract(false)
+			settings := others
+			if profile == "own" {
+				settings = own
 			}
-			warnings := []string{"Only Outrider repository behavior is imported. Agent, mode, and other execution settings are removed; mode is not mapped to trust. Crew keeps its model, trust level, permissions, and session settings.", "This imports a snapshot of effective settings, not a live link to the CLI file."}
-			if profile != "common" {
-				warnings = append(warnings, fmt.Sprintf("Selected %s-PR settings will apply to all PRs in this repository.", profile))
-			}
-			layer := cfg.For(repo, profile != "others")
-			if layer.LaunchCheck.Classifier != nil && *layer.LaunchCheck.Classifier != "jev" {
-				layer.LaunchCheck.Classifier = nil
-				settings["launch_check"] = layer.LaunchCheck
-				warnings = append(warnings, "Custom launch classifier is not imported; launch checking is disabled in this draft.")
-			}
-			// Nil slices must become omitted fields, not YAML null (the schema expects arrays).
-			if layer.IgnoreAuthors == nil {
-				delete(settings, "ignore_authors")
-			}
-			if layer.Workflows == nil {
-				delete(settings, "workflows")
+			if profile == "preserve" || profile == "common" {
+				if !reflect.DeepEqual(own, others) {
+					own["match"] = []map[string]string{{"prs": "own"}}
+					settings["overrides"] = []any{own}
+					warnings = append(warnings, "Own-PR and other-PR behavior is preserved. Base settings apply to other PRs; the own-PR override applies to your PRs.")
+				}
+			} else {
+				warnings = append(warnings, fmt.Sprintf("Explicit %s profile applies repository-wide.", profile))
 			}
 			for key := range source {
 				if _, ok := settings[key]; !ok && key != "overrides" {
@@ -110,13 +115,26 @@ func crewImportSettingsCmd() *cobra.Command {
 				return err
 			}
 			applied := cfg.Applied(repo, profile != "others")
+			if profile == "preserve" || profile == "common" {
+				for _, entry := range cfg.Applied(repo, false) {
+					found := false
+					for _, existing := range applied {
+						if existing == entry {
+							found = true
+						}
+					}
+					if !found {
+						applied = append(applied, entry)
+					}
+				}
+			}
 			if applied == nil {
 				applied = []string{}
 			}
 			return json.NewEncoder(cmd.OutOrStdout()).Encode(map[string]any{"settings": normalized, "yaml": string(encoded), "warnings": warnings, "skipped": skipped, "applied_overrides": applied})
 		}}
 	cmd.Flags().StringVar(&repo, "repo", "", "target repository")
-	cmd.Flags().StringVar(&profile, "profile", "common", "common, own or others; chosen settings apply repository-wide")
+	cmd.Flags().StringVar(&profile, "profile", "preserve", "preserve ownership behavior (default), or explicitly flatten to own/others")
 	return cmd
 }
 

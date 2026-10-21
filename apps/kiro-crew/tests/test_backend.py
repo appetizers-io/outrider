@@ -270,6 +270,22 @@ class InboxTest(unittest.TestCase):
         self.assertEqual(len(self.gateway.calls), 1)
         self.assertFalse((self.data / 'settings.json').exists())
 
+    def test_ownership_overrides_are_scoped_to_their_repository(self):
+        options = {'o/r': {'workflows': [{'name': 'others'}], 'overrides': [{'match': [{'prs': 'own'}], 'workflows': [], 'triggers': {'mentions': {'enabled': False}}}]}, 'o/other': {'prompts': {'extra': 'Other repository'}}}
+        with patch.object(backend.subprocess, 'run', return_value=type('Result', (), {'returncode': 0})()):
+            backend.validate_repo_settings(options)
+        config = backend.scan_config({'repos': ['o/r', 'o/other'], 'repo_settings': options})
+        self.assertEqual(config['overrides'][1]['match'], [{'repo': 'o/r', 'prs': 'own'}])
+        self.assertEqual(config['overrides'][1]['workflows'], [])
+        self.assertEqual(config['overrides'][2]['match'], [{'repo': 'o/other'}])
+        for override in [
+            {'match': [{'prs': 'own'}], 'agent': 'claude'},
+            {'match': [{'repo': 'other/repo'}], 'prompts': {}},
+            {'match': [{'prs': 'own'}], 'overrides': []},
+        ]:
+            with self.assertRaises(ValueError):
+                backend.validate_repo_settings({'o/r': {'overrides': [override]}})
+
     def test_config_validation_and_argv(self):
         for invalid in [['--help'], ['o/r;touch bad'], ['../r'], ['o/*']]:
             with self.assertRaises(ValueError):
@@ -457,3 +473,13 @@ class LocalValidationTest(unittest.TestCase):
             real_git(checkout, 'worktree', 'remove', record['worktree'])
         finally:
             self.root = old_root
+
+    def test_validation_selects_ownership_profile_without_session_overrides(self):
+        for author, expected in [('ME', 'own'), ('someone-else', 'others')]:
+            responses = iter(['me', author, '{"settings": {"prompts": {"extra": "resolved"}}}'])
+            def run(*args, **kwargs):
+                return type('Result', (), {'returncode': 0, 'stdout': next(responses)})()
+            with patch.object(backend.subprocess, 'run', side_effect=run) as runner, patch.object(backend, 'find_scanner', return_value='/outrider'):
+                result = self.inbox.validation_options(self.item, {'overrides': [{'match': [{'prs': 'own'}], 'prompts': {'extra': 'own'}}]})
+            self.assertEqual(result, {'prompts': {'extra': 'resolved'}})
+            self.assertEqual(runner.call_args.args[0][-2:], ['--profile', expected])

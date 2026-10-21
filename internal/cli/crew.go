@@ -63,10 +63,37 @@ func crewCmd(d watch.Deps) *cobra.Command {
 			if settings == nil {
 				settings = map[string]any{}
 			}
-			allowed := map[string]bool{"triggers": true, "ignore_authors": true, "launch_check": true, "prompts": true, "workflows": true}
+			allowed := map[string]bool{"triggers": true, "ignore_authors": true, "launch_check": true, "prompts": true, "workflows": true, "overrides": true}
 			for key := range settings {
 				if !allowed[key] {
 					return fmt.Errorf("unsupported repository setting %q; session settings belong to Crew", key)
+				}
+			}
+			if entries, exists := settings["overrides"]; exists {
+				overrides, ok := entries.([]any)
+				if !ok {
+					return errors.New("overrides must be a list")
+				}
+				for _, entry := range overrides {
+					layer, ok := entry.(map[string]any)
+					if !ok {
+						return errors.New("override must be a mapping")
+					}
+					for key := range layer {
+						if key != "match" && (!allowed[key] || key == "overrides") {
+							return fmt.Errorf("unsupported ownership setting %q", key)
+						}
+					}
+					matches, ok := layer["match"].([]any)
+					if !ok || len(matches) == 0 {
+						return errors.New("ownership override needs a match")
+					}
+					for _, entry := range matches {
+						match, ok := entry.(map[string]any)
+						if !ok || len(match) != 1 || (match["prs"] != "own" && match["prs"] != "others") {
+							return errors.New("repository ownership overrides match only prs: own or others")
+						}
+					}
 				}
 			}
 			encoded, err := yaml.Marshal(settings)

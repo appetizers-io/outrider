@@ -29,8 +29,7 @@ export default function Outrider() {
   const [setup, setSetup] = useState({});
   const [configSource, setConfigSource] = useState('');
   const [cliConfig, setCliConfig] = useState('');
-  const [importProfile, setImportProfile] = useState('common');
-  const [importPreview, setImportPreview] = useState(null);
+    const [importPreview, setImportPreview] = useState(null);
   const [importError, setImportError] = useState('');
   const [intent, setIntent] = useState('');
   const [newRepo, setNewRepo] = useState('');
@@ -60,7 +59,7 @@ export default function Outrider() {
   }
   async function previewImport() {
     setBusy(true); setError(''); setImportPreview(null); setImportError('');
-    try { setImportPreview(await api.post(base + '/settings/import', { repo: selectedRepo, content: cliConfig, profile: importProfile })); }
+    try { setImportPreview(await api.post(base + '/settings/import', { repo: selectedRepo, content: cliConfig, profile: 'preserve' })); }
     catch (e) { setImportError(e.message); }
     finally { setBusy(false); }
   }
@@ -203,13 +202,12 @@ export default function Outrider() {
         configSource && h('p', { style: { overflowWrap: 'anywhere' } }, 'Loaded from: ' + configSource),
         h('label', null, 'CLI config file', h('input', { style: input, type: 'file', accept: '.yaml,.yml,.json', onChange: async e => { const file = e.target.files?.[0]; if (!file) return; if (file.size > 100000) { setError('Choose a config smaller than 100 KB'); return; } try { setCliConfig(await file.text()); setConfigSource(file.name); setImportPreview(null); setImportError(''); } catch (e) { setError(e.message); } } })),
         h('label', null, 'CLI YAML', h('textarea', { style: { ...input, fontFamily: 'monospace' }, rows: 8, value: cliConfig, onChange: e => { setCliConfig(e.target.value); setImportPreview(null); setImportError(''); } })),
-        h('label', null, 'Settings to import', h('select', { style: input, value: importProfile, onChange: e => { setImportProfile(e.target.value); setImportPreview(null); setImportError(''); } }, h('option', { value: 'common' }, 'Common to my PRs and other PRs'), h('option', { value: 'own' }, 'Use my-PR settings for this repository'), h('option', { value: 'others' }, 'Use other-PR settings for this repository'))),
-        h('p', { style: { opacity: .7 } }, 'Imports apply repository-wide. Ownership-specific differences require an explicit profile choice. Crew keeps its session settings.'),
+        h('p', { style: { opacity: .7 } }, 'Own-PR and other-PR behavior is preserved automatically, including triggers and workflows. Crew keeps its session settings.'),
         h('button', { style: button, type: 'button', disabled: busy || !cliConfig.trim(), onClick: previewImport }, busy ? 'Preparing preview…' : 'Preview import'),
         importError && h('p', { role: 'alert', style: { ...box, borderColor: '#c66' } }, importError),
         importPreview && h('div', null,
           h('h3', null, 'Import preview · ' + importPreview.repo),
-          h('p', null, `${importPreview.settings.workflows?.length || 0} workflows included. Review the effective settings below.`),
+          h('p', null, `${importPreview.settings.workflows?.length || 0} base workflows; ${importPreview.settings.overrides?.length || 0} ownership overrides preserved. Review both in the YAML below.`),
           ...importPreview.warnings.map((warning, index) => h('p', { key: index }, warning)),
           importPreview.skipped.length > 0 && h('p', null, 'Removed from imported YAML (not applied): ' + importPreview.skipped.join(', ')),
           importPreview.applied_overrides.length > 0 && h('p', null, 'Applied CLI overrides: ' + importPreview.applied_overrides.join('; ')),
@@ -222,6 +220,7 @@ export default function Outrider() {
         setup.error && h('p', { role: 'alert' }, setup.error),
         setup.status === 'uncertain' && h('p', null, 'The request may still be running. Check Crew tasks before generating again.'),
         setup.status === 'completed' && h('div', null, h('p', null, 'Draft for ' + setup.repo), h('pre', { style: { whiteSpace: 'pre-wrap' } }, setup.proposal.yaml), h('button', { style: button, type: 'button', disabled: busy || setup.repo !== selectedRepo, onClick: useProposal }, 'Use draft'))),
+      JSON.parse(advanced).overrides?.length > 0 && h('p', null, 'Ownership overrides are preserved. The form edits base settings; use YAML to edit own-PR and other-PR overrides.'),
       h('div', { role: 'group', 'aria-label': 'Configuration editor', style: { display: 'flex', gap: 8, marginBottom: 16 } }, ...[['form', 'Form'], ['yaml', 'YAML']].map(([mode, label]) => h('button', { key: mode, style: editor === mode ? selectedButton : button, type: 'button', disabled: busy, 'aria-pressed': editor === mode, onClick: () => switchEditor(mode) }, label))),
       editor === 'yaml' ? h('section', { style: box },
         h('label', null, 'Repository YAML', h('textarea', { style: { ...input, fontFamily: 'monospace' }, rows: 18, value: yaml, spellCheck: false, onChange: e => { setYaml(e.target.value); setNotice(''); } })),

@@ -81,14 +81,18 @@ def convert_settings(content):
     return json.loads(result.stdout)
 
 
-REPO_SETTINGS = {"triggers", "ignore_authors", "launch_check", "prompts", "workflows"}
+REPO_SETTINGS = {"triggers", "ignore_authors", "launch_check", "prompts", "workflows", "overrides"}
 
 
 def scan_config(settings):
-    return {"repos": {"include": settings["repos"]}, "overrides": [
-        {"match": [{"repo": repo}], **options}
-        for repo, options in settings.get("repo_settings", {}).items() if repo in settings["repos"]
-    ]}
+    layers = []
+    for repo, options in settings.get('repo_settings', {}).items():
+        if repo not in settings['repos']:
+            continue
+        layers.append({'match': [{'repo': repo}], **{k: v for k, v in options.items() if k != 'overrides'}})
+        for override in options.get('overrides', []):
+            layers.append({**override, 'match': [{'repo': repo, 'prs': match['prs']} for match in override['match']]})
+    return {'repos': {'include': settings['repos']}, 'overrides': layers}
 
 
 def validate_repo_settings(options):
@@ -99,6 +103,15 @@ def validate_repo_settings(options):
             raise ValueError("Repository settings keys must use owner/repo")
         if not isinstance(values, dict) or set(values) - REPO_SETTINGS:
             raise ValueError("Repository settings support triggers, ignore_authors, launch_check, prompts and workflows. Session settings belong to Crew.")
+        overrides = values.get('overrides', [])
+        if not isinstance(overrides, list):
+            raise ValueError('Ownership overrides must be a list')
+        for layer in overrides:
+            if not isinstance(layer, dict) or set(layer) - ((REPO_SETTINGS - {'overrides'}) | {'match'}):
+                raise ValueError('Unsupported ownership override settings')
+            matches = layer.get('match')
+            if not isinstance(matches, list) or not matches or any(not isinstance(m, dict) or set(m) != {'prs'} or m['prs'] not in ('own', 'others') for m in matches):
+                raise ValueError('Repository ownership overrides match only prs: own or others')
     # Use the standalone schema, including workflow match and trigger validation.
     with tempfile.TemporaryDirectory(prefix="outrider-config-") as directory:
         path = Path(directory) / "config.json"
@@ -354,6 +367,22 @@ class Inbox:
             atomic_json(self.data / 'validations.json', self.validations)
         threading.Thread(target=self.validate_local, args=(item, folder, remote, options), daemon=True).start()
 
+    def validation_options(self, item, options):
+        if not options.get('overrides'):
+            return options
+        def run(args, content=None):
+            result = subprocess.run(args, input=content, env=scanner_environment(), capture_output=True, text=True, timeout=30, check=False)
+            if result.returncode:
+                raise ValueError('Could not resolve ownership-specific validation settings')
+            return result.stdout.strip()
+        login = run(['gh', 'api', 'user', '--jq', '.login'])
+        author = run(['gh', 'pr', 'view', str(item['pr']), '--repo', item['repo'], '--json', 'author', '--jq', '.author.login'])
+        if not login or not author:
+            raise ValueError('GitHub did not return PR ownership')
+        profile = 'own' if login.casefold() == author.casefold() else 'others'
+        result = run([find_scanner(), 'crew', 'import-settings', '--repo', item['repo'], '--profile', profile], json.dumps(options))
+        return json.loads(result)['settings']
+
     def validate_local(self, item, folder, remote, options):
         record = self.validations[item['id']]
         def save(**values):
@@ -361,6 +390,7 @@ class Inbox:
                 record.update(values)
                 atomic_json(self.data / 'validations.json', self.validations)
         try:
+            options = self.validation_options(item, options)
             context = self.checkout(folder)
             if not any(r['name'] == remote and r['repo'].lower() == item['repo'].lower() for r in context['remotes']):
                 raise ValueError('The selected remote no longer points to the watched repository. Recheck repository settings.')
@@ -633,8 +663,8 @@ class Handler(BaseHTTPRequestHandler):
                 if not isinstance(content, str):
                     raise ValueError("CLI YAML is required")
                 repo = normalize_repo(payload.get("repo"))
-                profile = payload.get("profile", "common")
-                if profile not in {"common", "own", "others"}:
+                profile = payload.get("profile", "preserve")
+                if profile not in {"preserve", "common", "own", "others"}:
                     raise ValueError("Invalid import profile")
                 result = subprocess.run([find_scanner(), "crew", "import-settings", "--repo", repo, "--profile", profile], input=content, env=scanner_environment(), capture_output=True, text=True, timeout=15, check=False)
                 if result.returncode:
@@ -702,6 +732,8 @@ def main():
 
 
 SETUP_SCHEMA = """Supported fields (all optional):
+# Optional ownership overrides use the same fields below, with match: [{prs: own}] or [{prs: others}].
+# Preserve existing ownership overrides; never flatten them into base settings.
 triggers:
   own_prs: {enabled: true, check: true}
   opt_in: {enabled: true, reaction: eyes, where: [description, comment, review, review_comment], on_change: {check: true, ignore_own_activity: true}}

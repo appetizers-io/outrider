@@ -232,8 +232,12 @@ The preview resolves repository overrides using Outrider's own config loader and
 lists removed keys. Agent, mode, launcher, permissions, sandbox and other execution
 settings are stripped before validation, including inside overrides. `mode` is
 not mapped to Crew trust. The preview and imported YAML omit these fields; the
-source editor is replaced with the cleaned YAML when you use the draft. If own-PR and other-PR settings differ, choose a profile
-explicitly; its values apply repository-wide in Crew. **Use import draft** loads
+source editor is replaced with the cleaned YAML when you use the draft. Own-PR and other-PR differences are preserved automatically: the preview contains
+base settings for other PRs and an ownership override for your PRs. Repository
+matching and override order are resolved by the standalone loader. Scanning
+scopes every ownership override to this repository. The Form editor changes
+base settings and retains overrides; use YAML to edit ownership-specific values.
+**Use import draft** loads
 the preview into the YAML editor, and **Save settings** applies it. The original
 CLI file is never changed or linked. Session settings remain with Crew; custom
 classifier definitions are not imported, and a selected custom launch classifier

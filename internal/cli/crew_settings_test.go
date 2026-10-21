@@ -38,7 +38,7 @@ func TestCrewSettingsYAMLRoundTrip(t *testing.T) {
 }
 
 func TestCrewSettingsRejectsUnsupportedAndInvalidInput(t *testing.T) {
-	for _, input := range []string{"model: custom", "triggers: {mentions: {scope: wrong}}", "workflows: [{name: incomplete}]", "[not, a, mapping]", "triggers: [", strings.Repeat(" ", 131073)} {
+	for _, input := range []string{"model: custom", "overrides: [{match: [{prs: own}], agent: claude}]", "overrides: [{match: [{repo: o/r}], triggers: {}}]", "triggers: {mentions: {scope: wrong}}", "workflows: [{name: incomplete}]", "[not, a, mapping]", "triggers: [", strings.Repeat(" ", 131073)} {
 		t.Run(input[:min(len(input), 30)], func(t *testing.T) {
 			cmd := crewCmd(watch.Deps{})
 			cmd.SetIn(strings.NewReader(input))
@@ -69,15 +69,20 @@ func TestCrewSettingsShowsEffectiveTriggerDefaults(t *testing.T) {
 	require.Equal(t, "eyes", response.Settings.Triggers["opt_in"]["reaction"])
 }
 
-func TestCrewImportResolvesRepoOverridesAndRequiresOwnershipChoice(t *testing.T) {
+func TestCrewImportPreservesOwnershipAndRepoOverrides(t *testing.T) {
 	source := `agent: claude
 launcher: tmux
+workflows:
+  - name: inspect-others
+    match: [{}]
+    steps: [Inspect API]
 triggers:
   opt_in: {reaction: heart}
 overrides:
   - match: [{repo: "o/r"}]
     triggers: {mentions: {enabled: false}}
   - match: [{repo: "o/r", prs: own}]
+    workflows: []
     prompts: {extra: "Own PR instructions"}
 `
 	run := func(repo, profile string) (map[string]any, error) {
@@ -94,8 +99,31 @@ overrides:
 		}
 		return result, err
 	}
-	_, err := run("o/r", "common")
-	require.ErrorContains(t, err, "different own-PR and other-PR settings")
+	preserved, err := run("o/r", "preserve")
+	require.NoError(t, err)
+	original, err := config.Parse([]byte(source), "original")
+	require.NoError(t, err)
+	imported, err := config.Parse([]byte(preserved["yaml"].(string)), "imported")
+	require.NoError(t, err)
+	for _, own := range []bool{true, false} {
+		before, after := original.For("o/r", own), imported.For("o/r", own)
+		require.Equal(t, before.Triggers, after.Triggers)
+		require.Equal(t, before.Prompts, after.Prompts)
+		require.Equal(t, before.Workflows, after.Workflows)
+	}
+	// Form/YAML conversion must retain ownership overrides and explicit empty lists.
+	cmd := crewCmd(watch.Deps{})
+	var out bytes.Buffer
+	cmd.SetIn(strings.NewReader(preserved["yaml"].(string)))
+	cmd.SetOut(&out)
+	cmd.SetArgs([]string{"settings"})
+	require.NoError(t, cmd.Execute())
+	var converted map[string]any
+	require.NoError(t, json.Unmarshal(out.Bytes(), &converted))
+	require.Equal(t, preserved["settings"], converted["settings"])
+	legacy, err := run("o/r", "common")
+	require.NoError(t, err)
+	require.Equal(t, preserved["settings"], legacy["settings"])
 	result, err := run("o/r", "own")
 	require.NoError(t, err)
 	settings := result["settings"].(map[string]any)
