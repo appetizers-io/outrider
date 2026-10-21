@@ -12,6 +12,7 @@ export default function Outrider() {
   const api = useAppApi();
   const [data, setData] = useState(null);
   const [error, setError] = useState('');
+  const [connectionError, setConnectionError] = useState('');
   const [notice, setNotice] = useState('');
   const [busy, setBusy] = useState(false);
   const [view, setView] = useState('inbox');
@@ -33,8 +34,8 @@ export default function Outrider() {
   const [newFolder, setNewFolder] = useState('');
   const [interval, setIntervalValue] = useState(60);
   const refresh = useCallback(async () => {
-    try { const next = await api.get(base + '/status'); setData(next); return next; }
-    catch (e) { setError(e.message || 'Could not reach Outrider'); }
+    try { const next = await api.get(base + '/status'); setData(next); setConnectionError(''); return next; }
+    catch (e) { setConnectionError(e.message || 'Could not reach Outrider'); }
   }, [api]);
   useEffect(() => { refresh(); const timer = setInterval(refresh, 4000); return () => clearInterval(timer); }, [refresh]);
   useEffect(() => {
@@ -169,10 +170,11 @@ export default function Outrider() {
         h('button', { style: view === 'inbox' ? selectedButton : button, disabled: busy, 'aria-current': view === 'inbox' ? 'page' : undefined, onClick: () => { setView('inbox'); setNotice(''); setError(''); } }, 'Inbox'),
         h('button', { style: view === 'repositories' ? selectedButton : button, disabled: busy, 'aria-current': view === 'repositories' ? 'page' : undefined, onClick: () => configure() }, 'Repositories'),
         h('button', { style: view === 'setup' ? selectedButton : button, 'aria-current': view === 'setup' ? 'page' : undefined, disabled: busy, onClick: () => configure('setup') }, 'Add repository'),
-        h('button', { style: button, disabled: busy || data.scanning || !data.config.repos.length, onClick: () => action('/scan') }, data.scanning ? 'Scanning…' : 'Scan now'))),
+        h('button', { style: button, disabled: busy || !!connectionError || data.scanning || !data.config.repos.length, onClick: () => action('/scan') }, connectionError ? 'Reconnecting…' : data.scanning ? 'Scanning…' : 'Scan now'))),
     (error || (view === 'inbox' && data?.error)) && h('p', { role: 'alert', style: { ...box, borderColor: '#c66' } }, error || data.error),
     notice && h('p', { role: 'status' }, notice),
-    !data && !error && h('p', { role: 'status' }, 'Loading…'),
+    connectionError && h('p', { role: 'status', style: box }, 'Connection to Outrider interrupted. Retrying automatically… ', h('button', { style: button, onClick: refresh }, 'Retry now'), h('details', null, h('summary', null, 'Details'), connectionError)),
+    !data && !error && !connectionError && h('p', { role: 'status' }, 'Loading…'),
     data && view === 'setup' && h('form', { style: { ...box, maxWidth: 650 }, onSubmit: addRepository },
       h('label', null, 'Repository', h('input', { style: input, required: true, autoFocus: true, value: newRepo, placeholder: 'owner/repo or https://github.com/owner/repo', onChange: e => setNewRepo(e.target.value) })),
       h('label', null, 'Review folder', folderSelect(newFolder, e => setNewFolder(e.target.value))),
