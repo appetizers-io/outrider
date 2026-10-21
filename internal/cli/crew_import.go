@@ -5,8 +5,11 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"os"
+	"path/filepath"
 	"reflect"
 	"sort"
+	"unicode/utf8"
 
 	"github.com/spf13/cobra"
 	"go.yaml.in/yaml/v3"
@@ -93,4 +96,45 @@ func crewImportSettingsCmd() *cobra.Command {
 	cmd.Flags().StringVar(&repo, "repo", "", "target repository")
 	cmd.Flags().StringVar(&profile, "profile", "common", "common, own or others; chosen settings apply repository-wide")
 	return cmd
+}
+
+// crewDefaultConfigCmd reads only the location selected by the CLI's own rules.
+func crewDefaultConfigCmd() *cobra.Command {
+	return &cobra.Command{Use: "default-config", Short: "Read the default CLI config for an import preview", Args: cobra.NoArgs,
+		RunE: func(cmd *cobra.Command, _ []string) error {
+			path := config.Find("")
+			if path == "" {
+				path = config.DefaultPath()
+			}
+			path, err := filepath.Abs(path)
+			if err != nil {
+				return err
+			}
+			info, err := os.Stat(path)
+			if errors.Is(err, os.ErrNotExist) {
+				return json.NewEncoder(cmd.OutOrStdout()).Encode(map[string]any{"path": path, "found": false, "content": ""})
+			}
+			if err != nil {
+				return fmt.Errorf("read config %s: %w", path, err)
+			}
+			if !info.Mode().IsRegular() {
+				return fmt.Errorf("config %s is not a regular file", path)
+			}
+			if info.Size() > 100000 {
+				return errors.New("CLI configuration exceeds 100 KB; choose a smaller file or paste the relevant settings")
+			}
+			f, err := os.Open(path)
+			if err != nil {
+				return err
+			}
+			defer func() { _ = f.Close() }()
+			raw, err := io.ReadAll(io.LimitReader(f, 100001))
+			if err != nil {
+				return err
+			}
+			if len(raw) > 100000 || !utf8.Valid(raw) {
+				return errors.New("CLI configuration must be UTF-8 text under 100 KB")
+			}
+			return json.NewEncoder(cmd.OutOrStdout()).Encode(map[string]any{"path": path, "found": true, "content": string(raw)})
+		}}
 }

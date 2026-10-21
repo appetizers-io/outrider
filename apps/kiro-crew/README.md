@@ -222,7 +222,12 @@ watch. Form/YAML conversion expands the effective trigger defaults, so all four
 trigger switches and the selected reaction are explicit in YAML.
 
 For an existing standalone configuration, open **Repositories → Import CLI
-configuration**, choose a YAML file or paste its content, then **Preview import**.
+configuration** and click **Load default config**, choose a YAML file, or paste
+its content, then **Preview import**. Default loading follows the CLI: first
+`OUTRIDER_CONFIG`, then legacy `LLM_REVIEW_AGENT_CONFIG`, then
+`$XDG_CONFIG_HOME/outrider/config.yaml` (or `~/.config/outrider/config.yaml`).
+These variables are read from Crew’s environment. The resolved path is shown;
+a missing file leaves the current import text unchanged. Loading is read-only.
 The preview resolves repository overrides using Outrider's own config loader and
 lists skipped keys. If own-PR and other-PR settings differ, choose a profile
 explicitly; its values apply repository-wide in Crew. **Use import draft** loads

@@ -505,6 +505,12 @@ class Handler(BaseHTTPRequestHandler):
             if self.path == "/api/setup":
                 self.reply(202, inbox.generate_setup(payload))
                 return
+            if self.path == "/api/settings/default":
+                result = subprocess.run([find_scanner(), "crew", "default-config"], env=scanner_environment(), capture_output=True, text=True, timeout=15, check=False)
+                if result.returncode:
+                    raise ValueError(result.stderr[-6000:] or "Could not read default CLI config")
+                self.reply(200, json.loads(result.stdout))
+                return
             if self.path == "/api/settings/import":
                 content = payload.get("content")
                 if not isinstance(content, str):

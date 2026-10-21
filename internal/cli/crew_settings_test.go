@@ -3,11 +3,14 @@ package cli
 import (
 	"bytes"
 	"encoding/json"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/require"
 
+	"github.com/appetizers-io/outrider/internal/config"
 	"github.com/appetizers-io/outrider/internal/watch"
 )
 
@@ -106,4 +109,42 @@ overrides:
 	result, err = run("o/other", "common")
 	require.NoError(t, err)
 	require.Equal(t, true, result["settings"].(map[string]any)["triggers"].(map[string]any)["mentions"].(map[string]any)["enabled"])
+}
+
+func TestCrewDefaultConfigUsesCLILocationsWithoutWriting(t *testing.T) {
+	dir := t.TempDir()
+	t.Setenv("XDG_CONFIG_HOME", dir)
+	t.Setenv(config.EnvVar, "")
+	t.Setenv(config.LegacyEnvVar, "")
+	read := func() map[string]any {
+		t.Helper()
+		cmd := crewCmd(watch.Deps{})
+		var out bytes.Buffer
+		cmd.SetOut(&out)
+		cmd.SetArgs([]string{"default-config"})
+		require.NoError(t, cmd.Execute())
+		var response map[string]any
+		require.NoError(t, json.Unmarshal(out.Bytes(), &response))
+		return response
+	}
+	missing := read()
+	require.Equal(t, false, missing["found"])
+	require.Equal(t, config.DefaultPath(), missing["path"])
+	require.NoFileExists(t, config.DefaultPath())
+	require.NoError(t, os.MkdirAll(filepath.Dir(config.DefaultPath()), 0o700))
+	require.NoError(t, os.WriteFile(config.DefaultPath(), []byte("# my config\ntriggers: {}\n"), 0o600))
+	require.Equal(t, "# my config\ntriggers: {}\n", read()["content"])
+	legacy := filepath.Join(dir, "legacy.yaml")
+	require.NoError(t, os.WriteFile(legacy, []byte("# legacy"), 0o600))
+	t.Setenv(config.LegacyEnvVar, legacy)
+	require.Equal(t, legacy, read()["path"])
+	explicit := filepath.Join(dir, "custom.yaml")
+	require.NoError(t, os.WriteFile(explicit, []byte("# custom"), 0o600))
+	t.Setenv(config.EnvVar, explicit)
+	result := read()
+	require.Equal(t, explicit, result["path"])
+	require.Equal(t, "# custom", result["content"])
+	contents, err := os.ReadFile(config.DefaultPath())
+	require.NoError(t, err)
+	require.Equal(t, "# my config\ntriggers: {}\n", string(contents))
 }

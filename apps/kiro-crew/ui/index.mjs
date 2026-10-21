@@ -24,6 +24,7 @@ export default function Outrider() {
   const [editor, setEditor] = useState('form');
   const [yaml, setYaml] = useState('');
   const [setup, setSetup] = useState({});
+  const [configSource, setConfigSource] = useState('');
   const [cliConfig, setCliConfig] = useState('');
   const [importProfile, setImportProfile] = useState('common');
   const [importPreview, setImportPreview] = useState(null);
@@ -43,6 +44,16 @@ export default function Outrider() {
     poll(); const timer = setInterval(poll, 4000);
     return () => { disposed = true; clearInterval(timer); };
   }, [api, setup.status]);
+  async function loadDefaultConfig() {
+    setBusy(true); setError(''); setNotice('');
+    try {
+      const result = await api.post(base + '/settings/default', {});
+      if (!result.found) { setError('No CLI config found at ' + result.path + '. Choose a file or paste YAML below.'); return; }
+      setCliConfig(result.content); setConfigSource(result.path); setImportPreview(null);
+      setNotice('CLI config loaded for preview. Nothing has been applied.');
+    } catch (e) { setError(e.message); }
+    finally { setBusy(false); }
+  }
   async function previewImport() {
     setBusy(true); setError(''); setImportPreview(null);
     try { setImportPreview(await api.post(base + '/settings/import', { repo: selectedRepo, content: cliConfig, profile: importProfile })); }
@@ -172,8 +183,11 @@ export default function Outrider() {
         h('label', null, 'Repository', h('select', { style: input, disabled: busy, value: selectedRepo, onChange: e => selectRepo(e.target.value) }, ...data.config.repos.map(repo => h('option', { key: repo, value: repo }, repo)))),
         h('label', null, 'Review folder', folderSelect(mapping[selectedRepo] || '', e => setMapping({ ...mapping, [selectedRepo]: e.target.value })))),
       h('details', { style: box }, h('summary', { style: { cursor: 'pointer' } }, 'Import CLI configuration'),
-        h('p', null, 'Choose your existing Outrider YAML file or paste it below. Preview the effective settings for this repository before importing.'),
-        h('label', null, 'CLI config file', h('input', { style: input, type: 'file', accept: '.yaml,.yml,.json', onChange: async e => { const file = e.target.files?.[0]; if (!file) return; if (file.size > 100000) { setError('Choose a config smaller than 100 KB'); return; } try { setCliConfig(await file.text()); setImportPreview(null); } catch (e) { setError(e.message); } } })),
+        h('p', null, 'Load your default Outrider config, choose another file, or paste YAML. Preview the settings before importing.'),
+        h('button', { style: button, type: 'button', disabled: busy, onClick: loadDefaultConfig }, 'Load default config'),
+        h('p', { style: { opacity: .7 } }, 'Normally ~/.config/outrider/config.yaml. Respects OUTRIDER_CONFIG, the legacy config variable, and XDG_CONFIG_HOME as seen by Crew.'),
+        configSource && h('p', { style: { overflowWrap: 'anywhere' } }, 'Loaded from: ' + configSource),
+        h('label', null, 'CLI config file', h('input', { style: input, type: 'file', accept: '.yaml,.yml,.json', onChange: async e => { const file = e.target.files?.[0]; if (!file) return; if (file.size > 100000) { setError('Choose a config smaller than 100 KB'); return; } try { setCliConfig(await file.text()); setConfigSource(file.name); setImportPreview(null); } catch (e) { setError(e.message); } } })),
         h('label', null, 'CLI YAML', h('textarea', { style: { ...input, fontFamily: 'monospace' }, rows: 8, value: cliConfig, onChange: e => { setCliConfig(e.target.value); setImportPreview(null); } })),
         h('label', null, 'Settings to import', h('select', { style: input, value: importProfile, onChange: e => { setImportProfile(e.target.value); setImportPreview(null); } }, h('option', { value: 'common' }, 'Common to my PRs and other PRs'), h('option', { value: 'own' }, 'Use my-PR settings for this repository'), h('option', { value: 'others' }, 'Use other-PR settings for this repository'))),
         h('p', { style: { opacity: .7 } }, 'Imports apply repository-wide. Ownership-specific differences require an explicit profile choice. Crew keeps its session settings.'),
