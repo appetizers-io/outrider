@@ -201,10 +201,10 @@ class InboxTest(unittest.TestCase):
         calls = []
         def run(args, **kwargs):
             calls.append(args)
-            return type('Result', (), {'returncode': 0, 'stdout': '--state-dir'})()
+            return type('Result', (), {'returncode': 0, 'stdout': '--state-dir --config-format'})()
         with patch.dict(backend.os.environ, {}, clear=True):
             self.assertEqual(backend.find_scanner(run), str(Path.home() / '.local/bin/outrider'))
-        self.assertEqual(len(calls), 1)
+        self.assertEqual(len(calls), 3)
         with patch.dict(backend.os.environ, {'OUTRIDER_BIN': '/missing/out'}, clear=True):
             with self.assertRaisesRegex(RuntimeError, 'No compatible'):
                 backend.find_scanner(lambda *a, **kw: type('Result', (), {'returncode': 0, 'stdout': 'old CLI'})())
@@ -514,14 +514,17 @@ class InboxTest(unittest.TestCase):
             def log_message(self, *_args):
                 pass
             def do_POST(self):
+                self.rfile.read(int(self.headers.get("Content-Length", "0")))
                 calls.append((self.path, dict(self.headers)))
                 if self.path.endswith('/token'):
                     value, status = {'token': 'test-token'}, 200
                 else:
                     value, status = {'error': 'denied'}, 403
+                body = json.dumps(value).encode()
                 self.send_response(status)
+                self.send_header("Content-Length", str(len(body)))
                 self.end_headers()
-                self.wfile.write(json.dumps(value).encode())
+                self.wfile.write(body)
         server = backend.ThreadingHTTPServer(('127.0.0.1', 0), GatewayHandler)
         threading.Thread(target=server.serve_forever, daemon=True).start()
         self.addCleanup(server.server_close)

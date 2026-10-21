@@ -4,13 +4,11 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
-	"fmt"
 	"io"
 	"log/slog"
 	"time"
 
 	"github.com/spf13/cobra"
-	"go.yaml.in/yaml/v3"
 
 	"github.com/appetizers-io/outrider/internal/config"
 	"github.com/appetizers-io/outrider/internal/crew"
@@ -69,90 +67,11 @@ func crewCmd(d watch.Deps) *cobra.Command {
 			if len(raw) > 131072 {
 				return errors.New("repository settings exceed 128 KiB")
 			}
-			var settings map[string]any
-			if err := yaml.Unmarshal(raw, &settings); err != nil {
-				return err
-			}
-			if settings == nil {
-				settings = map[string]any{}
-			}
-			allowed := map[string]bool{"triggers": true, "ignore_authors": true, "launch_check": true, "prompts": true, "workflows": true, "overrides": true, "others_prs": true, "push": true, "github_writes": true}
-			if err := validateCrewTaskPolicy(settings); err != nil {
-				return err
-			}
-			for key := range settings {
-				if !allowed[key] {
-					return fmt.Errorf("unsupported repository setting %q; session settings belong to Crew", key)
-				}
-			}
-			if entries, exists := settings["overrides"]; exists {
-				overrides, ok := entries.([]any)
-				if !ok {
-					return errors.New("overrides must be a list")
-				}
-				for _, entry := range overrides {
-					layer, ok := entry.(map[string]any)
-					if !ok {
-						return errors.New("override must be a mapping")
-					}
-					if err := validateCrewTaskPolicy(layer); err != nil {
-						return err
-					}
-					for key := range layer {
-						if key != "match" && (!allowed[key] || key == "overrides") {
-							return fmt.Errorf("unsupported ownership setting %q", key)
-						}
-					}
-					matches, ok := layer["match"].([]any)
-					if !ok || len(matches) == 0 {
-						return errors.New("ownership override needs a match")
-					}
-					for _, entry := range matches {
-						match, ok := entry.(map[string]any)
-						if !ok || len(match) != 1 || (match["prs"] != "own" && match["prs"] != "others") {
-							return errors.New("repository ownership overrides match only prs: own or others")
-						}
-					}
-				}
-			}
-			encoded, err := yaml.Marshal(settings)
+			result, err := crew.ConvertSettings(raw)
 			if err != nil {
 				return err
 			}
-			cfg, err := config.Parse(encoded, "repository settings")
-			if err != nil {
-				return err
-			}
-			// Show the same effective trigger values as the assisted form.
-			triggerData, err := yaml.Marshal(cfg.Triggers)
-			if err != nil {
-				return err
-			}
-			var triggers map[string]any
-			if err := yaml.Unmarshal(triggerData, &triggers); err != nil {
-				return err
-			}
-			settings["triggers"] = triggers
-			encoded, err = yaml.Marshal(settings)
-			if err != nil {
-				return err
-			}
-			return json.NewEncoder(cmd.OutOrStdout()).Encode(map[string]any{"settings": settings, "yaml": string(encoded)})
+			return json.NewEncoder(cmd.OutOrStdout()).Encode(result)
 		}})
 	return cmd
-}
-
-func validateCrewTaskPolicy(layer map[string]any) error {
-	if value, exists := layer["others_prs"]; exists {
-		others, ok := value.(map[string]any)
-		if !ok {
-			return errors.New("others_prs must be a mapping")
-		}
-		for key := range others {
-			if key != "allow_push" && key != "review_forks" {
-				return fmt.Errorf("unsupported Crew others_prs setting %q", key)
-			}
-		}
-	}
-	return nil
 }

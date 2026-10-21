@@ -69,10 +69,13 @@ def find_scanner(runner=subprocess.run):
         try:
             probe = runner([candidate, "crew", "scan", "--help"], capture_output=True, text=True, timeout=10, check=False)
             if probe.returncode == 0 and "--state-dir" in probe.stdout:
-                return candidate
+                prompt = runner([candidate, "crew", "session-prompt", "--help"], capture_output=True, text=True, timeout=10, check=False)
+                mcp = runner([candidate, "mcp", "--help"], capture_output=True, text=True, timeout=10, check=False)
+                if prompt.returncode == 0 and mcp.returncode == 0 and "--config-format" in mcp.stdout:
+                    return candidate
         except (OSError, subprocess.TimeoutExpired):
             continue
-    raise RuntimeError("No compatible Outrider binary found. Install this branch with task install (requires crew scan --state-dir), or set OUTRIDER_BIN to its absolute path, then scan again.")
+    raise RuntimeError("No compatible Outrider binary found. Install a current Outrider release (requires crew scan, crew session-prompt and mcp), or build this source with task install, or set OUTRIDER_BIN to its absolute path, then scan again.")
 
 
 def convert_settings(content):
@@ -991,6 +994,9 @@ triggers:
 ignore_authors: [] # login globs
 launch_check: {classifier: null, skip_below: 0.5} # null disables classifier; jev selects built-in
 prompts: {extra: ""}
+push: ask # ask | never | allow; task instructions, Crew controls tools
+github_writes: ask # same values; never overrides Crew permissions
+others_prs: {allow_push: false, review_forks: null} # null: verified origin fork; []: no evidence fork
 workflows:
   - name: unique-name
     match: [{}] # each entry ANDs repo, prs (own|others), authors (list), labels (list), title (glob), head (glob), events (list)
@@ -999,7 +1005,7 @@ workflows:
     post: false
 Workflow event names: notification, own_pr, opt_in, review_change, review_reply, mention.
 Reply scope: thread or pr. Mention scope: comment or pr. Reaction: +1, -1, laugh, confused, heart, hooray, rocket, eyes.
-Snapshot workflows have no tools: do not promise tests, checkout, edits, or GitHub posts. The output is a draft for human review, never apply it.
+Local workflows run in Crew sessions under task policies and Crew tool approvals. Text-only snapshot reviews cannot run tools and must report such steps as blocked. The output is a draft for human review, never apply it.
 """
 
 if __name__ == "__main__":

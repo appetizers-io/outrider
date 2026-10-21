@@ -1,33 +1,19 @@
 import importlib.util
-import json
 from pathlib import Path
-import tempfile
 import unittest
 from unittest.mock import patch
 
-spec = importlib.util.spec_from_file_location('outrider_mcp', Path(__file__).resolve().parents[1] / 'backend/mcp_server.py')
-mcp = importlib.util.module_from_spec(spec)
-spec.loader.exec_module(mcp)
+spec = importlib.util.spec_from_file_location('outrider_mcp_launcher', Path(__file__).resolve().parents[1] / 'backend/mcp_launcher.py')
+launcher = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(launcher)
 
 
-class MCPTest(unittest.TestCase):
-    def request(self, method, params=None):
-        return mcp.handle({'jsonrpc': '2.0', 'id': 1, 'method': method, 'params': params or {}})
-
-    def test_handshake_and_only_readonly_tools(self):
-        result = self.request('initialize', {'protocolVersion': '2025-03-26'})['result']
-        self.assertEqual(result['protocolVersion'], '2025-03-26')
-        tools = self.request('tools/list')['result']['tools']
-        self.assertTrue(all(tool['annotations']['readOnlyHint'] for tool in tools))
-        self.assertIsNone(mcp.handle({'jsonrpc': '2.0', 'method': 'notifications/initialized'}))
-        self.assertEqual(self.request('unknown')['error']['code'], -32601)
-
-    def test_proposal_does_not_write_and_invalid_config_is_error(self):
-        with tempfile.TemporaryDirectory() as directory, patch.object(mcp, 'DATA', Path(directory)):
-            with patch.object(mcp, 'convert_settings', return_value={'yaml': '{}', 'settings': {}}):
-                result = self.request('tools/call', {'name': 'propose_repository_config', 'arguments': {'repo': 'o/r', 'yaml': '{}'}})
-                self.assertFalse(json.loads(result['result']['content'][0]['text'])['applied'])
-            with patch.object(mcp, 'convert_settings', side_effect=ValueError('Invalid scope')):
-                result = self.request('tools/call', {'name': 'propose_repository_config', 'arguments': {'repo': 'o/r', 'yaml': 'bad'}})
-                self.assertTrue(result['result']['isError'])
-            self.assertEqual(list(Path(directory).iterdir()), [])
+class MCPLauncherTest(unittest.TestCase):
+    def test_launcher_selects_only_its_installed_instance(self):
+        with patch.object(launcher, 'find_scanner', return_value='/bin/outrider'), patch.object(launcher, 'scanner_environment', return_value={'PATH': '/bin', 'OUTRIDER_CONFIG': '/host/config.yaml'}), patch.object(launcher.os, 'execve') as execute:
+            launcher.launch()
+        binary, args, env = execute.call_args.args
+        data = Path(launcher.__file__).resolve().parents[1] / 'data'
+        self.assertEqual(binary, '/bin/outrider')
+        self.assertEqual(args, [binary, 'mcp', '--config-format', 'crew', '--config', str(data / 'settings.json'), '--state-dir', str(data)])
+        self.assertEqual(env['OUTRIDER_CONFIG'], '/host/config.yaml')

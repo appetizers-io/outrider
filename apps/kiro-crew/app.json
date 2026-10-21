@@ -43,6 +43,7 @@
     "commands": [
       "outrider",
       "gh",
+      "git",
       "python3"
     ]
   },
@@ -57,7 +58,7 @@
       "command": "python3",
       "args": [
         "-c",
-        "from kiro_crew.apps.manager import app_dir; import runpy; runpy.run_path(str(app_dir(\"outrider\") / \"backend/mcp_server.py\"), run_name=\"__main__\")"
+        "from kiro_crew.apps.manager import app_dir; import runpy; runpy.run_path(str(app_dir(\"outrider\") / \"backend/mcp_launcher.py\"), run_name=\"__main__\")"
       ]
     }
   },
@@ -69,5 +70,27 @@
         "icon": "GitPullRequest"
       }
     ]
-  }
+  },
+  "license": "Apache-2.0",
+  "minKiroCrewVersion": "0.9.0",
+  "tags": [
+    "github",
+    "pull-requests",
+    "code-review",
+    "developer-tools"
+  ],
+  "jobFamilies": [
+    "Engineering"
+  ],
+  "repo": "https://github.com/appetizers-io/outrider",
+  "iconPath": "assets/icon.png",
+  "heroImageDetail": "assets/banner.png",
+  "heroImageDetailDark": "assets/banner.png",
+  "highlights": [
+    "Turn GitHub PR activity into a durable, filterable work queue",
+    "Start Crew sessions in isolated worktrees of your local checkout",
+    "Configure triggers and workflows per repository, or import CLI YAML",
+    "Choose reviewer members and trust settings with repository overrides",
+    "Keep task context and ownership rules consistent with Outrider CLI"
+  ]
 }

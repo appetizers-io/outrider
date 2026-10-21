@@ -34,7 +34,15 @@ func TestCrewSessionPromptUsesExplicitConfigAndVerifiedFork(t *testing.T) {
 			var out bytes.Buffer
 			cmd.SetOut(&out)
 			cmd.SetArgs([]string{"session-prompt"})
-			cmd.SetIn(strings.NewReader(`{"item":{"repo":"o/r","pr":1,"trigger":"mention","scope":["https://github.com/o/r/pull/1#issuecomment-2"]},"remote":"upstream","origin":"me/fork","branch":"review/local","settings":{"prompts":{"extra":"others guidance"},"overrides":[{"match":[{"prs":"own"}],"prompts":{"extra":"own guidance"}}]}}`))
+			var input map[string]any
+			require.NoError(t, json.Unmarshal([]byte(`{"item":{"repo":"o/r","pr":1,"trigger":"mention","scope":["https://github.com/o/r/pull/1#issuecomment-2"]},"remote":"upstream","origin":"me/fork","branch":"review/local","settings":{"prompts":{"extra":"others guidance"},"overrides":[{"match":[{"prs":"own"}],"prompts":{"extra":"own guidance"}}]}}`), &input))
+			if author == "other" {
+				input["item"].(map[string]any)["workflow"] = "technical-review"
+				input["settings"].(map[string]any)["workflows"] = []any{map[string]any{"name": "technical-review", "match": []any{map[string]any{"prs": "others"}}, "steps": []string{"Load the repository profile", "Review the full diff"}}}
+			}
+			encoded, err := json.Marshal(input)
+			require.NoError(t, err)
+			cmd.SetIn(bytes.NewReader(encoded))
 			require.NoError(t, cmd.Execute())
 			var result map[string]string
 			require.NoError(t, json.Unmarshal(out.Bytes(), &result))
@@ -44,10 +52,14 @@ func TestCrewSessionPromptUsesExplicitConfigAndVerifiedFork(t *testing.T) {
 			if author == "me" {
 				require.Contains(t, p, "OWN PR")
 				require.Contains(t, p, "own guidance")
+				require.NotContains(t, p, "WORKFLOW:")
 			} else {
 				require.Contains(t, p, "REVIEW WITH EVIDENCE")
 				require.Contains(t, p, "me/fork")
 				require.Contains(t, p, "others guidance")
+				require.Contains(t, p, "WORKFLOW: technical-review")
+				require.Contains(t, p, "1. Load the repository profile")
+				require.Contains(t, p, "2. Review the full diff")
 			}
 		})
 	}

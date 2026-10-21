@@ -2,7 +2,7 @@
 
 A Crew app backed by Outrider's Go notification poller. Choose repositories,
 poll actionable PR activity, and process it through a PR work queue. Enable
-automatic local validation per repository or start work manually. Crew owns
+automatic local PR sessions per repository or start work manually. Crew owns
 session settings; Outrider does not publish findings to GitHub.
 
 ## Install from this checkout
@@ -209,8 +209,11 @@ The app contributes an `outrider` stdio MCP server, registered by Crew as
 Proposals are validated YAML and do not write configuration or launch reviews.
 Agents can use these tools subject to Crew's normal MCP permissions. Neither the
 snapshot reviewer nor the setup assistant imports MCP tools. The manifest uses
-Crew's Python interpreter resolution and installed app-directory lookup so it
-works independently of the GUI PATH.
+Crew's Python interpreter only for a small launcher: it locates the installed
+Outrider binary and runs `outrider mcp --config-format crew` with explicit
+`--config` and `--state-dir` paths for this app. The protocol and tools live in
+the Go binary, using the official MCP Go SDK. No host config fallback occurs.
+See [portable MCP setup](https://github.com/appetizers-io/outrider/blob/main/docs/mcp.md) for other clients.
 
 The app uses the official Outrider logo at `ui/logo.svg` in its header and sidebar.
 The original logo and README banner are stored in `docs/brand/` at the repository
@@ -392,3 +395,8 @@ Run `task crew:test` for backend lifecycle regressions and the Node UI tests.
 The UI harness loads the entire ES module graph with host React/SDK substitutes,
 renders every view, and checks key actions and save boundaries. It requires no
 npm install or bundle step; it does not replace visual checks in Crew.
+
+### Release preparation
+
+See [release preparation](release/README.md) for the package, compatible CLI
+requirement, and App Store registry submission draft.

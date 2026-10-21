@@ -46,6 +46,8 @@ jobs:
         with:
           version: 3.x
       - run: task test
+      - run: task crew:test
+      - run: task crew:package
       - name: git-cliff arguments
         id: args
         env:
