@@ -640,15 +640,26 @@ class LocalValidationTest(unittest.TestCase):
         self.assertEqual(restarted.validations[self.item['id']]['slot'], 'outrider-local-test')
 
     def test_real_worktree_preserves_dirty_checkout(self):
+        self.verify_real_worktree(detached=False)
+
+    def test_real_worktree_preserves_detached_checkout(self):
+        self.verify_real_worktree(detached=True)
+
+    def verify_real_worktree(self, detached):
         source = backend.ROOT.parents[1]
         checkout = self.root / 'fork'
         backend.subprocess.run(['git', 'clone', '--shared', str(source), str(checkout)], check=True, capture_output=True)
         real_git = lambda cwd, *args: backend.Inbox.git(self.inbox, cwd, *args)
+        if detached:
+            real_git(checkout, 'switch', '--detach')
+        else:
+            real_git(checkout, 'switch', '-c', 'validation-fixture')
         self.item['head'] = real_git(checkout, 'rev-parse', 'HEAD')
         real_git(checkout, 'remote', 'add', 'upstream', 'git@github.com:o/r.git')
         (checkout / 'uncommitted-validation-test.txt').write_text('keep this untouched')
         before = real_git(checkout, 'status', '--porcelain')
-        branch = real_git(checkout, 'symbolic-ref', 'HEAD')
+        # PR checkouts in CI are detached; preserve that state as well as named branches.
+        branch = real_git(checkout, 'rev-parse', '--abbrev-ref', 'HEAD')
         old_root = self.root
         self.root = checkout
         def git(cwd, *args):
@@ -661,7 +672,8 @@ class LocalValidationTest(unittest.TestCase):
             self.inbox.validate_local(self.item, 'child', 'upstream', {'workflows': [{'name': 'test', 'steps': ['Inspect code']}]})
             record = self.inbox.validations[self.item['id']]
             self.assertEqual(record['status'], 'started', record)
-            self.assertEqual(real_git(checkout, 'symbolic-ref', 'HEAD'), branch)
+            self.assertEqual(real_git(checkout, 'rev-parse', '--abbrev-ref', 'HEAD'), branch)
+            self.assertEqual(real_git(checkout, 'rev-parse', 'HEAD'), self.item['head'])
             # Ignore only the newly created .claude directory, if not globally ignored.
             after = real_git(checkout, 'status', '--porcelain')
             self.assertEqual(after.replace('?? .claude/\n', '').replace('\n?? .claude/', ''), before)
