@@ -39,6 +39,8 @@ class ReleaseStagingTests(unittest.TestCase):
             archive = ROOT / 'build/crew/outrider-crew-1.2.3.tar.gz'
             try:
                 with tarfile.open(archive) as package:
+                    self.assertTrue(all('\\' not in name for name in package.getnames()))
+                    self.assertIn('outrider/backend/server.py', package.getnames())
                     lock = json.load(package.extractfile('outrider/release/runtime.json'))
                     provenance = json.load(package.extractfile('outrider/release-info.json'))
                 self.assertEqual(lock['version'], 'v1.2.3')

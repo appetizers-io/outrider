@@ -39,7 +39,7 @@ provenance = json.dumps({'app_version': manifest['version'], 'source_commit': co
 OUT.mkdir(parents=True, exist_ok=True)
 archive = OUT / f'outrider-crew-{manifest["version"]}.tar.gz'
 with archive.open('wb') as raw, gzip.GzipFile(fileobj=raw, mode='wb', filename='', mtime=0) as compressed, tarfile.open(fileobj=compressed, mode='w') as tar:
-    entries = [(str(path.relative_to(APP)), path.read_bytes()) for path in files] + [('release-info.json', provenance)]
+    entries = [(path.relative_to(APP).as_posix(), path.read_bytes()) for path in files] + [('release-info.json', provenance)]
     for name, data in sorted(entries):
         info = tarfile.TarInfo('outrider/' + name)
         info.size = len(data)
