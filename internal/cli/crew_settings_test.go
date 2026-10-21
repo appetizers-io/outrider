@@ -204,11 +204,12 @@ overrides:
 		Skipped  []string       `json:"skipped"`
 	}
 	require.NoError(t, json.Unmarshal(out.Bytes(), &result))
-	for _, key := range []string{"agent", "mode", "sandbox", "push", "isolation"} {
+	for _, key := range []string{"agent", "mode", "sandbox", "isolation"} {
 		require.NotContains(t, result.Settings, key)
 		require.NotContains(t, result.YAML, key+":")
 		require.Contains(t, result.Skipped, key)
 	}
+	require.Equal(t, "allow", result.Settings["push"])
 	require.Contains(t, result.Skipped, "overrides[0].agent")
 	require.Contains(t, result.Skipped, "overrides[0].tool_gate")
 	require.Contains(t, result.YAML, "reaction: rocket")

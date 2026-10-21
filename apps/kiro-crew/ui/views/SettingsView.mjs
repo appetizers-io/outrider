@@ -11,6 +11,8 @@ export function SettingsView({
   members,
   trustDefault,
   setTrustDefault,
+  candidateLimit,
+  setCandidateLimit,
   lookback,
   setLookback,
   maxSessions,
@@ -99,6 +101,18 @@ export function SettingsView({
       h(
         "label",
         null,
+        "Candidate limit",
+        h("input", {
+          style: { ...input, maxWidth: 180 },
+          type: "number",
+          min: 1,
+          value: candidateLimit,
+          onChange: (e) => setCandidateLimit(e.target.value),
+        }),
+      ),
+      h(
+        "label",
+        null,
         "Maximum active sessions",
         h("input", {
           style: { ...input, maxWidth: 180 },
@@ -116,8 +130,7 @@ export function SettingsView({
         h("input", {
           style: { ...input, maxWidth: 180 },
           type: "number",
-          min: 30,
-          max: 3600,
+          min: 10,
           value: interval,
           onChange: (e) => setIntervalValue(e.target.value),
         }),

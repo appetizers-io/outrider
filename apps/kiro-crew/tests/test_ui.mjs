@@ -206,12 +206,10 @@ test("queue filters, session links and explicit retry preserve their actions", a
 test("global save does not persist unsaved repository drafts", async () => {
   const app = await mount();
   await app.controller().header.configure("settings");
-  app
-    .controller()
-    .repository.editor.editOptions((current) => ({
-      ...current,
-      ignore_authors: ["draft-only"],
-    }));
+  app.controller().repository.editor.editOptions((current) => ({
+    ...current,
+    ignore_authors: ["draft-only"],
+  }));
   app.controller().settings.setLookback(4);
   await app.controller().settings.saveGlobal({ preventDefault() {} });
   const payload = app.requests.at(-1).payload;
@@ -239,4 +237,24 @@ test("queue selector keeps active older work and hides completed history", () =>
   );
   assert.equal(selectQueue(data, "", false).pendingCount, 1);
   assert.equal(selectQueue(data, "", true).items.length, 3);
+});
+
+test("CLI import applies polling only when its repository draft is saved", async () => {
+  const app = await mount();
+  await app.controller().header.configure("repositories");
+  app
+    .controller()
+    .setImportPreview({
+      settings: {},
+      yaml: "{}",
+      polling: { interval_seconds: 10, lookback_hours: 4, candidate_limit: 12 },
+    });
+  app.controller().useImport();
+  assert.equal(app.requests.filter((r) => r.url.endsWith("/config")).length, 0);
+  await app.controller().repository.save({ preventDefault() {} });
+  const saved = app.requests.find((r) => r.url.endsWith("/config")).payload;
+  assert.equal(saved.interval, 10);
+  assert.equal(saved.lookback_hours, 4);
+  assert.equal(saved.candidate_limit, 12);
+  assert.equal(saved.max_sessions, 3);
 });

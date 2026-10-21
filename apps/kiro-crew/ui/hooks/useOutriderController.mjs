@@ -24,6 +24,8 @@ export function useOutriderController() {
   const [mapping, setMapping] = useState({});
   const [validationRemotes, setValidationRemotes] = useState({});
   const [queueRepo, setQueueRepo] = useState("");
+  const [importedPolling, setImportedPolling] = useState({});
+  const [candidateLimit, setCandidateLimit] = useState(50);
   const [lookback, setLookback] = useState(168);
   const [automatic, setAutomatic] = useState({});
   const [automaticDefault, setAutomaticDefault] = useState(false);
@@ -82,6 +84,7 @@ export function useOutriderController() {
     generateSetup,
     useProposal,
   } = useSetupDrafts({
+    setImportedPolling,
     api,
     setBusy,
     setError,
@@ -115,6 +118,7 @@ export function useOutriderController() {
       );
       setIntervalValue(data.config.interval);
       setLookback(data.config.lookback_hours || 168);
+      setCandidateLimit(data.config.candidate_limit || 50);
       setInitialized(true);
     }
     setView(target);
@@ -192,6 +196,7 @@ export function useOutriderController() {
           ...data.config,
           interval: Number(interval),
           lookback_hours: Number(lookback),
+          candidate_limit: Number(candidateLimit),
           automatic_default: automaticDefault,
           session_trust_default: trustDefault,
           reviewer_default: reviewerDefault,
@@ -211,11 +216,21 @@ export function useOutriderController() {
     setError("");
     try {
       const settings = { ...repoSettings, [selectedRepo]: await draft() };
+      const polling = importedPolling[selectedRepo] || {};
       if (
         await action("/config", {
           ...data.config,
           folders: mapping,
           repo_settings: settings,
+          ...(polling.interval_seconds !== undefined
+            ? { interval: polling.interval_seconds }
+            : {}),
+          ...(polling.lookback_hours !== undefined
+            ? { lookback_hours: polling.lookback_hours }
+            : {}),
+          ...(polling.candidate_limit !== undefined
+            ? { candidate_limit: polling.candidate_limit }
+            : {}),
           validation_remotes: validationRemotes,
           automatic,
           session_trust: trustOverrides,
@@ -223,6 +238,17 @@ export function useOutriderController() {
         })
       ) {
         setRepoSettings(settings);
+        if (polling.interval_seconds !== undefined)
+          setIntervalValue(polling.interval_seconds);
+        if (polling.lookback_hours !== undefined)
+          setLookback(polling.lookback_hours);
+        if (polling.candidate_limit !== undefined)
+          setCandidateLimit(polling.candidate_limit);
+        setImportedPolling((previous) => {
+          const next = { ...previous };
+          delete next[selectedRepo];
+          return next;
+        });
         setNotice("Repository settings saved.");
       }
     } catch (e) {
@@ -315,6 +341,8 @@ export function useOutriderController() {
       members,
       trustDefault,
       setTrustDefault,
+      candidateLimit,
+      setCandidateLimit,
       lookback,
       setLookback,
       maxSessions,

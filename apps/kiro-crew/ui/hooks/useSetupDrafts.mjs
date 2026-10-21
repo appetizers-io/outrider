@@ -14,6 +14,7 @@ export function useSetupDrafts({
   setRepoSettings,
   repoSettings,
   setEditor,
+  setImportedPolling,
 }) {
   const [setup, setSetup] = useState({});
   const [configSource, setConfigSource] = useState("");
@@ -84,6 +85,10 @@ export function useSetupDrafts({
     }
   }
   function useImport() {
+    setImportedPolling((previous) => ({
+      ...previous,
+      [selectedRepo]: importPreview.polling || {},
+    }));
     setAdvanced(JSON.stringify(importPreview.settings, null, 2));
     setYaml(importPreview.yaml);
     setRepoSettings({

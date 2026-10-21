@@ -104,7 +104,13 @@ export function ImportPreviewDialog({ preview, onDismiss, onUse }) {
               background: "#0002",
             },
           },
-          preview.yaml,
+          (Object.keys(preview.polling || {}).length
+            ? "# Global polling settings (apply to all repositories)\n" +
+              Object.entries(preview.polling)
+                .map(([key, value]) => key + ": " + value)
+                .join("\n") +
+              "\n\n# Repository settings\n"
+            : "") + preview.yaml,
         ),
       ),
       h(

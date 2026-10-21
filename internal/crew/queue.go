@@ -23,17 +23,19 @@ import (
 
 // Item is an immutable, bounded snapshot; Crew owns execution status separately.
 type Item struct {
-	ID        string `json:"id"`
-	Repo      string `json:"repo"`
-	PR        int    `json:"pr"`
-	Title     string `json:"title"`
-	URL       string `json:"url"`
-	Head      string `json:"head"`
-	Trigger   string `json:"trigger"`
-	Created   string `json:"created"`
-	Prompt    string `json:"prompt"`
-	Truncated bool   `json:"truncated"`
-	Workflow  string `json:"workflow,omitempty"`
+	Scope     []string `json:"scope"`
+	ScopeWhy  string   `json:"scope_why,omitempty"`
+	ID        string   `json:"id"`
+	Repo      string   `json:"repo"`
+	PR        int      `json:"pr"`
+	Title     string   `json:"title"`
+	URL       string   `json:"url"`
+	Head      string   `json:"head"`
+	Trigger   string   `json:"trigger"`
+	Created   string   `json:"created"`
+	Prompt    string   `json:"prompt"`
+	Truncated bool     `json:"truncated"`
+	Workflow  string   `json:"workflow,omitempty"`
 }
 
 // Scanner queues matched events before acknowledging them in its own poll state.
@@ -205,7 +207,7 @@ func (s *Scanner) enqueue(ctx context.Context, r session.Request, cfg config.Con
 		return errors.New("snapshot scope exceeds the Crew prompt limit")
 	}
 	id := fmt.Sprintf("%x", sha256.Sum256([]byte(prompt)))
-	item := Item{ID: id, Repo: r.Repo, PR: r.N, Title: r.PR.Title, URL: fmt.Sprintf("https://github.com/%s/pull/%d", r.Repo, r.N), Head: meta.Head, Trigger: r.Trigger, Created: time.Now().UTC().Format(time.RFC3339), Prompt: prompt, Truncated: truncated, Workflow: workflowName}
+	item := Item{Scope: r.Scope, ScopeWhy: r.ScopeWhy, ID: id, Repo: r.Repo, PR: r.N, Title: r.PR.Title, URL: fmt.Sprintf("https://github.com/%s/pull/%d", r.Repo, r.N), Head: meta.Head, Trigger: r.Trigger, Created: time.Now().UTC().Format(time.RFC3339), Prompt: prompt, Truncated: truncated, Workflow: workflowName}
 	queue := filepath.Join(s.Dir, "queue")
 	if err := os.MkdirAll(queue, 0o700); err != nil {
 		return err

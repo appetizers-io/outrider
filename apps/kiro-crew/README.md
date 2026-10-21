@@ -232,7 +232,7 @@ its content, then **Preview import**. Default loading follows the CLI: first
 These variables are read from Crew’s environment. The resolved path is shown;
 a missing file leaves the current import text unchanged. Loading is read-only.
 The preview resolves repository overrides using Outrider's own config loader and
-lists removed keys. Agent, mode, launcher, permissions, sandbox and other execution
+lists removed keys. Agent, mode, launcher, sandbox and other execution
 settings are stripped before validation, including inside overrides. `mode` is
 not mapped to Crew trust. The preview and imported YAML omit these fields; the
 source editor is replaced with the cleaned YAML when you use the draft. Own-PR and other-PR differences are preserved automatically: the preview contains
@@ -244,8 +244,12 @@ base settings and retains overrides; use YAML to edit ownership-specific values.
 the preview into the YAML editor, and **Save settings** applies it. The original
 CLI file is never changed or linked. Session settings remain with Crew; custom
 classifier definitions are not imported, and a selected custom launch classifier
-is disabled in the draft with a warning. Review profiles, tool-based workflow
-execution, and standalone process settings are outside this import's scope.
+is disabled in the draft with a warning. Review profiles and standalone process settings remain outside this import's scope.
+Task policies (`push`, `github_writes`, `others_prs.allow_push`, and
+`others_prs.review_forks`) are preserved; `others_prs.sandbox` is removed.
+Polling interval, lookback hours and candidate limit appear separately in the
+preview as global settings. Saving the imported repository draft applies those
+global polling values too. Import does not change Crew trust or maximum sessions.
 
 
 ### Validate upstream PRs in a local fork
@@ -257,21 +261,28 @@ from the folder's `project_dir`, including inherited parent folders; set that
 in Crew first if it is missing. Only remotes pointing to the watched GitHub
 repository are offered. Both SSH and HTTPS GitHub remotes are supported.
 
-The inbox now offers **Validate locally** alongside **Review without tools**. Local
+The queue offers **Start session**, with **Review without tools** under Advanced. Local
 validation fetches the upstream PR head and checks it still matches the captured
-commit. It creates a detached worktree at
+commit. It creates a worktree on a unique `review/outrider-…` branch at
 `<primary-checkout>/.claude/worktrees/outrider-<snapshot-id-prefix>` without
 switching branches or touching uncommitted work in the original checkout.
 A regular app-owned Crew chat is created in the selected folder and bound to the
-worktree. No agent, model, backend, trust, or approval settings are supplied:
-Crew's default chat agent and session configuration apply. This does not inherit
-per-chat overrides from some other existing chat.
+worktree. The configured global/per-repository Crew member and trust preferences
+apply; model and tool configuration belong to Crew.
 
-The chat receives the PR identity, pinned commit, and the selected workflow's
-steps from the current saved repository settings. It can inspect code and run
-validation tools subject to Crew approval. Validation instructions prohibit
-committing, pushing or posting to GitHub; this is a task scope, not a replacement
-for Crew's permission enforcement. Snapshot reviews retain their no-tools policy.
+Local sessions use the shared CLI task template: PR metadata, trigger, scoped
+comments, ownership-specific branch rules, workflows and additional guidance.
+Own PRs can be maintained; other PRs remain review-only unless the task policy
+allows fixes or fork evidence. An omitted review-fork list can resolve to the
+checkout's origin only after GitHub verifies that it is your fork of the watched
+repository. An explicit empty list disables that behavior.
+
+Push/post settings constrain the task; they do not install CLI guards. `ask`
+requests explicit confirmation in the chat, `never` prohibits the action, and
+Crew's tool approvals still apply. The prompt does not claim CLI approval dialogs
+or sandbox enforcement. Workflow posting intent is honored only within these
+task boundaries. Text-only snapshot reviews retain their no-tools policy.
+Existing chats keep their original prompt; the new behavior applies to new sessions.
 
 Progress, approvals, and final validation results live in the Crew chat. The
 inbox records `started` as a successful handoff, not as completed validation.

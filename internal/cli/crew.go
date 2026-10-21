@@ -59,7 +59,7 @@ func crewCmd(d watch.Deps) *cobra.Command {
 	scan.Flags().StringVar(&source, "config", "", "optional Outrider YAML config (otherwise built-in defaults)")
 	scan.Flags().StringArrayVar(&repos, "repo", nil, "repository allowlist, owner/repo or glob (repeatable)")
 	scan.Flags().BoolVar(&existing, "process-existing", false, "queue existing activity on the first scan")
-	cmd.AddCommand(scan, crewImportSettingsCmd(), crewDefaultConfigCmd())
+	cmd.AddCommand(crewPromptCmd(d), scan, crewImportSettingsCmd(), crewDefaultConfigCmd())
 	cmd.AddCommand(&cobra.Command{Use: "settings", Short: "Validate and convert Crew repository YAML from stdin", Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			raw, err := io.ReadAll(io.LimitReader(cmd.InOrStdin(), 131073))
@@ -76,7 +76,10 @@ func crewCmd(d watch.Deps) *cobra.Command {
 			if settings == nil {
 				settings = map[string]any{}
 			}
-			allowed := map[string]bool{"triggers": true, "ignore_authors": true, "launch_check": true, "prompts": true, "workflows": true, "overrides": true}
+			allowed := map[string]bool{"triggers": true, "ignore_authors": true, "launch_check": true, "prompts": true, "workflows": true, "overrides": true, "others_prs": true, "push": true, "github_writes": true}
+			if err := validateCrewTaskPolicy(settings); err != nil {
+				return err
+			}
 			for key := range settings {
 				if !allowed[key] {
 					return fmt.Errorf("unsupported repository setting %q; session settings belong to Crew", key)
@@ -91,6 +94,9 @@ func crewCmd(d watch.Deps) *cobra.Command {
 					layer, ok := entry.(map[string]any)
 					if !ok {
 						return errors.New("override must be a mapping")
+					}
+					if err := validateCrewTaskPolicy(layer); err != nil {
+						return err
 					}
 					for key := range layer {
 						if key != "match" && (!allowed[key] || key == "overrides") {
@@ -134,4 +140,19 @@ func crewCmd(d watch.Deps) *cobra.Command {
 			return json.NewEncoder(cmd.OutOrStdout()).Encode(map[string]any{"settings": settings, "yaml": string(encoded)})
 		}})
 	return cmd
+}
+
+func validateCrewTaskPolicy(layer map[string]any) error {
+	if value, exists := layer["others_prs"]; exists {
+		others, ok := value.(map[string]any)
+		if !ok {
+			return errors.New("others_prs must be a mapping")
+		}
+		for key := range others {
+			if key != "allow_push" && key != "review_forks" {
+				return fmt.Errorf("unsupported Crew others_prs setting %q", key)
+			}
+		}
+	}
+	return nil
 }

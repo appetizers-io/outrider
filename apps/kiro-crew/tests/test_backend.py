@@ -238,7 +238,7 @@ class InboxTest(unittest.TestCase):
             with self.assertRaisesRegex(ValueError, 'invalid trigger'):
                 self.inbox.configure({'repos': ['o/r'], 'repo_settings': options})
         self.assertEqual(json.loads((self.data / 'settings.json').read_text()), prior)
-        for field in ['model', 'agent', 'tool_gate', 'push']:
+        for field in ['model', 'agent', 'tool_gate', 'sandbox']:
             with self.assertRaisesRegex(ValueError, 'Session settings belong to Crew'):
                 backend.validate_repo_settings({'o/r': {field: 'value'}})
 
@@ -552,8 +552,11 @@ class LocalValidationTest(unittest.TestCase):
         self.root = Path(self.temp.name)
         self.gateway = FakeGateway()
         self.inbox = backend.Inbox(self.root / 'data', self.gateway)
-        self.item = {'id': 'a' * 64, 'repo': 'o/r', 'head': 'b' * 40, 'pr': 2, 'url': 'https://github.com/o/r/pull/2', 'workflow': 'test'}
+        self.item = {'id': 'a' * 64, 'repo': 'o/r', 'head': 'b' * 40, 'pr': 2, 'url': 'https://github.com/o/r/pull/2', 'workflow': 'test', 'scope': None}
         self.inbox.validations[self.item['id']] = {'status': 'preparing'}
+        self.prompt_patch = patch.object(self.inbox, 'session_prompt', return_value='Shared task. Run focused tests')
+        self.prompt_mock = self.prompt_patch.start()
+        self.addCleanup(self.prompt_patch.stop)
         self.calls = []
         def gateway(path, payload=None):
             self.calls.append((path, payload))
@@ -580,7 +583,7 @@ class LocalValidationTest(unittest.TestCase):
         self.assertEqual(result['status'], 'started')
         expected = str(self.root / '.claude/worktrees' / ('outrider-' + self.item['id'][:24]))
         self.assertEqual(result['worktree'], expected)
-        self.git.assert_any_call(str(self.root), 'worktree', 'add', '--detach', expected, self.item['head'])
+        self.git.assert_any_call(str(self.root), 'worktree', 'add', '-b', 'review/outrider-' + self.item['id'][:24], expected, self.item['head'])
         create = next(payload for path, payload in self.calls if path == '/api/chat/slots')
         self.assertEqual(create, {'name': 'outrider-local-' + self.item['id'][:24], 'folder_id': 'child', 'title': 'r#2 · PR review'})
         project = next(payload for path, payload in self.calls if path.endswith('/project'))
@@ -683,12 +686,19 @@ class LocalValidationTest(unittest.TestCase):
         finally:
             self.root = old_root
 
-    def test_validation_selects_ownership_profile_without_session_overrides(self):
-        for author, expected in [('ME', 'own'), ('someone-else', 'others')]:
-            responses = iter(['me', author, '{"settings": {"prompts": {"extra": "resolved"}}}'])
-            def run(*args, **kwargs):
-                return type('Result', (), {'returncode': 0, 'stdout': next(responses)})()
-            with patch.object(backend.subprocess, 'run', side_effect=run) as runner, patch.object(backend, 'find_scanner', return_value='/outrider'):
-                result = self.inbox.validation_options(self.item, {'overrides': [{'match': [{'prs': 'own'}], 'prompts': {'extra': 'own'}}]})
-            self.assertEqual(result, {'prompts': {'extra': 'resolved'}})
-            self.assertEqual(runner.call_args.args[0][-2:], ['--profile', expected])
+    def test_session_prompt_passes_settings_and_legacy_scope(self):
+        self.prompt_patch.stop()
+        legacy = dict(self.item)
+        del legacy['scope']
+        legacy['prompt'] = 'Comment scope (null = whole PR): ["https://github.com/o/r/pull/2#issuecomment-1"]\n'
+        options = {'others_prs': {'allow_push': False}, 'push': 'never'}
+        result = type('Result', (), {'returncode': 0, 'stdout': '{"prompt":"shared prompt"}'})()
+        with patch.object(backend.subprocess, 'run', return_value=result) as run, patch.object(backend, 'find_scanner', return_value='/outrider'):
+            self.assertEqual(self.inbox.session_prompt(legacy, options, 'upstream', 'me/fork', 'review/local'), 'shared prompt')
+            payload = json.loads(run.call_args.kwargs['input'])
+            self.assertEqual(payload['settings'], options)
+            self.assertEqual(payload['item']['scope'], ['https://github.com/o/r/pull/2#issuecomment-1'])
+            self.assertEqual(payload['origin'], 'me/fork')
+            legacy['prompt'] = ''
+            with self.assertRaisesRegex(ValueError, 'no reliable comment scope'):
+                self.inbox.session_prompt(legacy, options, 'upstream', 'me/fork', 'review/local')
