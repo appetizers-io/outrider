@@ -13,6 +13,19 @@ from pin_crew_runtime import make_lock
 ROOT = Path(__file__).resolve().parents[1]
 
 
+def validate_registry(root, app):
+    entries = json.loads((root / 'app-registry.json').read_text())
+    manifest = json.loads((app / 'app.json').read_text())
+    expected = [{
+        'name': manifest['name'],
+        'gitUrl': 'https://github.com/appetizers-io/outrider',
+        'branch': 'main',
+        'subdirectory': 'apps/kiro-crew',
+    }]
+    if entries != expected:
+        raise ValueError('Registry must contain exactly one matching Outrider source entry')
+
+
 def verify_archives(lock, directory):
     for artifact in lock['artifacts'].values():
         path = directory / artifact['name']
@@ -21,6 +34,7 @@ def verify_archives(lock, directory):
 
 
 def stage_app(version, downloads, destination):
+    validate_registry(ROOT, ROOT / 'apps/kiro-crew')
     lock = make_lock(version, (downloads / 'checksums.txt').read_text())
     verify_archives(lock, downloads)
     # Only create the staging tree after every published archive is verified.

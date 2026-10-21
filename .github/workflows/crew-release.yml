@@ -75,8 +75,10 @@ jobs:
           VERSION: ${{ inputs.version }}
         run: |
           python - <<'PY'
-          import json, os
+          import json, os, sys
           from pathlib import Path
+          sys.path.insert(0, 'marketplace-source/scripts')
+          from prepare_crew_release import validate_registry
           app = Path('marketplace-source/apps/kiro-crew')
           manifest_path = app / 'app.json'
           manifest = json.loads(manifest_path.read_text())
@@ -89,6 +91,7 @@ jobs:
           manifest_path.write_text(json.dumps(manifest, indent=2) + '\n')
           lock = Path(os.environ['RUNNER_TEMP']) / 'crew-app/release/runtime.json'
           (app / 'release/runtime.json').write_bytes(lock.read_bytes())
+          validate_registry(Path('marketplace-source'), app)
           PY
       - name: Open marketplace source update
         uses: peter-evans/create-pull-request@5f6978faf089d4d20b00c7766989d076bb2fc7f1 # v8
