@@ -29,6 +29,7 @@ export default function Outrider() {
   const [cliConfig, setCliConfig] = useState('');
   const [importProfile, setImportProfile] = useState('common');
   const [importPreview, setImportPreview] = useState(null);
+  const [importError, setImportError] = useState('');
   const [intent, setIntent] = useState('');
   const [newRepo, setNewRepo] = useState('');
   const [newFolder, setNewFolder] = useState('');
@@ -50,20 +51,20 @@ export default function Outrider() {
     try {
       const result = await api.post(base + '/settings/default', {});
       if (!result.found) { setError('No CLI config found at ' + result.path + '. Choose a file or paste YAML below.'); return; }
-      setCliConfig(result.content); setConfigSource(result.path); setImportPreview(null);
+      setCliConfig(result.content); setConfigSource(result.path); setImportPreview(null); setImportError('');
       setNotice('CLI config loaded for preview. Nothing has been applied.');
     } catch (e) { setError(e.message); }
     finally { setBusy(false); }
   }
   async function previewImport() {
-    setBusy(true); setError(''); setImportPreview(null);
+    setBusy(true); setError(''); setImportPreview(null); setImportError('');
     try { setImportPreview(await api.post(base + '/settings/import', { repo: selectedRepo, content: cliConfig, profile: importProfile })); }
-    catch (e) { setError(e.message); }
+    catch (e) { setImportError(e.message); }
     finally { setBusy(false); }
   }
   function useImport() {
     setAdvanced(JSON.stringify(importPreview.settings, null, 2)); setYaml(importPreview.yaml);
-    setRepoSettings({ ...repoSettings, [selectedRepo]: importPreview.settings }); setEditor('yaml'); setImportPreview(null);
+    setRepoSettings({ ...repoSettings, [selectedRepo]: importPreview.settings }); setEditor('yaml'); setImportPreview(null); setImportError('');
     setCliConfig(importPreview.yaml); setConfigSource('Imported repository settings (Crew-owned fields removed)');
     setNotice('Imported settings loaded. Agent, mode and other execution settings were removed; Crew trust and session settings are unchanged. Review and save to apply.');
   }
@@ -190,13 +191,15 @@ export default function Outrider() {
         h('button', { style: button, type: 'button', disabled: busy, onClick: loadDefaultConfig }, 'Load default config'),
         h('p', { style: { opacity: .7 } }, 'Normally ~/.config/outrider/config.yaml. Respects OUTRIDER_CONFIG, the legacy config variable, and XDG_CONFIG_HOME as seen by Crew.'),
         configSource && h('p', { style: { overflowWrap: 'anywhere' } }, 'Loaded from: ' + configSource),
-        h('label', null, 'CLI config file', h('input', { style: input, type: 'file', accept: '.yaml,.yml,.json', onChange: async e => { const file = e.target.files?.[0]; if (!file) return; if (file.size > 100000) { setError('Choose a config smaller than 100 KB'); return; } try { setCliConfig(await file.text()); setConfigSource(file.name); setImportPreview(null); } catch (e) { setError(e.message); } } })),
-        h('label', null, 'CLI YAML', h('textarea', { style: { ...input, fontFamily: 'monospace' }, rows: 8, value: cliConfig, onChange: e => { setCliConfig(e.target.value); setImportPreview(null); } })),
-        h('label', null, 'Settings to import', h('select', { style: input, value: importProfile, onChange: e => { setImportProfile(e.target.value); setImportPreview(null); } }, h('option', { value: 'common' }, 'Common to my PRs and other PRs'), h('option', { value: 'own' }, 'Use my-PR settings for this repository'), h('option', { value: 'others' }, 'Use other-PR settings for this repository'))),
+        h('label', null, 'CLI config file', h('input', { style: input, type: 'file', accept: '.yaml,.yml,.json', onChange: async e => { const file = e.target.files?.[0]; if (!file) return; if (file.size > 100000) { setError('Choose a config smaller than 100 KB'); return; } try { setCliConfig(await file.text()); setConfigSource(file.name); setImportPreview(null); setImportError(''); } catch (e) { setError(e.message); } } })),
+        h('label', null, 'CLI YAML', h('textarea', { style: { ...input, fontFamily: 'monospace' }, rows: 8, value: cliConfig, onChange: e => { setCliConfig(e.target.value); setImportPreview(null); setImportError(''); } })),
+        h('label', null, 'Settings to import', h('select', { style: input, value: importProfile, onChange: e => { setImportProfile(e.target.value); setImportPreview(null); setImportError(''); } }, h('option', { value: 'common' }, 'Common to my PRs and other PRs'), h('option', { value: 'own' }, 'Use my-PR settings for this repository'), h('option', { value: 'others' }, 'Use other-PR settings for this repository'))),
         h('p', { style: { opacity: .7 } }, 'Imports apply repository-wide. Ownership-specific differences require an explicit profile choice. Crew keeps its session settings.'),
-        h('button', { style: button, type: 'button', disabled: busy || !cliConfig.trim(), onClick: previewImport }, 'Preview import'),
+        h('button', { style: button, type: 'button', disabled: busy || !cliConfig.trim(), onClick: previewImport }, busy ? 'Preparing preview…' : 'Preview import'),
+        importError && h('p', { role: 'alert', style: { ...box, borderColor: '#c66' } }, importError),
         importPreview && h('div', null,
           h('h3', null, 'Import preview · ' + importPreview.repo),
+          h('p', null, `${importPreview.settings.workflows?.length || 0} workflows included. Review the effective settings below.`),
           ...importPreview.warnings.map((warning, index) => h('p', { key: index }, warning)),
           importPreview.skipped.length > 0 && h('p', null, 'Removed from imported YAML (not applied): ' + importPreview.skipped.join(', ')),
           importPreview.applied_overrides.length > 0 && h('p', null, 'Applied CLI overrides: ' + importPreview.applied_overrides.join('; ')),
