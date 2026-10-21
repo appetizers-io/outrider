@@ -12,7 +12,7 @@ import (
 	"unicode/utf16"
 	"unicode/utf8"
 
-	"github.com/dlclark/regexp2"
+	"github.com/dlclark/regexp2/v2"
 
 	"github.com/appetizers-io/outrider/internal/config"
 	"github.com/appetizers-io/outrider/internal/github"
