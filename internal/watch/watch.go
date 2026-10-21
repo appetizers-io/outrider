@@ -15,7 +15,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/cenkalti/backoff/v5"
+	"github.com/cenkalti/backoff/v7"
 
 	"github.com/appetizers-io/outrider/internal/classifier"
 	"github.com/appetizers-io/outrider/internal/config"
