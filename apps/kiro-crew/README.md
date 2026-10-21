@@ -130,3 +130,22 @@ Tests mock GitHub and Crew, exercise HTTP signatures and dispatch recovery, and
 never start paid reviews or post to GitHub. A live gateway/model review is a
 separate integration check. To update an installed local app, use Crew's app
 update flow so both the backend and materialized agent refresh.
+
+### Existing Crew folders and chats
+
+In **Repositories**, save your repositories, then choose an existing Crew folder
+for each repository. After a review completes, **Save to new folder chat** creates
+an Outrider-owned chat in that folder and appends the findings without starting a
+model turn. Crew resolves the folder's project; Outrider supplies no model,
+reasoning, approval, or turn-limit override. The reviewer remains tool-less.
+
+For an existing personal chat, use **Copy findings to existing chat**, then paste
+into that chat. Crew 0.9.0 restricts transcript writes to app-owned sessions; direct
+insertion into personal sessions is not supported. Existing session settings apply
+when you send the pasted findings. An ambiguous folder delivery is never retried
+automatically; inspect the folder if delivery is marked uncertain.
+
+Repository input accepts `owner/repo` and `https://github.com/owner/repo` URLs.
+The backend probes `~/.local/bin/outrider` before PATH for `crew scan --state-dir`
+support. `OUTRIDER_BIN` can select an explicit binary. An older Homebrew install
+will no longer shadow the compatible local install.

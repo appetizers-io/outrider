@@ -7,6 +7,7 @@ import json
 import os
 from pathlib import Path
 import re
+import shutil
 import subprocess
 import threading
 import time
@@ -30,6 +31,37 @@ class GatewayRejected(RuntimeError):
     def __init__(self, status):
         self.status = status
         super().__init__(f"Crew returned HTTP {status}; check the app grant and gateway")
+
+
+def normalize_repo(value):
+    if not isinstance(value, str):
+        raise ValueError("Enter repositories as owner/repo or GitHub repository URLs")
+    value = value.strip()
+    if value.startswith("https://"):
+        parsed = urlsplit(value)
+        if parsed.netloc != "github.com" or parsed.query or parsed.fragment:
+            raise ValueError("Use a github.com repository URL without query or fragment")
+        value = parsed.path.strip("/")
+    if value.endswith(".git"):
+        value = value[:-4]
+    if not REPO.fullmatch(value) or any(p in {".", ".."} for p in value.split("/")):
+        raise ValueError("Enter repositories as owner/repo or GitHub repository URLs")
+    return value
+
+
+def find_scanner(runner=subprocess.run):
+    override = os.environ.get("OUTRIDER_BIN")
+    candidates = [override] if override else [str(Path.home() / ".local/bin/outrider"), shutil.which("outrider")]
+    for candidate in dict.fromkeys(candidates):
+        if not candidate:
+            continue
+        try:
+            probe = runner([candidate, "crew", "scan", "--help"], capture_output=True, text=True, timeout=10, check=False)
+            if probe.returncode == 0 and "--state-dir" in probe.stdout:
+                return candidate
+        except (OSError, subprocess.TimeoutExpired):
+            continue
+    raise RuntimeError("No compatible Outrider binary found. Install this branch with task install (requires crew scan --state-dir), or set OUTRIDER_BIN to its absolute path, then scan again.")
 
 
 def atomic_json(path, value):
@@ -115,6 +147,9 @@ class Inbox:
         for run in self.runs.values():
             if run["status"] == "dispatching":
                 run.update(status="uncertain", error="Backend stopped during dispatch. Check Crew tasks before retrying.")
+        for run in self.runs.values():
+            if run.get("delivery", {}).get("status") == "sending":
+                run["delivery"]["status"] = "uncertain"
         self.save_runs()
         self.scan_requested = False
         self.scanning = False
@@ -126,15 +161,58 @@ class Inbox:
 
     def configure(self, body):
         repos, interval = body.get("repos"), body.get("interval", 60)
-        if not isinstance(repos, list) or len(repos) > 50 or any(not isinstance(r, str) or not REPO.fullmatch(r) or any(p in {".", ".."} for p in r.split("/")) for r in repos):
+        if not isinstance(repos, list) or len(repos) > 50 :
             raise ValueError("Enter up to 50 repositories as owner/repo, one per line")
+        repos = [normalize_repo(repo) for repo in repos]
         if type(interval) is not int or not 30 <= interval <= 3600:
             raise ValueError("Poll interval must be between 30 and 3600 seconds")
+        folders = body.get("folders", self.config.get("folders", {}))
+        if not isinstance(folders, dict) or any(not isinstance(k, str) or not isinstance(v, str) or len(v) > 200 for k, v in folders.items()):
+            raise ValueError("Invalid folder mapping")
         with self.lock:
-            self.config = {"repos": sorted(set(repos)), "interval": interval}
+            self.config = {"repos": sorted(set(repos)), "interval": interval, "folders": {r: folders[r] for r in repos if folders.get(r)}}
             atomic_json(self.data / "settings.json", self.config)
             self.scan_requested = bool(repos)
         self.wake.set()
+
+    def folders(self):
+        rows = self.gateway.call("/api/chat/folders")
+        return [{k: row.get(k, "") for k in ("id", "name", "parent_id")} for row in rows]
+
+    def deliver(self, item_id):
+        with self.lock:
+            item = self.item(item_id)
+            run = self.runs.get(item_id, {})
+            if run.get("status") != "completed" or not run.get("result"):
+                raise ValueError("Complete a review before saving findings")
+            if run.get("delivery"):
+                raise ValueError("Delivery already attempted. Check the Crew folder before saving again.")
+            folder = self.config.get("folders", {}).get(item["repo"])
+            if not folder:
+                raise ValueError("Choose a Crew folder for this repository first")
+            if folder not in {row["id"] for row in self.folders()}:
+                raise ValueError("The selected Crew folder no longer exists")
+            self.check_agent()
+            run["delivery"] = {"status": "sending", "folder_id": folder}
+            self.save_runs()
+        try:
+            slot = self.gateway.call("/api/chat/slots", {"name": "outrider-" + item_id[:24], "agent": AGENT, "agent_kind": "template", "folder_id": folder})
+            key = slot.get("key")
+            if not isinstance(key, str) or not key:
+                raise RuntimeError("Crew did not return a chat key")
+            with self.lock:
+                run["delivery"]["slot"] = key
+                self.save_runs()
+            content = f"Outrider review: {item['repo']} #{item['pr']}\nSnapshot: {item.get('head', '')}\n{item.get('url', '')}\n\n{run['result']}"
+            self.gateway.call("/api/chat/slots/" + quote(key, safe="") + "/note", {"content": content, "source": "outrider"})
+            with self.lock:
+                run["delivery"]["status"] = "saved"
+                self.save_runs()
+        except Exception as error:
+            with self.lock:
+                run["delivery"].update(status="uncertain", error=str(error))
+                self.save_runs()
+            raise
 
     def items(self):
         return [read_json(p, {}) for p in sorted((self.data / "inbox/queue").glob("*.json"))]
@@ -182,7 +260,7 @@ class Inbox:
         try:
             if not repos:
                 return
-            args = ["outrider", "crew", "scan", "--state-dir", str(self.data / "inbox"), "--process-existing"]
+            args = [find_scanner(), "crew", "scan", "--state-dir", str(self.data / "inbox"), "--process-existing"]
             for repo in repos:
                 args += ["--repo", repo]
             result = self.runner(args, cwd=self.data, capture_output=True, text=True, timeout=180, check=False)
@@ -294,6 +372,9 @@ class Handler(BaseHTTPRequestHandler):
             if self.command == "GET" and self.path == "/api/status":
                 self.reply(200, inbox.snapshot())
                 return
+            if self.command == "GET" and self.path == "/api/folders":
+                self.reply(200, inbox.folders())
+                return
             if self.command != "POST":
                 self.reply(404, {"error": "Not found"})
                 return
@@ -306,6 +387,10 @@ class Handler(BaseHTTPRequestHandler):
                 with inbox.lock:
                     inbox.scan_requested = True
                 inbox.wake.set()
+            elif self.path == "/api/deliver":
+                if not isinstance(payload.get("id"), str):
+                    raise ValueError("Review ID required")
+                inbox.deliver(payload["id"])
             elif self.path == "/api/review":
                 if not isinstance(payload.get("id"), str):
                     raise ValueError("Review ID required")

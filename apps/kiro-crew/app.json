@@ -26,7 +26,9 @@
   "permissions": {
     "api": [
       "/apps/outrider/api",
-      "/api/spawn"
+      "/api/spawn",
+      "/api/chat/folders",
+      "/api/chat/slots"
     ],
     "network": true,
     "storage": true

@@ -6,6 +6,7 @@ from pathlib import Path
 import tempfile
 import threading
 import unittest
+from unittest.mock import patch
 from urllib.error import HTTPError
 from urllib.request import Request, urlopen
 
@@ -40,6 +41,9 @@ class InboxTest(unittest.TestCase):
         self.gateway = FakeGateway()
         self.agent = self.data / 'reviewer.json'
         self.agent.write_text((backend.ROOT / 'agents/reviewer.json').read_text())
+        self.scanner_patch = patch.object(backend, 'find_scanner', return_value='/new/outrider')
+        self.scanner_patch.start()
+        self.addCleanup(self.scanner_patch.stop)
         self.inbox = backend.Inbox(self.data, self.gateway, self.agent)
         self.item_id = 'a' * 64
         backend.atomic_json(self.data / 'inbox/queue' / (self.item_id + '.json'), {
@@ -149,6 +153,62 @@ class InboxTest(unittest.TestCase):
         self.assertFalse(self.gateway.calls)
         self.assertEqual(self.inbox.runs[self.item_id]['status'], 'failed')
 
+    def test_folder_delivery_and_no_duplicate(self):
+        self.inbox.runs[self.item_id] = {'status': 'completed', 'result': 'Reviewed.'}
+        self.inbox.configure({'repos': ['o/r'], 'folders': {'o/r': 'folder-1'}})
+        def call(path, payload=None):
+            self.gateway.calls.append((path, payload))
+            if path == '/api/chat/folders':
+                return [{'id': 'folder-1', 'name': 'Project'}]
+            if path == '/api/chat/slots':
+                return {'key': 'review-chat'}
+            return {'ok': True}
+        self.gateway.call = call
+        self.inbox.deliver(self.item_id)
+        self.assertEqual(self.inbox.runs[self.item_id]['delivery']['status'], 'saved')
+        create = self.gateway.calls[1][1]
+        self.assertEqual(create['folder_id'], 'folder-1')
+        self.assertNotIn('model', create)
+        self.assertEqual(self.gateway.calls[-1][0], '/api/chat/slots/review-chat/note')
+        with self.assertRaises(ValueError):
+            self.inbox.deliver(self.item_id)
+        self.assertEqual(len(self.gateway.calls), 3)
+
+    def test_delivery_timeout_is_not_retried_after_restart(self):
+        self.inbox.runs[self.item_id] = {'status': 'completed', 'result': 'Reviewed.'}
+        self.inbox.configure({'repos': ['o/r'], 'folders': {'o/r': 'folder-1'}})
+        def call(path, payload=None):
+            if path == '/api/chat/folders':
+                return [{'id': 'folder-1'}]
+            raise TimeoutError('lost response')
+        self.gateway.call = call
+        with self.assertRaises(TimeoutError):
+            self.inbox.deliver(self.item_id)
+        restarted = backend.Inbox(self.data, self.gateway, self.agent)
+        self.assertEqual(restarted.runs[self.item_id]['delivery']['status'], 'uncertain')
+        with self.assertRaises(ValueError):
+            restarted.deliver(self.item_id)
+
+    def test_repository_urls(self):
+        self.inbox.configure({'repos': ['https://github.com/org/repo.git/', 'org/repo']})
+        self.assertEqual(self.inbox.config['repos'], ['org/repo'])
+        for invalid in ['https://evil.test/org/repo', 'https://github.com/org/repo/pull/1', 'https://github.com/org/repo?x=1']:
+            with self.assertRaises(ValueError):
+                self.inbox.configure({'repos': [invalid]})
+
+    def test_scanner_prefers_compatible_local_install(self):
+        self.scanner_patch.stop()
+        calls = []
+        def run(args, **kwargs):
+            calls.append(args)
+            return type('Result', (), {'returncode': 0, 'stdout': '--state-dir'})()
+        with patch.dict(backend.os.environ, {}, clear=True):
+            self.assertEqual(backend.find_scanner(run), str(Path.home() / '.local/bin/outrider'))
+        self.assertEqual(len(calls), 1)
+        with patch.dict(backend.os.environ, {'OUTRIDER_BIN': '/missing/out'}, clear=True):
+            with self.assertRaisesRegex(RuntimeError, 'No compatible'):
+                backend.find_scanner(lambda *a, **kw: type('Result', (), {'returncode': 0, 'stdout': 'old CLI'})())
+
     def test_config_validation_and_argv(self):
         for invalid in [['--help'], ['o/r;touch bad'], ['../r'], ['o/*']]:
             with self.assertRaises(ValueError):
@@ -159,7 +219,8 @@ class InboxTest(unittest.TestCase):
             calls.append((args, kwargs))
             return type('Result', (), {'returncode': 0})()
         self.inbox.runner = runner
-        self.inbox.scan()
+        with patch.object(backend, "find_scanner", return_value="/new/outrider"):
+            self.inbox.scan()
         self.assertEqual(calls[0][0][-2:], ['--repo', 'o/r'])
         self.assertNotIn('shell', calls[0][1])
         self.assertFalse(self.inbox.scanning)
