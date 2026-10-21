@@ -1,10 +1,18 @@
-# Outrider for Kiro Crew 0.1.0 — release preparation
+# Outrider for Kiro Crew — release preparation
 
-The app is distributed from `apps/kiro-crew` in this repository. The canonical
-App Store index is [app-registry.json](../../../app-registry.json) at the repository
-root. It explicitly maps the `outrider` identity to that directory; without it,
-Crew infers the incompatible identity `kiro-crew` from the directory name.
-Use this same entry for an official-store submission; do not keep a second copy.
+The app is distributed from `apps/kiro-crew` in this repository. The root
+[`app-registry.json`](../../../app-registry.json) supports direct installation
+through a custom registry; it is not an official marketplace listing. Keep its
+explicit `outrider` identity: directory auto-discovery would infer `kiro-crew`,
+which does not match the manifest.
+
+The official catalog is maintainer-curated. Submit an
+[App Store listing request](https://github.com/kirodotdev/KiroCrew/issues/new?template=app-store-listing.yml)
+with the repository URL, source ref, `apps/kiro-crew` subdirectory, category,
+author credit, and review checklist. A maintainer authors the entry in
+`kirodotdev/KiroCrewApps`; its publish pipeline pins the source commit and reads
+our app version. No Kiro Crew release is required. A registry PR against the
+KiroCrew source repository does not submit an app to the official catalog.
 
 Official references: [publishing](https://kiro.dev/docs/crew/apps/publishing/)
 and [manifest](https://kiro.dev/docs/crew/apps/manifest/).
@@ -13,7 +21,7 @@ and [manifest](https://kiro.dev/docs/crew/apps/manifest/).
 
 - Versioned manifest, Apache-2.0 license, store icon, banner and feature highlights.
 - Committed build-free UI modules, Python backend, two agents, and a launcher for the Go MCP server.
-- `task crew:package` creates `build/crew/outrider-crew-0.1.0.tar.gz` and a SHA-256
+- `task crew:package` creates `build/crew/outrider-crew-<version>.tar.gz` and a SHA-256
   sidecar. Only runtime files are included; user state, credentials, tests and
   caches are excluded. `release-info.json` records the source commit and whether
   the checkout was dirty. Publish only an artifact marked `dirty: false`.
@@ -58,11 +66,16 @@ and [manifest](https://kiro.dev/docs/crew/apps/manifest/).
    permission disclosure, repository setup, pause/restart persistence and one
    controlled session. Verify macOS, Linux, and Windows before advertising them as
    end-to-end tested. CI backend tests alone do not establish live Crew support.
-5. Recheck the store listing assets and capture current product screenshots if
-   desired. No private repository screenshots are included in the release.
-6. Submit the registry entry to KiroCrew only after the compatible CLI release
-   and app source are available. The entry follows main; maintainers must keep
-   main installable and bump `app.json` when publishing app updates.
+5. Recheck the opaque 512×512 store icon, hero image, and committed product
+   screenshot. The queue preview uses labelled sample data rendered by the app's
+   components, rather than private repository information. Document Crew's
+   third-party execution prerequisite in the app README.
+6. Request the official listing only after the compatible CLI release and app
+   source are available. Supply the commit after the runtime-pin PR and listing
+   assets have merged, not the earlier CLI release tag. For subsequent official
+   catalog updates, bump `app.json`, publish the runtime and merge its pin PR,
+   then request catalog republication with the new source commit. Pushing main
+   alone updates custom-registry sources, not the official catalog's pinned copy.
 
 ## Permission disclosure
 
