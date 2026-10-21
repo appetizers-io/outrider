@@ -45,7 +45,7 @@ triggers:
     where: [description, comment, review, review_comment]
     on_change:
       check: true                # launch check before a relaunch
-      ignore_own_activity: true  # your own comments never relaunch
+      ignore_own_activity: true  # own activity ignored except @mentions
 candidate_limit: 50   # most recent non-owned PRs checked for the reaction per poll
 ```
 
@@ -73,10 +73,13 @@ only replies newer than `fresh_within_hours` (or `lookback_hours`) count.
 
 ## @mentions
 
-Someone writes `@<your login>` in the description, a comment or a review of a
-PR that is neither yours nor opted in (those relaunch on any activity anyway).
-Your own comments and mentions inside words, email addresses and paths
-(`me@example.com`, `@meadow`) don't count. A mention that is also a handled
+An `@<your login>` in the description, a comment or a review of someone else's
+PR counts, including mentions you write yourself. On opted-in PRs, mentions
+also trigger even when `ignore_own_activity` is enabled, without needing a new
+notification. The mention trigger's launch check, scope, freshness window and
+ignored authors still apply. Each mention is handled once.
+Mentions inside words, email addresses and paths (`me@example.com`, `@meadow`)
+don't count. A mention that is also a handled
 review reply doesn't launch twice.
 
 ```yaml
