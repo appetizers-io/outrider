@@ -1,3 +1,5 @@
+import { DoctorView } from "./views/DoctorView.mjs";
+import { WelcomeView } from "./views/WelcomeView.mjs";
 import { createElement as h } from "react";
 import { useOutriderController } from "./hooks/useOutriderController.mjs";
 import { AppHeader } from "./components/AppHeader.mjs";
@@ -43,6 +45,8 @@ export default function Outrider() {
         onDismiss: () => state.setImportPreview(null),
         onUse: state.useImport,
       }),
+    data && view === "doctor" && h(DoctorView, state.doctor),
+    data && view === "welcome" && h(WelcomeView, state.welcome),
     data && view === "inbox" && h(QueueView, state.queue),
     data && view === "repositories" && h(RepositoriesView, state.repository),
     data && view === "settings" && h(SettingsView, state.settings),

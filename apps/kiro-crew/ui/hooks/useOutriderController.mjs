@@ -2,7 +2,7 @@ import { base } from "../api.mjs";
 import { useSetupDrafts } from "./useSetupDrafts.mjs";
 import { useRepositoryDraft } from "./useRepositoryDraft.mjs";
 import { selectQueue } from "../queue.mjs";
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useOutriderApi } from "./useOutriderApi.mjs";
 export function useOutriderController() {
   const {
@@ -19,6 +19,18 @@ export function useOutriderController() {
     action,
   } = useOutriderApi();
   const [view, setView] = useState("inbox");
+  const [checkedStartup, setCheckedStartup] = useState(false);
+  useEffect(() => {
+    if (!data || checkedStartup) return;
+    setCheckedStartup(true);
+    api
+      .get(base + "/doctor")
+      .then((report) => {
+        if (!report.complete && !data.config.repos.length) setView("welcome");
+        else if (!report.ready) setView("doctor");
+      })
+      .catch((e) => setError(e.message));
+  }, [data, checkedStartup, api]);
   const [initialized, setInitialized] = useState(false);
   const [folders, setFolders] = useState([]);
   const [mapping, setMapping] = useState({});
@@ -40,6 +52,32 @@ export function useOutriderController() {
 
   const [newRepo, setNewRepo] = useState("");
   const [newFolder, setNewFolder] = useState("");
+  const [newRemote, setNewRemote] = useState("");
+  const [newContext, setNewContext] = useState(null);
+  async function chooseNewFolder(id) {
+    setNewFolder(id);
+    setNewRemote("");
+    setNewContext(null);
+    if (!id) return;
+    setBusy(true);
+    setError("");
+    try {
+      const context = await api.post(base + "/checkout", { folder_id: id });
+      setNewContext(context);
+      const remote =
+        context.remotes.find((r) => r.name === "upstream") ||
+        context.remotes.find((r) => r.name === "origin") ||
+        context.remotes[0];
+      if (remote) {
+        setNewRepo(remote.repo);
+        setNewRemote(remote.name);
+      }
+    } catch (e) {
+      setError(e.message);
+    } finally {
+      setBusy(false);
+    }
+  }
   const [interval, setIntervalValue] = useState(60);
 
   const {
@@ -167,16 +205,24 @@ export function useOutriderController() {
           ...data.config,
           repos: [...data.config.repos, repo],
           folders: { ...data.config.folders, [repo]: newFolder },
+          validation_remotes: {
+            ...data.config.validation_remotes,
+            ...(newRemote ? { [repo]: newRemote } : {}),
+          },
         })
       ) {
         setRepoSettings(saved);
         setMapping({ ...mapping, [repo]: newFolder });
+        if (newRemote)
+          setValidationRemotes({ ...validationRemotes, [repo]: newRemote });
         setSelectedRepo(repo);
         setAdvanced("{}");
         setYaml("{}\n");
         setEditor("form");
         setNewRepo("");
         setNewFolder("");
+        setNewRemote("");
+        setNewContext(null);
         setView("repositories");
         setNotice(
           "Repository added. Configure its triggers and workflows below.",
@@ -300,6 +346,20 @@ export function useOutriderController() {
     (data?.active_sessions || 0) >= (data?.config.max_sessions || 1);
 
   return {
+    doctor: {
+      api,
+      onSetup: data?.config.repos.length ? undefined : () => setView("welcome"),
+    },
+    welcome: {
+      api,
+      data,
+      onDone: async () => {
+        await refresh();
+        setInitialized(false);
+        setView("inbox");
+        setNotice("Setup saved. Polling is active.");
+      },
+    },
     header: {
       view,
       data,
@@ -328,7 +388,10 @@ export function useOutriderController() {
       setNewRepo,
       folders,
       newFolder,
-      setNewFolder,
+      setNewFolder: chooseNewFolder,
+      newRemote,
+      setNewRemote,
+      newContext,
       busy,
       setView,
     },

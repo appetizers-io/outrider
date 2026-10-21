@@ -9,6 +9,9 @@ export function AddRepositoryView({
   folders,
   newFolder,
   setNewFolder,
+  newRemote,
+  setNewRemote,
+  newContext,
   busy,
   setView,
 }) {
@@ -24,6 +27,7 @@ export function AddRepositoryView({
         required: true,
         autoFocus: true,
         value: newRepo,
+        disabled: busy || !!newRemote,
         placeholder: "owner/repo or https://github.com/owner/repo",
         onChange: (e) => setNewRepo(e.target.value),
       }),
@@ -35,9 +39,41 @@ export function AddRepositoryView({
       h(FolderSelect, {
         folders,
         value: newFolder,
+        disabled: busy,
         onChange: (e) => setNewFolder(e.target.value),
       }),
     ),
+    newContext &&
+      h(
+        "label",
+        null,
+        "Watch remote",
+        h(
+          "select",
+          {
+            style: input,
+            value: newRemote,
+            disabled: busy,
+            onChange: (e) => {
+              const remote = newContext.remotes.find(
+                (r) => r.name === e.target.value,
+              );
+              if (remote) {
+                setNewRemote(remote.name);
+                setNewRepo(remote.repo);
+              }
+            },
+          },
+          h("option", { value: "" }, "Select remote"),
+          ...newContext.remotes.map((r) =>
+            h(
+              "option",
+              { key: r.name, value: r.name },
+              r.name + " · " + r.repo,
+            ),
+          ),
+        ),
+      ),
     h(
       "p",
       { style: { opacity: 0.7 } },

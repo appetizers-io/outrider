@@ -1,10 +1,10 @@
 import { createElement as h } from "react";
 import { input } from "../styles.mjs";
 
-export function FolderSelect({ folders, value, onChange }) {
+export function FolderSelect({ folders, value, onChange, disabled }) {
   return h(
     "select",
-    { style: input, value, onChange },
+    { style: input, value, onChange, disabled },
     h("option", { value: "" }, "Inbox only"),
     ...folders.map((folder) =>
       h("option", { key: folder.id, value: folder.id }, folder.name),

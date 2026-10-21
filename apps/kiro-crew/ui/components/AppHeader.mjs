@@ -36,15 +36,19 @@ export function AppHeader({
       h(
         "h1",
         { style: { margin: "0 0 6px", fontSize: 28 } },
-        view === "settings"
-          ? "Settings"
-          : view === "activity"
-            ? "Activity log"
-            : view === "setup"
-              ? "Add repository"
-              : view === "repositories"
-                ? "Repositories"
-                : "Outrider",
+        view === "doctor"
+          ? "Doctor"
+          : view === "welcome"
+            ? "Welcome to Outrider"
+            : view === "settings"
+              ? "Settings"
+              : view === "activity"
+                ? "Activity log"
+                : view === "setup"
+                  ? "Add repository"
+                  : view === "repositories"
+                    ? "Repositories"
+                    : "Outrider",
       ),
       h(
         "p",
@@ -54,7 +58,7 @@ export function AppHeader({
           : view === "activity"
             ? "Polling, session progress, and errors."
             : view === "inbox"
-              ? "Your PR work queue. Automatic sessions run under Crew’s settings."
+              ? "Keep reviews moving while you focus on your work."
               : view === "setup"
                 ? "Choose a repository to watch and where its reviews belong."
                 : "Configure triggers and workflows for each repository.",
@@ -137,6 +141,15 @@ export function AppHeader({
             },
           },
           "Activity log",
+        ),
+        h(
+          "button",
+          {
+            style: view === "doctor" ? selectedButton : button,
+            "aria-current": view === "doctor" ? "page" : undefined,
+            onClick: () => setView("doctor"),
+          },
+          "Doctor",
         ),
         h(
           "button",

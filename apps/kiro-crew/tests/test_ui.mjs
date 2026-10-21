@@ -62,6 +62,13 @@ async function mount(data = fixture()) {
             : {},
     post: async (url, payload) => {
       requests.push({ url, payload });
+      if (url.endsWith("/checkout"))
+        return {
+          remotes: [
+            { name: "origin", repo: "me/fork" },
+            { name: "upstream", repo: "upstream/repo" },
+          ],
+        };
       if (url.endsWith("/config")) data.config = payload;
       return { settings: {}, yaml: "{}" };
     },
@@ -167,6 +174,7 @@ test("every view renders through the complete module graph", async () => {
     ["settings", "Global session defaults"],
     ["setup", "Review folder"],
     ["activity", "Polling restored: active"],
+    ["doctor", "Check your setup"],
   ]) {
     await app.controller().header.configure(view);
     const tree = app.render();
@@ -242,13 +250,11 @@ test("queue selector keeps active older work and hides completed history", () =>
 test("CLI import applies polling only when its repository draft is saved", async () => {
   const app = await mount();
   await app.controller().header.configure("repositories");
-  app
-    .controller()
-    .setImportPreview({
-      settings: {},
-      yaml: "{}",
-      polling: { interval_seconds: 10, lookback_hours: 4, candidate_limit: 12 },
-    });
+  app.controller().setImportPreview({
+    settings: {},
+    yaml: "{}",
+    polling: { interval_seconds: 10, lookback_hours: 4, candidate_limit: 12 },
+  });
   app.controller().useImport();
   assert.equal(app.requests.filter((r) => r.url.endsWith("/config")).length, 0);
   await app.controller().repository.save({ preventDefault() {} });
@@ -257,4 +263,16 @@ test("CLI import applies polling only when its repository draft is saved", async
   assert.equal(saved.lookback_hours, 4);
   assert.equal(saved.candidate_limit, 12);
   assert.equal(saved.max_sessions, 3);
+});
+
+test("adding a Crew folder suggests upstream and persists its remote", async () => {
+  const app = await mount();
+  await app.controller().header.configure("setup");
+  await app.controller().add.setNewFolder("folder");
+  assert.equal(app.controller().add.newRepo, "upstream/repo");
+  assert.equal(app.controller().add.newRemote, "upstream");
+  await app.controller().add.addRepository({ preventDefault() {} });
+  const save = app.requests.find((r) => r.url.endsWith("/config"));
+  assert.equal(save.payload.folders["upstream/repo"], "folder");
+  assert.equal(save.payload.validation_remotes["upstream/repo"], "upstream");
 });

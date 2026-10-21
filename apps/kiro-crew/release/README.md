@@ -24,15 +24,24 @@ and [manifest](https://kiro.dev/docs/crew/apps/manifest/).
 1. Merge PR #77 after all CI checks pass. Produce a normal Outrider CLI release
    from that commit using the existing Release workflow. Published CLI v0.1.1
    predates this integration and is not a compatible prerequisite.
-2. Install that CLI release, Git, Python 3, and GitHub CLI; run `gh auth login`.
-   Verify `outrider crew scan --help` and `outrider crew session-prompt --help`, and `outrider mcp --help`.
-   The archive does not bundle these external commands or install them silently.
+2. Download that release's `checksums.txt` and pin all six platform archives:
+   `python scripts/pin_crew_runtime.py vX.Y.Z /path/to/checksums.txt`.
+   Review and commit `release/runtime.json`, then run
+   `python scripts/package_crew.py --marketplace`. This gate refuses an unpinned
+   build. Never submit the current empty development lock to the marketplace.
+   The first CLI release can carry an unpinned development app archive; publish
+   the pinned app archive from the subsequent app commit, after the CLI exists.
+   The registry follows that pinned source commit on main. No runtime version or
+   checksum should be guessed before publishing the CLI.
+   Test with no host Outrider: the wizard downloads the pinned archive, verifies
+   its SHA-256 against the committed lock, and stores only its executable under
+   app data. Git and authenticated GitHub CLI remain external prerequisites.
 3. Use Kiro Crew 0.9.0 or later (the tested baseline). Install the extracted
    `outrider` directory through Crew's local app installer, or select the repo
    and `apps/kiro-crew` subdirectory when installing from source.
 4. On a fresh Crew profile, verify first launch, dependency errors, enable-time
    permission disclosure, repository setup, pause/restart persistence and one
-   controlled session. Verify both macOS and Linux before advertising both as
+   controlled session. Verify macOS, Linux, and Windows before advertising them as
    end-to-end tested. CI backend tests alone do not establish live Crew support.
 5. Recheck the store listing assets and capture current product screenshots if
    desired. No private repository screenshots are included in the release.

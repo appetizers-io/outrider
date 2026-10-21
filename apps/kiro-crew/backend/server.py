@@ -51,31 +51,13 @@ def normalize_repo(value):
     return value
 
 
-def scanner_environment():
-    """GUI-launched Crew may omit user and package-manager binary directories."""
-    env = os.environ.copy()
-    entries = env.get("PATH", os.defpath).split(os.pathsep)
-    entries += [str(Path.home() / ".local/bin"), "/opt/homebrew/bin", "/usr/local/bin", "/usr/bin", "/bin"]
-    env["PATH"] = os.pathsep.join(dict.fromkeys(entry for entry in entries if entry))
-    return env
+# Resolve sibling imports when loaded by Crew or importlib-based tests.
+import sys
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+import runtime
 
-
-def find_scanner(runner=subprocess.run):
-    override = os.environ.get("OUTRIDER_BIN")
-    candidates = [override] if override else [str(Path.home() / ".local/bin/outrider"), shutil.which("outrider", path=scanner_environment()["PATH"])]
-    for candidate in dict.fromkeys(candidates):
-        if not candidate:
-            continue
-        try:
-            probe = runner([candidate, "crew", "scan", "--help"], capture_output=True, text=True, timeout=10, check=False)
-            if probe.returncode == 0 and "--state-dir" in probe.stdout:
-                prompt = runner([candidate, "crew", "session-prompt", "--help"], capture_output=True, text=True, timeout=10, check=False)
-                mcp = runner([candidate, "mcp", "--help"], capture_output=True, text=True, timeout=10, check=False)
-                if prompt.returncode == 0 and mcp.returncode == 0 and "--config-format" in mcp.stdout:
-                    return candidate
-        except (OSError, subprocess.TimeoutExpired):
-            continue
-    raise RuntimeError("No compatible Outrider binary found. Install a current Outrider release (requires crew scan, crew session-prompt and mcp), or build this source with task install, or set OUTRIDER_BIN to its absolute path, then scan again.")
+scanner_environment = runtime.environment
+find_scanner = runtime.find
 
 
 def convert_settings(content):
@@ -341,6 +323,25 @@ class Inbox:
         self.log_event('Repository settings saved; max sessions: ' + str(maximum))
         self.wake.set()
 
+    def finish_onboarding(self, draft):
+        if not runtime.doctor(self.data)['ready']:
+            raise ValueError('Resolve Doctor checks before completing setup')
+        if not isinstance(draft, dict):
+            raise ValueError('Expected setup settings')
+        repo = normalize_repo(draft.get('repo', ''))
+        if self.config.get('repos'):
+            raise ValueError('Use Add repository for an existing installation')
+        polling = draft.get('polling') or {}
+        if not isinstance(polling, dict):
+            raise ValueError('Invalid imported polling settings')
+        config = {**self.config, 'repos': [repo], 'folders': {repo: draft.get('folder', '')}, 'validation_remotes': {repo: draft['remote']} if draft.get('remote') else {}, 'repo_settings': {repo: draft.get('settings', {})}, 'automatic_default': draft.get('automatic', False), 'session_trust_default': draft.get('trust', 'inherit'), 'reviewer_default': draft.get('reviewer', ''), 'max_sessions': draft.get('maximum', 1)}
+        for source, target in [('interval_seconds', 'interval'), ('lookback_hours', 'lookback_hours'), ('candidate_limit', 'candidate_limit')]:
+            if source in polling:
+                config[target] = polling[source]
+        self.configure(config)
+        self.set_paused(False)
+        atomic_json(self.data / 'onboarding.json', {'complete': True})
+
     def generate_setup(self, body):
         repo = normalize_repo(body.get("repo"))
         intent = body.get("intent")
@@ -432,7 +433,7 @@ class Inbox:
         return {'folder_id': folder_id, 'checkout': root, 'remotes': remotes}
 
     def git(self, cwd, *args):
-        result = subprocess.run(['git', '-c', 'core.hooksPath=/dev/null', '-C', str(cwd), *args], env=scanner_environment(), capture_output=True, text=True, timeout=120, check=False)
+        result = subprocess.run(['git', '-c', 'core.hooksPath=' + os.devnull, '-C', str(cwd), *args], env=scanner_environment(), capture_output=True, text=True, timeout=120, check=False)
         if result.returncode:
             raise ValueError('Git could not prepare the checkout (' + args[0] + '). Check the folder, remote and Git authentication.')
         return result.stdout.strip()
@@ -877,6 +878,12 @@ class Handler(BaseHTTPRequestHandler):
             if self.command == "GET" and self.path == "/api/status":
                 self.reply(200, inbox.snapshot())
                 return
+            if self.command == "GET" and self.path == "/api/onboarding":
+                self.reply(200, read_json(inbox.data / 'onboarding-draft.json', {}))
+                return
+            if self.command == "GET" and self.path == "/api/doctor":
+                self.reply(200, runtime.doctor(inbox.data))
+                return
             if self.command == "GET" and self.path == "/api/setup":
                 self.reply(200, inbox.setup_status())
                 return
@@ -892,6 +899,21 @@ class Handler(BaseHTTPRequestHandler):
             payload = json.loads(body or b"{}")
             if not isinstance(payload, dict):
                 raise ValueError("Expected an object")
+            if self.path == "/api/onboarding":
+                if not isinstance(payload.get('draft'), dict) or type(payload.get('step')) is not int or not 0 <= payload['step'] <= 3:
+                    raise ValueError('Invalid setup progress')
+                atomic_json(inbox.data / 'onboarding-draft.json', payload)
+                self.reply(200, {'saved': True})
+                return
+            if self.path == "/api/onboarding/finish":
+                inbox.finish_onboarding(payload.get('draft'))
+                self.reply(200, {'complete': True})
+                return
+            if self.path == "/api/runtime/install":
+                if type(payload.get('allow_incompatible', False)) is not bool:
+                    raise ValueError('allow_incompatible must be boolean')
+                self.reply(202, runtime.start_install(inbox.data, payload.get('allow_incompatible', False)))
+                return
             if self.path == "/api/setup":
                 self.reply(202, inbox.generate_setup(payload))
                 return

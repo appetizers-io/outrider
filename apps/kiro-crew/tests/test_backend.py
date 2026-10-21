@@ -189,6 +189,33 @@ class InboxTest(unittest.TestCase):
         with self.assertRaises(ValueError):
             restarted.deliver(self.item_id)
 
+    def test_wizard_preserves_imported_task_settings_and_crew_choices(self):
+        self.inbox.config = {'repos': [], 'interval': 60}
+        with patch.object(backend.runtime, 'doctor', return_value={'ready': True}), patch.object(self.inbox, 'checkout', return_value={'remotes': [{'name': 'upstream', 'repo': 'o/r'}]}), patch.object(backend, 'validate_repo_settings'):
+            self.inbox.finish_onboarding({'repo': 'o/r', 'folder': 'folder', 'remote': 'upstream', 'automatic': True, 'trust': 'trust_reads', 'reviewer': 'chosen', 'maximum': 2, 'settings': {'push': 'ask'}, 'polling': {'lookback_hours': 4, 'interval_seconds': 90}})
+        self.assertEqual(self.inbox.config['repo_settings']['o/r'], {'push': 'ask'})
+        self.assertEqual(self.inbox.config['validation_remotes']['o/r'], 'upstream')
+        self.assertEqual(self.inbox.config['session_trust_default'], 'trust_reads')
+        self.assertEqual(self.inbox.config['lookback_hours'], 4)
+        self.assertEqual(self.inbox.config['interval'], 90)
+        self.assertFalse(self.inbox.config['paused'])
+        self.assertTrue((self.inbox.data / 'onboarding.json').exists())
+
+    def test_wizard_cannot_replace_existing_repositories(self):
+        self.inbox.config = {'repos': ['o/existing'], 'interval': 60}
+        with patch.object(backend.runtime, 'doctor', return_value={'ready': True}):
+            with self.assertRaisesRegex(ValueError, 'Add repository'):
+                self.inbox.finish_onboarding({'repo': 'o/new'})
+        self.assertEqual(self.inbox.config['repos'], ['o/existing'])
+
+    def test_wizard_does_not_save_when_doctor_fails(self):
+        self.inbox.config = {'repos': [], 'interval': 60}
+        with patch.object(backend.runtime, 'doctor', return_value={'ready': False}):
+            with self.assertRaisesRegex(ValueError, 'Doctor'):
+                self.inbox.finish_onboarding({'repo': 'o/new'})
+        self.assertFalse((self.inbox.data / 'onboarding.json').exists())
+        self.assertEqual(self.inbox.config['repos'], [])
+
     def test_repository_urls(self):
         self.inbox.configure({'repos': ['https://github.com/org/repo.git/', 'org/repo']})
         self.assertEqual(self.inbox.config['repos'], ['org/repo'])
@@ -202,21 +229,21 @@ class InboxTest(unittest.TestCase):
         def run(args, **kwargs):
             calls.append(args)
             return type('Result', (), {'returncode': 0, 'stdout': '--state-dir --config-format'})()
-        with patch.dict(backend.os.environ, {}, clear=True):
-            self.assertEqual(backend.find_scanner(run), str(Path.home() / '.local/bin/outrider'))
+        with patch.dict(backend.os.environ, {}, clear=True), patch.object(backend.runtime.shutil, 'which', return_value='/host/outrider'), patch.object(Path, 'is_file', return_value=True):
+            self.assertEqual(backend.find_scanner(run), str(Path('/host/outrider').resolve()))
         self.assertEqual(len(calls), 3)
         with patch.dict(backend.os.environ, {'OUTRIDER_BIN': '/missing/out'}, clear=True):
             with self.assertRaisesRegex(RuntimeError, 'No compatible'):
                 backend.find_scanner(lambda *a, **kw: type('Result', (), {'returncode': 0, 'stdout': 'old CLI'})())
 
     def test_gui_path_includes_cli_directories_and_preserves_auth_environment(self):
-        original = {'PATH': '/crew/bin:/usr/bin', 'GH_CONFIG_DIR': '/custom/gh', 'GH_TOKEN': 'test-only'}
+        original = {'PATH': backend.os.pathsep.join(['/crew/bin', '/usr/bin']), 'GH_CONFIG_DIR': '/custom/gh', 'GH_TOKEN': 'test-only'}
         with patch.dict(backend.os.environ, original, clear=True):
             env = backend.scanner_environment()
             self.assertEqual(backend.os.environ['PATH'], original['PATH'])
         entries = env['PATH'].split(backend.os.pathsep)
         self.assertEqual(entries[:2], ['/crew/bin', '/usr/bin'])
-        for directory in ['/opt/homebrew/bin', '/usr/local/bin', str(Path.home() / '.local/bin')]:
+        for directory in ([str(Path.home() / '.local/bin')] + ([] if backend.os.name == 'nt' else ['/opt/homebrew/bin', '/usr/local/bin'])):
             self.assertIn(directory, entries)
         self.assertEqual(entries.count('/usr/bin'), 1)
         self.assertEqual(env['GH_CONFIG_DIR'], '/custom/gh')
@@ -473,7 +500,7 @@ class InboxTest(unittest.TestCase):
             self.inbox.scan()
         self.assertEqual(calls[0][0][-2:], ['--repo', 'o/r'])
         self.assertNotIn('shell', calls[0][1])
-        self.assertIn('/opt/homebrew/bin', calls[0][1]['env']['PATH'].split(backend.os.pathsep))
+        self.assertIn(str(Path.home() / '.local/bin'), calls[0][1]['env']['PATH'].split(backend.os.pathsep))
         self.assertFalse(self.inbox.scanning)
         with self.assertRaises(ValueError):
             self.inbox.request_review('../state')

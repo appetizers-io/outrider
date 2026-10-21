@@ -1,4 +1,5 @@
 """Build the Crew app archive from an explicit runtime-file allowlist."""
+import argparse
 import gzip
 import hashlib
 import io
@@ -10,6 +11,14 @@ import tarfile
 ROOT = Path(__file__).resolve().parents[1]
 APP = ROOT / 'apps/kiro-crew'
 OUT = ROOT / 'build/crew'
+parser = argparse.ArgumentParser()
+parser.add_argument('--marketplace', action='store_true', help='Require pinned runtimes for every supported platform')
+args = parser.parse_args()
+if args.marketplace:
+    lock = json.loads((APP / 'release/runtime.json').read_text())
+    expected = {f'{system}_{arch}' for system in ('darwin', 'linux', 'windows') for arch in ('amd64', 'arm64')}
+    if not lock.get('version') or set(lock.get('artifacts', {})) != expected:
+        raise SystemExit('Marketplace packaging requires pinned runtimes. Run scripts/pin_crew_runtime.py after publishing the CLI release.')
 manifest = json.loads((APP / 'app.json').read_text())
 files = [APP / name for name in ('app.json', 'README.md', 'LICENSE')]
 for directory, extensions in {'agents': {'.json'}, 'backend': {'.py'}, 'ui': {'.mjs', '.svg'}, 'assets': {'.png', '.svg'}, 'release': {'.md', '.json'}}.items():
@@ -24,7 +33,7 @@ for resource in [manifest['backend']['entryPoint'], 'ui/' + manifest['ui']['entr
         raise SystemExit(f'Manifest resource is absent from package: {resource}')
 commit = subprocess.check_output(['git', 'rev-parse', 'HEAD'], cwd=ROOT, text=True).strip()
 dirty = bool(subprocess.check_output(['git', 'status', '--porcelain', '--untracked-files=normal'], cwd=ROOT, text=True).strip())
-provenance = json.dumps({'app_version': manifest['version'], 'source_commit': commit, 'dirty': dirty, 'external_commands': manifest['dependencies']['commands']}, indent=2).encode() + b'\n'
+provenance = json.dumps({'app_version': manifest['version'], 'source_commit': commit, 'dirty': dirty, 'external_commands': manifest['dependencies'].get('commands', [])}, indent=2).encode() + b'\n'
 OUT.mkdir(parents=True, exist_ok=True)
 archive = OUT / f'outrider-crew-{manifest["version"]}.tar.gz'
 with archive.open('wb') as raw, gzip.GzipFile(fileobj=raw, mode='wb', filename='', mtime=0) as compressed, tarfile.open(fileobj=compressed, mode='w') as tar:

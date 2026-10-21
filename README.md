@@ -73,7 +73,7 @@ the network. [Safety](docs/safety.md) lists what is and isn't enforced.
 | [Configuration](docs/configuration.md) | The config file by topic, flags, the schema |
 | [Classifiers](docs/classifiers.md) | Jev, your own launch check and tool gate |
 | [MCP server](docs/mcp.md) | Read-only tools and configuration drafts for MCP clients |
-| [Kiro Crew](apps/kiro-crew/README.md) | Crew app, review inbox, snapshot reviews and local fork validation |
+| [Kiro Crew](apps/kiro-crew/README.md) | Automatic PR reviews in your Crew folders, helping you keep up with AI-accelerated development |
 | [Terminals](docs/terminals.md) | Terminal detection, tmux, Windows |
 | [Recipes](docs/recipes.md) | Forks, bots, Codex, background service, many repos |
 | [Examples](docs/examples/README.md) | Example configs, classifier scripts, service files |
