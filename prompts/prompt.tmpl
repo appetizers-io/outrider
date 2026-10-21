@@ -10,7 +10,7 @@ PR: #{{.N}}
 URL: {{.URL}}
 Title: {{.Title}}
 Author: {{.Author}}
-Head: {{.Head}}:{{.HeadRef}} (local branch review/pr-{{.N}})
+Head: {{.Head}}:{{.HeadRef}} (local branch {{if .LocalBranch}}{{.LocalBranch}}{{else}}review/pr-{{.N}}{{end}})
 Maintainer can modify: {{.MaintainerCanModify}}
 Base branch: {{.Base}}
 
@@ -91,18 +91,19 @@ Recheck the current PR head, discussions and CI before any approval.
   runs them), commit it locally on a branch `review/pr-{{.N}}-<topic>` and
   push it to one of {{.Owner}}'s review forks ({{.ReviewForks}}):
   `git remote add fork git@github.com:<fork>.git` once, then
-  `git push fork HEAD:review/pr-{{.N}}-<topic>`. Only plain `git push <remote>
+  `git push fork HEAD:review/pr-{{.N}}-<topic>`. {{if .Crew}}Use only `git push <remote> <refspec>` to a branch under `review/`.
+  These are task boundaries; Crew controls tool approvals.{{else}}Only plain `git push <remote>
   <refspec>` to a branch under `review/` works; the git guard refuses every
-  other destination and branch
+  other destination and branch{{end}}
 {{- if eq .Push "ask"}}
-- each push opens a dialog for {{.Owner}} showing where it goes. If the
+- {{if .Crew}}ask {{.Owner}} to confirm the evidence push and its destination in this chat. If the{{else}}each push opens a dialog for {{.Owner}} showing where it goes. If the{{end}}
   push is denied, do NOT retry it or work around it; keep the commits local
 {{- else if eq .Push "never"}}
 - pushing is off: keep the commits local and tell {{.Owner}} what is ready
 {{- end}}
 {{- else}}REVIEW ONLY: this PR belongs to {{.Author}}, not {{.Owner}}.
 - do NOT edit files, commit or push, not even trivial fixes (lint,
-  formatting, typos, failing CI); `git push` is blocked in this session
+  formatting, typos, failing CI){{if .Crew}}. This is a task restriction; Crew owns tool approvals{{else}}; `git push` is blocked in this session{{end}}
 - put findings and suggested changes (explanation or diff) in this
   session; {{.Owner}} decides what to raise with {{.Author}}
 {{- end}}
@@ -153,7 +154,7 @@ If a human/architectural decision is needed, explain it to {{.Owner}} here.
 - run focused tests/lint
 - commit with a concise human-style message
 - VERIFY push access to the existing PR head repository/branch
-- only then push to that EXISTING branch{{if eq .Push "ask"}} (`git push` asks {{.Owner}} first){{end}}
+- only then push to that EXISTING branch{{if eq .Push "ask"}} ({{if .Crew}}ask {{.Owner}} to confirm the push in this chat first{{else}}`git push` asks {{.Owner}} first{{end}}){{end}}
 
 If you cannot push, keep the patch local and explain it to {{.Owner}}.
 If nothing is actionable, change nothing.

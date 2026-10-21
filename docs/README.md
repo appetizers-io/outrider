@@ -9,6 +9,7 @@
 | [Safety](safety.md) | know what the guardrails do, and what they don't |
 | [Configuration](configuration.md) | change behaviour with the config file or flags |
 | [Classifiers](classifiers.md) | set up Jev or plug in your own launch check and tool gate |
+| [Kiro Crew](../apps/kiro-crew/README.md) | use the Crew review inbox and static snapshot reviewer |
 | [Terminals](terminals.md) | pick where sessions open: a terminal app or tmux |
 | [Recipes](recipes.md) | forks, bots, Codex, running as a service, many repos |
 | [Examples](examples/README.md) | start from a ready-made config, classifier script or service file |

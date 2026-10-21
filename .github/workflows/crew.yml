@@ -1,0 +1,23 @@
+name: Kiro Crew app
+on:
+  pull_request:
+    paths: ['apps/kiro-crew/**', 'Taskfile.yml', 'scripts/package_crew.py', 'scripts/pin_crew_runtime.py', '.github/workflows/crew.yml']
+  push:
+    branches: [main]
+    paths: ['apps/kiro-crew/**', 'Taskfile.yml', 'scripts/package_crew.py', 'scripts/pin_crew_runtime.py', '.github/workflows/crew.yml']
+permissions:
+  contents: read
+jobs:
+  test:
+    strategy:
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      # Python and Node.js are included in hosted runner images.
+      - run: python -m unittest discover -s apps/kiro-crew/tests -v
+      - run: node --experimental-vm-modules --test apps/kiro-crew/tests/test_ui.mjs
+      - run: python scripts/package_crew.py

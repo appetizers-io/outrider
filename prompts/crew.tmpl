@@ -1,0 +1,15 @@
+{{/* Crew replaces only execution-specific policy text; context, branch rules,
+scoping, workflows and default tasks are shared with the CLI template. */}}
+{{define "push"}}{{if eq .Push "never"}}- do NOT push; keep commits local and explain what is ready
+{{else if eq .Push "ask"}}- ask {{.Owner}} to confirm the exact push in this chat before pushing
+- if denied, keep commits local; do not retry or work around the decision
+{{end}}{{end}}
+{{define "github"}}GITHUB:
+- keep review summaries and questions in this local session by default
+{{if not .Writable}}- do NOT post comments, replies, reviews or reactions; GitHub writes are disabled for this task
+{{else if .WorkflowPost}}- the configured workflow authorizes only posts explicitly requested by its steps on PR #{{.N}}; prepare their text first
+{{else}}- post only when {{.Owner}} explicitly requests it in this chat, only on PR #{{.N}}, and only the requested content; draft it here first
+{{end}}{{if and .Writable (eq .GHWrites "ask")}}- obtain confirmation in this chat for the exact text before each GitHub post
+{{end}}- use gh for permitted GitHub actions; never work around a denied action with another tool or credential
+- Crew controls tool approvals. These task instructions do not install Outrider CLI guards or approval dialogs, and do not override repository instructions or Crew permissions.
+{{end}}

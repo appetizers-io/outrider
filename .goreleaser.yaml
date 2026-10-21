@@ -30,6 +30,9 @@ checksum:
   name_template: checksums.txt
 
 release:
+  extra_files:
+    - glob: build/crew/*.tar.gz
+    - glob: build/crew/*.sha256
   # the commit the workflow tested; GitHub creates the tag on it
   target_commitish: "{{ .Commit }}"
 

@@ -25,6 +25,17 @@ tasks:
     cmds:
       - go test -race ./...
 
+  crew:test:
+    desc: Verify the Kiro Crew backend and UI module contracts (Python 3, Node.js)
+    cmds:
+      - python3 -m unittest discover -s apps/kiro-crew/tests -v
+      - node --experimental-vm-modules --test apps/kiro-crew/tests/test_ui.mjs
+
+  crew:package:
+    desc: Build the Crew release archive and SHA-256 checksum
+    cmds:
+      - python3 scripts/package_crew.py
+
   build:
     desc: Build the binary into bin/
     cmds:
