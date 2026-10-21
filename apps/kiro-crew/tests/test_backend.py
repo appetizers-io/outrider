@@ -242,6 +242,34 @@ class InboxTest(unittest.TestCase):
             with self.assertRaisesRegex(ValueError, 'Session settings belong to Crew'):
                 backend.validate_repo_settings({'o/r': {field: 'value'}})
 
+    def test_ai_setup_only_returns_validated_draft_and_keeps_crew_preferences(self):
+        agent = self.agent.with_name('outrider--outrider-setup.json')
+        agent.write_text((backend.ROOT / 'agents/setup.json').read_text())
+        proposal = {'yaml': 'triggers: {}\n', 'settings': {'triggers': {}}}
+        with patch.object(backend, 'convert_settings', return_value=proposal):
+            state = self.inbox.generate_setup({'repo': 'o/r', 'intent': 'Watch mentions'})
+            self.assertEqual(state['status'], 'running')
+            payload = self.gateway.calls[-1][1]
+            self.assertEqual(payload['agent'], 'outrider-setup')
+            for field in ['model', 'reasoning_effort', 'approval_mode', 'max_turns']:
+                self.assertNotIn(field, payload)
+            with self.assertRaises(ValueError):
+                self.inbox.generate_setup({'repo': 'o/r', 'intent': 'Duplicate'})
+            self.gateway.call = lambda *a: {'done': True, 'result': '```yaml\ntriggers: {}\n```'}
+            state = self.inbox.setup_status()
+        self.assertEqual(state['status'], 'completed')
+        self.assertEqual(state['proposal'], proposal)
+        self.assertFalse((self.data / 'settings.json').exists())
+
+    def test_ai_setup_timeout_is_uncertain_and_not_retried(self):
+        self.agent.with_name('outrider--outrider-setup.json').write_text((backend.ROOT / 'agents/setup.json').read_text())
+        self.gateway.fail = True
+        with patch.object(backend, 'convert_settings', return_value={'yaml': '{}'}):
+            self.assertEqual(self.inbox.generate_setup({'repo': 'o/r', 'intent': 'Watch mentions'})['status'], 'uncertain')
+        self.inbox.setup_status()
+        self.assertEqual(len(self.gateway.calls), 1)
+        self.assertFalse((self.data / 'settings.json').exists())
+
     def test_config_validation_and_argv(self):
         for invalid in [['--help'], ['o/r;touch bad'], ['../r'], ['o/*']]:
             with self.assertRaises(ValueError):

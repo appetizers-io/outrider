@@ -1,10 +1,14 @@
 package cli
 
 import (
+	"encoding/json"
 	"errors"
+	"fmt"
+	"io"
 	"log/slog"
 
 	"github.com/spf13/cobra"
+	"go.yaml.in/yaml/v3"
 
 	"github.com/appetizers-io/outrider/internal/config"
 	"github.com/appetizers-io/outrider/internal/crew"
@@ -43,5 +47,36 @@ func crewCmd(d watch.Deps) *cobra.Command {
 	scan.Flags().StringArrayVar(&repos, "repo", nil, "repository allowlist, owner/repo or glob (repeatable)")
 	scan.Flags().BoolVar(&existing, "process-existing", false, "queue existing activity on the first scan")
 	cmd.AddCommand(scan)
+	cmd.AddCommand(&cobra.Command{Use: "settings", Short: "Validate and convert Crew repository YAML from stdin", Args: cobra.NoArgs,
+		RunE: func(cmd *cobra.Command, _ []string) error {
+			raw, err := io.ReadAll(io.LimitReader(cmd.InOrStdin(), 131073))
+			if err != nil {
+				return err
+			}
+			if len(raw) > 131072 {
+				return errors.New("repository settings exceed 128 KiB")
+			}
+			var settings map[string]any
+			if err := yaml.Unmarshal(raw, &settings); err != nil {
+				return err
+			}
+			if settings == nil {
+				settings = map[string]any{}
+			}
+			allowed := map[string]bool{"triggers": true, "ignore_authors": true, "launch_check": true, "prompts": true, "workflows": true}
+			for key := range settings {
+				if !allowed[key] {
+					return fmt.Errorf("unsupported repository setting %q; session settings belong to Crew", key)
+				}
+			}
+			encoded, err := yaml.Marshal(settings)
+			if err != nil {
+				return err
+			}
+			if _, err := config.Parse(encoded, "repository settings"); err != nil {
+				return err
+			}
+			return json.NewEncoder(cmd.OutOrStdout()).Encode(map[string]any{"settings": settings, "yaml": string(encoded)})
+		}})
 	return cmd
 }

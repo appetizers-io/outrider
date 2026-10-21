@@ -158,10 +158,12 @@ are preserved; no shell startup files are sourced.
 
 ### Per-repository behavior
 
-After saving repositories, reopen **Repositories** and select a repository under
-**Per-repository triggers and workflows**. Toggle own-PR activity, reaction opt-in,
+Use **Add repository** for setup, then select a repository from the dropdown in
+**Repositories**. The inbox and repository settings are separate views.
+Switch between **Form** and **YAML** to edit the same settings; YAML is validated
+when switching or saving. Switching to Form reformats YAML and removes comments. Toggle own-PR activity, reaction opt-in,
 review replies, and mentions. **Add workflow** provides a name, condition, and
-ordered steps. Advanced JSON supports the same `triggers`, `ignore_authors`,
+ordered steps. The alternative YAML editor supports the same `triggers`, `ignore_authors`,
 `launch_check`, `prompts`, and `workflows` fields as standalone Outrider, including
 workflow match rules, reaction selection, thread/comment scope, and freshness.
 Save validates against the standalone schema before replacing settings.
@@ -187,3 +189,24 @@ workflow instructions at capture time; changing settings affects future snapshot
 Execution remains a no-tools snapshot review: unavailable steps are reported as
 blocked, and `post` does not authorize GitHub writes in Crew. Launcher, agent,
 model, permissions, and tool policy are not imported from standalone settings.
+
+### AI setup and MCP
+
+In **Repositories**, choose a repository and expand **Set up with AI**. Describe
+what should trigger reviews. Crew runs the no-tools `outrider-setup` agent using
+its configured model defaults. The returned YAML must pass Outrider validation.
+**Use draft** loads it into the editor; **Save settings** is the only action that
+applies it. Generation failures never replace your existing configuration, and
+ambiguous dispatches are not automatically repeated. This does not inherit the
+model selection of an unrelated open chat.
+
+The app contributes an `outrider` stdio MCP server, registered by Crew as
+`outrider:outrider`, with four read-only tools: `list_repositories`,
+`configuration_schema`, `list_reviews`, and `propose_repository_config`.
+Proposals are validated YAML and do not write configuration or launch reviews.
+Agents can use these tools subject to Crew's normal MCP permissions. Neither the
+snapshot reviewer nor the setup assistant imports MCP tools. The manifest uses
+Crew's Python interpreter resolution and installed app-directory lookup so it
+works independently of the GUI PATH.
+
+The app ships a vector logo at `ui/logo.svg`, used in its header and sidebar.

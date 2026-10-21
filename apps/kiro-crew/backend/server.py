@@ -74,6 +74,13 @@ def find_scanner(runner=subprocess.run):
     raise RuntimeError("No compatible Outrider binary found. Install this branch with task install (requires crew scan --state-dir), or set OUTRIDER_BIN to its absolute path, then scan again.")
 
 
+def convert_settings(content):
+    result = subprocess.run([find_scanner(), "crew", "settings"], input=content, env=scanner_environment(), capture_output=True, text=True, timeout=15, check=False)
+    if result.returncode:
+        raise ValueError(result.stderr[-6000:] or "Invalid repository YAML")
+    return json.loads(result.stdout)
+
+
 REPO_SETTINGS = {"triggers", "ignore_authors", "launch_check", "prompts", "workflows"}
 
 
@@ -187,6 +194,11 @@ class Inbox:
         for run in self.runs.values():
             if run.get("delivery", {}).get("status") == "sending":
                 run["delivery"]["status"] = "uncertain"
+        self.setup_lock = threading.RLock()
+        self.setup = read_json(self.data / "setup.json", {})
+        if self.setup.get("status") == "dispatching":
+            self.setup.update(status="uncertain", error="Setup dispatch was interrupted. Check Crew tasks before generating again.")
+            atomic_json(self.data / "setup.json", self.setup)
         self.save_runs()
         self.scan_requested = False
         self.scanning = False
@@ -216,6 +228,67 @@ class Inbox:
             atomic_json(self.data / "settings.json", self.config)
             self.scan_requested = bool(repos)
         self.wake.set()
+
+    def generate_setup(self, body):
+        repo = normalize_repo(body.get("repo"))
+        intent = body.get("intent")
+        if not isinstance(intent, str) or not 1 <= len(intent.strip()) <= 6000:
+            raise ValueError("Describe the setup in 1–6000 characters")
+        source = body.get("current", "{}")
+        if not isinstance(source, str):
+            raise ValueError("Current settings must be YAML text")
+        current = convert_settings(source)["yaml"]
+        with self.setup_lock:
+            if self.setup.get("status") in {"dispatching", "running"}:
+                raise ValueError("A setup draft is already being generated")
+            expected = read_json(ROOT / "agents/setup.json", {})
+            actual = read_json(self.agent_path.with_name("outrider--outrider-setup.json"), {})
+            if any(actual.get(key) != expected[key] for key in ("name", "tools", "allowedTools", "includeMcpJson", "mcpServers", "resources", "hooks")):
+                raise ValueError("Reinstall the app to register the no-tools setup assistant")
+            self.gateway.authenticate()
+            prompt = f"Draft repository settings for {repo}. Return YAML only. User request: {intent}\nExisting settings:\n{current}\n" + SETUP_SCHEMA
+            if len(prompt) > 39000:
+                raise ValueError("Setup context is too large")
+            self.setup = {"status": "dispatching", "repo": repo}
+            atomic_json(self.data / "setup.json", self.setup)
+            try:
+                response = self.gateway.call("/api/spawn", {"agent": "outrider-setup", "backend": "kiro", "cwd": str(self.data), "task": prompt})
+                if not isinstance(response.get("id"), str) or not response["id"]:
+                    raise RuntimeError("Crew returned no task ID")
+                self.setup.update(status="running", task_id=response["id"])
+            except Exception as error:
+                self.setup.update(status="uncertain", error=str(error))
+            atomic_json(self.data / "setup.json", self.setup)
+            return dict(self.setup)
+
+    def setup_status(self):
+        with self.setup_lock:
+            if self.setup.get("status") == "running":
+                try:
+                    result = self.gateway.call("/api/spawn/" + quote(self.setup["task_id"], safe=""))
+                    self.setup["poll_failures"] = 0
+                    if result.get("done"):
+                        if result.get("error") or result.get("stopped"):
+                            raise ValueError(result.get("error") or "Setup task stopped")
+                        raw = result.get("result", "")
+                        if not isinstance(raw, str) or not raw.strip():
+                            raise ValueError("Setup returned no configuration")
+                        raw = raw.strip()
+                        self.setup["result"] = raw
+                        if raw.startswith("```") and raw.endswith("```"):
+                            raw = raw.split("\n", 1)[1].rsplit("```", 1)[0]
+                        proposal = convert_settings(raw)
+                        self.setup.pop("error", None)
+                        self.setup.update(status="completed", proposal=proposal)
+                except ValueError as error:
+                    self.setup.update(status="failed", error=str(error))
+                except Exception as error:
+                    failures = self.setup.get("poll_failures", 0) + 1
+                    self.setup.update(poll_failures=failures, error=str(error))
+                    if failures >= MAX_POLL_FAILURES:
+                        self.setup["status"] = "uncertain"
+                atomic_json(self.data / "setup.json", self.setup)
+            return dict(self.setup)
 
     def folders(self):
         rows = self.gateway.call("/api/chat/folders")
@@ -417,6 +490,9 @@ class Handler(BaseHTTPRequestHandler):
             if self.command == "GET" and self.path == "/api/status":
                 self.reply(200, inbox.snapshot())
                 return
+            if self.command == "GET" and self.path == "/api/setup":
+                self.reply(200, inbox.setup_status())
+                return
             if self.command == "GET" and self.path == "/api/folders":
                 self.reply(200, inbox.folders())
                 return
@@ -426,6 +502,15 @@ class Handler(BaseHTTPRequestHandler):
             payload = json.loads(body or b"{}")
             if not isinstance(payload, dict):
                 raise ValueError("Expected an object")
+            if self.path == "/api/setup":
+                self.reply(202, inbox.generate_setup(payload))
+                return
+            if self.path == "/api/settings/convert":
+                content = payload.get("content")
+                if not isinstance(content, str):
+                    raise ValueError("Repository YAML is required")
+                self.reply(200, convert_settings(content))
+                return
             if self.path == "/api/config":
                 inbox.configure(payload)
             elif self.path == "/api/scan":
@@ -472,6 +557,26 @@ def main():
         inbox.wake.set()
         server.server_close()
 
+
+SETUP_SCHEMA = """Supported fields (all optional):
+triggers:
+  own_prs: {enabled: true, check: true}
+  opt_in: {enabled: true, reaction: eyes, where: [description, comment, review, review_comment], on_change: {check: true, ignore_own_activity: true}}
+  review_replies: {enabled: true, check: true, scope: thread, fresh_within_hours: null}
+  mentions: {enabled: true, check: true, scope: comment, fresh_within_hours: null}
+ignore_authors: [] # login globs
+launch_check: {classifier: null, skip_below: 0.5} # null disables classifier; jev selects built-in
+prompts: {extra: ""}
+workflows:
+  - name: unique-name
+    match: [{}] # each entry ANDs repo, prs (own|others), authors (list), labels (list), title (glob), head (glob), events (list)
+    on: activity # activity | ci_passed | discussions_resolved; events only for activity
+    steps: ["Inspect the captured changes."]
+    post: false
+Workflow event names: notification, own_pr, opt_in, review_change, review_reply, mention.
+Reply scope: thread or pr. Mention scope: comment or pr. Reaction: +1, -1, laugh, confused, heart, hooray, rocket, eyes.
+Snapshot workflows have no tools: do not promise tests, checkout, edits, or GitHub posts. The output is a draft for human review, never apply it.
+"""
 
 if __name__ == "__main__":
     main()

@@ -5,7 +5,8 @@
   "description": "Turn GitHub PR activity into a review inbox and read-only snapshot reviews.",
   "author": "appetizers-io",
   "agents": [
-    "agents/reviewer.json"
+    "agents/reviewer.json",
+    "agents/setup.json"
   ],
   "ui": {
     "entry": "index.mjs",
@@ -13,7 +14,8 @@
       {
         "route": "/apps/outrider",
         "label": "Outrider",
-        "icon": "GitPullRequest"
+        "icon": "GitPullRequest",
+        "iconUrl": "logo.svg"
       }
     ]
   },
@@ -45,5 +47,14 @@
       "macos",
       "linux"
     ]
+  },
+  "mcpServers": {
+    "outrider": {
+      "command": "python3",
+      "args": [
+        "-c",
+        "from kiro_crew.apps.manager import app_dir; import runpy; runpy.run_path(str(app_dir(\"outrider\") / \"backend/mcp_server.py\"), run_name=\"__main__\")"
+      ]
+    }
   }
 }
