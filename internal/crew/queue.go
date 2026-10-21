@@ -81,7 +81,7 @@ func (s *Scanner) Scan(ctx context.Context) error {
 	}
 	var queueErr error
 	p := poll.Poller{GH: s.GH, Cfg: &s.Config, Login: user.Login, Include: include, Exclude: exclude,
-		ProcessExisting: s.ProcessExisting, StatePath: statePath, Log: s.Log, Now: time.Now,
+		ProcessExisting: s.ProcessExisting, OptInFirst: true, StatePath: statePath, Log: s.Log, Now: time.Now,
 		Launch: func(ctx context.Context, r session.Request) bool {
 			own := strings.EqualFold(r.PR.AuthorLogin(), user.Login)
 			cfg := s.Config.For(r.Repo, own)

@@ -1,8 +1,9 @@
 # Outrider for Kiro Crew
 
 A Crew app backed by Outrider's Go notification poller. Choose repositories,
-scan actionable PR activity, and click **Review snapshot**. Findings appear in
-the app; nothing is posted to GitHub.
+poll actionable PR activity, and process it through a PR work queue. Enable
+automatic local validation per repository or start work manually. Crew owns
+session settings; Outrider does not publish findings to GitHub.
 
 ## Install from this checkout
 
@@ -15,13 +16,15 @@ the app; nothing is posted to GitHub.
 3. Grant this app session control in Crew's trust settings to permit reviews.
 4. Open **Outrider**, enter repositories as `owner/repo`, and save. The first
    scan includes existing activity in the poller's default lookback window.
-5. Click **Review snapshot** on an item. One review runs at a time. Crew may
-   also ask for approval before starting its task.
+5. Configure a Crew folder and validation remote, then enable **Automatic sessions**
+   for new activity, or click **Validate locally** on a queued item. Set the global
+   session limit under repository settings (default one). **Review without tools**
+   remains available for captured context. Crew may ask for approval.
 
 There is no frontend build step: `ui/index.mjs` imports React and the SDK from
 Crew's shared modules. The Python backend uses only the standard library.
 The app starts idle until you configure repositories. Clear the repository
-list to pause polling. Disabling the app stops its backend; already-dispatched
+list or use **Active / Inactive** to pause polling. Disabling the app stops its backend; already-dispatched
 Crew tasks remain managed by Crew.
 
 ## What this version does
@@ -37,13 +40,13 @@ Crew tasks remain managed by Crew.
   they are sent to the model configured in Crew when you request a review.
 - Saves task IDs across backend restarts. An ambiguous dispatch becomes
   **uncertain**, requiring you to check Crew tasks before explicitly retrying.
-  Missing tasks (HTTP 404/410) or five consecutive status-poll failures also
-  become uncertain and release the review slot. Authentication failures and
+  Missing tasks (HTTP 404/410) become uncertain and release capacity. Repeated
+  status-poll failures become uncertain and retain capacity until reconciled. Authentication failures and
   definitive request rejections are failed reviews, not ambiguous launches.
 
 ## Session launch and configuration precedence
 
-Clicking **Review snapshot** submits `POST /api/spawn` to the Crew gateway with
+Clicking **Review without tools** submits `POST /api/spawn` to the Crew gateway with
 `agent: outrider-reviewer`, the captured snapshot as `task`, the app data directory
 as `cwd`, and `backend: kiro`. Crew starts a new background task; the app stores
 its ID and polls `GET /api/spawn/{id}` for findings. It does not open a terminal,
@@ -254,7 +257,7 @@ from the folder's `project_dir`, including inherited parent folders; set that
 in Crew first if it is missing. Only remotes pointing to the watched GitHub
 repository are offered. Both SSH and HTTPS GitHub remotes are supported.
 
-The inbox now offers **Validate locally** alongside **Review snapshot**. Local
+The inbox now offers **Validate locally** alongside **Review without tools**. Local
 validation fetches the upstream PR head and checks it still matches the captured
 commit. It creates a detached worktree at
 `<primary-checkout>/.claude/worktrees/outrider-<snapshot-id-prefix>` without
@@ -276,8 +279,8 @@ Worktrees are retained for inspection; remove one with `git worktree remove`
 when finished. A timeout or interrupted handoff is marked uncertain and never
 automatically resent. Preflight failures before a worktree exists can be retried.
 `/api/chat` permission is required for dispatch to the app's own chats; Crew
-continues to enforce chat ownership. Local validation is explicitly started by
-the user, not automatically launched by polling.
+continues to enforce chat ownership. Local validation can be started manually or automatically for new activity in
+repositories with automatic sessions enabled.
 
 ### Import previews, feedback, and polling status
 
@@ -285,10 +288,39 @@ the user, not automatically launched by polling.
 notes, Cancel, and Use import draft. Escape closes it without applying the draft.
 Save settings and Add repository show a persistent, dismissible success toast.
 
-Polling status shows elapsed scan time, queued/running/failed/paused states, the
-last successful scan, and the next scheduled scan. **Pause polling** stops future
-automatic passes and lets the current pass finish; **Scan now** still runs once
-while paused. Resume polling schedules a new pass. Pause state survives restarts.
+**Active / Inactive** controls always-on polling and new automatic sessions.
+The setting survives restarts; an active app resumes when Crew starts. Running
+work finishes when polling is paused. The expandable **Activity log** shows scan
+progress, saved settings, dispatches, completion, and errors (last 200 events).
+Crew notifications announce local session starts and dispatch failures. The Queue
+navigation badge counts pending PRs; it is not an arbitrary Crew sidebar badge.
+
+### Queue processing and deduplication
+
+The default queue shows the newest pending item per PR plus running or uncertain
+work. Completed, dismissed, and older activity is available through the history
+checkbox. **Dismiss** removes an item from automatic processing; it does not stop
+watching the PR, so later activity can enqueue new work.
+
+Automatic sessions are opt-in per repository and require a Crew folder and
+validation remote. Enabling them applies to activity captured after enabling;
+existing backlog remains available for manual processing. A global session limit
+(default one, maximum 20) includes both local validation and no-tools reviews.
+Only one session per PR can run at a time, even with spare global capacity.
+
+The poller persists handled notification state and watched-PR fingerprints.
+Identical captured prompts share a deterministic SHA-256 queue ID. The ID includes
+trigger, scope, workflow, head, and captured context: different triggers or scopes
+can still produce distinct items for the same commit. Automatic dispatch selects
+the latest pending capture per PR; older captures remain in history. Activity
+arriving during a session waits for that session to finish before a follow-up.
+
+Dispatch intent and Crew identifiers are persisted. Restarting does not resend
+accepted work; ambiguous handoffs remain uncertain and reserve capacity rather
+than risking a duplicate session. This is not an exactly-once delivery guarantee:
+check Crew if a handoff is uncertain. Chat completion is tracked using Crew's
+running/queue state and observed response; missing or unrecognized status retains
+capacity.
 
 Each scanner pass has a 150-second cooperative budget, below the backend's
 180-second emergency timeout. It saves completed poll progress before returning

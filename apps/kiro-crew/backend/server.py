@@ -1,6 +1,7 @@
 """Outrider Crew app backend. Standard library only; local validation executes through Crew."""
 from __future__ import annotations
 
+from datetime import datetime, timezone
 import hashlib
 import hmac
 import json
@@ -198,6 +199,8 @@ class Inbox:
         self.data.mkdir(parents=True, exist_ok=True, mode=0o700)
         self.agent_path = agent_path or Path.home() / ".kiro/agents/outrider--outrider-reviewer.json"
         self.lock = threading.RLock()
+        self.events = read_json(self.data / 'events.json', [])[-200:]
+        self.dismissed = read_json(self.data / 'dismissed.json', {})
         self.wake, self.stop = threading.Event(), threading.Event()
         self.config = read_json(self.data / "settings.json", {"repos": [], "interval": 60})
         self.validations = read_json(self.data / "validations.json", {})
@@ -220,12 +223,37 @@ class Inbox:
         self.save_runs()
         self.scan_requested = False
         self.scanning = False
+        self.scan_inflight = False
         self.scan_started = None
         self.next_scan = None
         scan_state = read_json(self.data / 'scan-status.json', {})
         self.last_scan = scan_state.get('last_scan')
         self.error = scan_state.get('error', '')
         self.scan_partial = scan_state.get('partial', False)
+
+    def log_event(self, message, level='info'):
+        with self.lock:
+            self.events.append({'time': time.time(), 'level': level, 'message': message})
+            self.events = self.events[-200:]
+            atomic_json(self.data / 'events.json', self.events)
+
+    def notify(self, item, title, body):
+        try:
+            self.gateway.call('/api/notifications/push', {'channel': 'sessions', 'title': title, 'body': body, 'group_key': item['id'], 'url': '/apps/outrider'})
+        except Exception:
+            self.log_event('Crew notification could not be delivered; session state is unchanged.', 'warning')
+
+    def active_sessions(self):
+        return sum(r['status'] in ACTIVE or (r['status'] == 'uncertain' and not r.get('capacity_released')) for r in self.runs.values()) + sum(v['status'] in {'preparing', 'dispatching', 'started', 'uncertain'} for v in self.validations.values())
+
+    def pr_active(self, item):
+        if any(v.get('repo') == item['repo'] and v.get('pr') == item['pr'] and v['status'] in {'preparing', 'dispatching', 'started', 'uncertain'} for v in self.validations.values()):
+            return True
+        for queued in self.items():
+            run = self.runs.get(queued['id'], {})
+            if queued['repo'] == item['repo'] and queued['pr'] == item['pr'] and (run.get('status') in ACTIVE or (run.get('status') == 'uncertain' and not run.get('capacity_released'))):
+                return True
+        return False
 
     def save_runs(self):
         atomic_json(self.data / "runs.json", self.runs)
@@ -253,10 +281,24 @@ class Inbox:
                 context = self.checkout(folders.get(repo, ''))
                 if not any(r['name'] == remote and r['repo'].lower() == repo.lower() for r in context['remotes']):
                     raise ValueError('Validation remote must point to the watched repository')
+        maximum = body.get('max_sessions', self.config.get('max_sessions', 1))
+        if type(maximum) is not int or not 1 <= maximum <= 20:
+            raise ValueError('Max sessions must be between 1 and 20')
+        automatic = body.get('automatic', self.config.get('automatic', {}))
+        if not isinstance(automatic, dict) or any(type(v) is not bool for v in automatic.values()):
+            raise ValueError('Automatic sessions must be enabled or disabled per repository')
+        starts = dict(self.config.get('automatic_since', {}))
+        for repo in repos:
+            if automatic.get(repo):
+                if not folders.get(repo) or not remotes.get(repo):
+                    raise ValueError('Automatic sessions need a Crew folder and validation remote')
+                if not self.config.get('automatic', {}).get(repo):
+                    starts[repo] = datetime.now(timezone.utc).isoformat()
         with self.lock:
-            self.config = {"paused": self.config.get("paused", False), "validation_remotes": {r: remotes[r] for r in repos if r in remotes},"repos": sorted(set(repos)), "interval": interval, "folders": {r: folders[r] for r in repos if folders.get(r)}, "repo_settings": {r: options[r] for r in repos if r in options}}
+            self.config = {"max_sessions": maximum, "automatic": {r: automatic.get(r, False) for r in repos}, "automatic_since": {r: starts[r] for r in repos if r in starts}, "paused": self.config.get("paused", False), "validation_remotes": {r: remotes[r] for r in repos if r in remotes},"repos": sorted(set(repos)), "interval": interval, "folders": {r: folders[r] for r in repos if folders.get(r)}, "repo_settings": {r: options[r] for r in repos if r in options}}
             atomic_json(self.data / "settings.json", self.config)
             self.scan_requested = bool(repos) and not self.config.get("paused", False)
+        self.log_event('Repository settings saved; max sessions: ' + str(maximum))
         self.wake.set()
 
     def generate_setup(self, body):
@@ -358,16 +400,20 @@ class Inbox:
     def request_validation(self, item_id):
         with self.lock:
             item = self.item(item_id)
+            if item_id in self.dismissed:
+                raise ValueError('This queued item was dismissed')
             if item_id in self.validations and not (self.validations[item_id]['status'] == 'failed' and not self.validations[item_id].get('worktree')):
                 raise ValueError('Local validation already requested. Open its Crew chat; it is never automatically redispatched.')
-            if any(v['status'] in {'preparing', 'dispatching'} for v in self.validations.values()):
-                raise ValueError('Another local validation is being prepared')
+            if self.active_sessions() >= self.config.get('max_sessions', 1):
+                raise ValueError('Maximum active sessions reached')
+            if self.pr_active(item):
+                raise ValueError('A session for this PR is already active')
             folder = self.config.get('folders', {}).get(item['repo'])
             remote = self.config.get('validation_remotes', {}).get(item['repo'])
             if not folder or not remote:
                 raise ValueError('Configure a Crew folder and validation remote for this repository first')
             options = self.config.get('repo_settings', {}).get(item['repo'], {})
-            self.validations[item_id] = {'status': 'preparing', 'folder_id': folder, 'remote': remote}
+            self.validations[item_id] = {'status': 'preparing', 'folder_id': folder, 'remote': remote, 'repo': item['repo'], 'pr': item['pr']}
             atomic_json(self.data / 'validations.json', self.validations)
         threading.Thread(target=self.validate_local, args=(item, folder, remote, options), daemon=True).start()
 
@@ -441,9 +487,13 @@ class Inbox:
             response = self.gateway.call('/api/chat?ws=1', {'slot': key, 'message': prompt})
             if not response.get('ok'):
                 raise ValueError('Crew did not acknowledge the validation turn')
-            save(status='started')
+            save(status='started', started_at=time.time())
+            self.log_event(f"Session started: {item['repo']}#{item['pr']} in {key}")
+            self.notify(item, 'Outrider session started', f"{item['repo']}#{item['pr']} — open its Crew folder to follow progress.")
         except Exception as error:
             save(status='uncertain' if record['status'] == 'dispatching' else 'failed', error=str(error))
+            self.log_event(f"Session {record['status']}: {item['repo']}#{item['pr']} — {error}", 'error')
+            self.notify(item, 'Outrider session needs attention', f"{item['repo']}#{item['pr']} — check Outrider’s activity log.")
 
     def deliver(self, item_id):
         with self.lock:
@@ -485,9 +535,9 @@ class Inbox:
 
     def snapshot(self):
         with self.lock:
-            items = [{k: v for k, v in item.items() if k != "prompt"} | {"validation": self.validations.get(item["id"]), "run": self.runs.get(item["id"], {"status": "pending"})} for item in self.items()]
+            items = [{k: v for k, v in item.items() if k != "prompt"} | {"dismissed": item["id"] in self.dismissed, "validation": self.validations.get(item["id"]), "run": self.runs.get(item["id"], {"status": "pending"})} for item in self.items()]
             items.sort(key=lambda x: x["created"], reverse=True)
-            return {"config": self.config, "items": items, "scanning": self.scanning, "last_scan": self.last_scan, "error": self.error, "scan_partial": self.scan_partial, "scan_started": self.scan_started, "scan_requested": self.scan_requested, "next_scan": self.next_scan}
+            return {"config": self.config, "items": items, "scanning": self.scanning, "last_scan": self.last_scan, "error": self.error, "events": list(reversed(self.events)), "active_sessions": self.active_sessions(), "scan_partial": self.scan_partial, "scan_started": self.scan_started, "scan_requested": self.scan_requested, "next_scan": self.next_scan}
 
     def item(self, item_id):
         if not ID.fullmatch(item_id):
@@ -497,16 +547,29 @@ class Inbox:
             raise ValueError("Review not found")
         return item
 
+    def dismiss(self, item_id):
+        with self.lock:
+            item = self.item(item_id)
+            if self.runs.get(item_id, {}).get('status') in ACTIVE | {'uncertain'} or self.validations.get(item_id, {}).get('status') in {'preparing', 'dispatching', 'started', 'uncertain'}:
+                raise ValueError('Stop or resolve the active session in Crew before dismissing this item')
+            self.dismissed[item_id] = time.time()
+            atomic_json(self.data / 'dismissed.json', self.dismissed)
+        self.log_event(f"Dismissed queued work: {item['repo']}#{item['pr']}")
+
     def request_review(self, item_id, retry=False):
         with self.lock:
             item = self.item(item_id)
+            if item_id in self.dismissed:
+                raise ValueError('This queued item was dismissed')
             prior = self.runs.get(item_id, {})
             if prior.get("status") in ACTIVE:
                 return
             if prior and not retry:
                 raise ValueError("This review already has a run; use Retry explicitly")
-            if any(r.get("status") in ACTIVE for r in self.runs.values()):
-                raise ValueError("A review is already active; wait for it to finish")
+            if self.active_sessions() >= self.config.get("max_sessions", 1):
+                raise ValueError("Maximum active sessions reached")
+            if self.pr_active(item):
+                raise ValueError('A session for this PR is already active')
             # Retain previous results when the user explicitly retries.
             history = prior.get("history", []) + ([{k: v for k, v in prior.items() if k != "history"}] if prior else [])
             self.runs[item["id"]] = {"status": "requested", "history": history}
@@ -525,6 +588,7 @@ class Inbox:
             settings = scan_config(self.config)
             self.scanning = True
             self.scan_started = time.time()
+            self.log_event("Scan started")
             self.error = ""
         try:
             if not repos:
@@ -543,6 +607,7 @@ class Inbox:
                 if not self.scan_partial:
                     self.last_scan = time.time()
                 self.error = ""
+                self.log_event('Scan progress saved; another pass is needed.' if self.scan_partial else 'Scan completed.')
         except subprocess.TimeoutExpired:
             with self.lock:
                 self.error = 'Scan timed out after 3 minutes. Check GitHub connectivity and try again.'
@@ -598,6 +663,7 @@ class Inbox:
                         gone = isinstance(error, GatewayRejected) and error.status in (404, 410)
                         if gone or failures >= MAX_POLL_FAILURES:
                             current["status"] = "uncertain"
+                            current["capacity_released"] = gone
                     current["error"] = str(error)
                     self.save_runs()
 
@@ -608,23 +674,88 @@ class Inbox:
             self.config['paused'] = paused
             self.scan_requested = not paused and bool(self.config['repos'])
             atomic_json(self.data / 'settings.json', self.config)
+        self.log_event('Polling inactive' if paused else 'Polling active')
         self.wake.set()
 
     def scan_due(self):
         return bool(self.config['repos']) and (self.scan_requested or (not self.config.get('paused') and (self.next_scan is None or time.time() >= self.next_scan)))
 
+    def track_validations(self):
+        with self.lock:
+            rows = [(key, dict(v)) for key, v in self.validations.items() if v['status'] == 'started']
+        for key, record in rows:
+            try:
+                detail = self.gateway.call('/api/chat/slots/' + quote(record['slot'], safe='') + '?limit=10')
+                if not isinstance(detail.get('running'), bool) or not isinstance(detail.get('queue'), list):
+                    raise ValueError('Crew did not return session activity')
+                busy = detail['running'] or bool(detail['queue']) or detail.get('stopping')
+                responded = any(m.get('role') == 'assistant' for m in detail.get('messages', []))
+                if not busy and (record.get('observed_running') or responded) and time.time() - record.get('started_at', 0) > 10:
+                    with self.lock:
+                        self.validations[key].update(status='completed', tracking_error='')
+                        atomic_json(self.data / 'validations.json', self.validations)
+                    self.log_event(f"Session finished: {record.get('repo', '')}#{record.get('pr', '')}")
+                elif busy:
+                    with self.lock:
+                        self.validations[key].update(observed_running=True, tracking_error='')
+                        atomic_json(self.data / 'validations.json', self.validations)
+            except Exception:
+                # Unknown/approval states retain capacity: never oversubscribe after losing contact.
+                with self.lock:
+                    self.validations[key]['tracking_error'] = 'Cannot confirm Crew session status; capacity stays reserved.'
+
+    def dispatch_automatic(self):
+        with self.lock:
+            if self.config.get('paused'):
+                return
+            automatic = dict(self.config.get('automatic', {}))
+            starts = dict(self.config.get('automatic_since', {}))
+        # Latest snapshot per PR wins; old snapshots remain available for manual inspection.
+        latest = {}
+        for item in sorted(self.items(), key=lambda i: i['created'], reverse=True):
+            latest.setdefault((item['repo'], item['pr']), item)
+        for item in latest.values():
+            repo = item['repo']
+            if not automatic.get(repo) or not starts.get(repo) or item['id'] in self.validations or item['id'] in self.dismissed:
+                continue
+            if datetime.fromisoformat(item['created'].replace('Z', '+00:00')) < datetime.fromisoformat(starts[repo]):
+                continue
+            with self.lock:
+                if self.active_sessions() >= self.config.get('max_sessions', 1):
+                    break
+            try:
+                self.request_validation(item['id'])
+            except ValueError:
+                continue
+
+    def scan_background(self):
+        try:
+            self.scan()
+        except Exception as error:
+            with self.lock:
+                self.error = str(error)
+            self.log_event('Scan failed: ' + str(error), 'error')
+        finally:
+            with self.lock:
+                self.next_scan = time.time() + self.config['interval']
+                self.scanning = False
+                self.scan_inflight = False
+
     def work(self):
+        self.log_event('Polling restored: ' + ('inactive' if self.config.get('paused') else 'active'))
         while not self.stop.is_set():
             try:
                 with self.lock:
-                    scan = self.scan_due()
-                    self.scan_requested = False
+                    scan = not self.scan_inflight and self.scan_due()
+                    if scan:
+                        self.scan_requested = False
+                        self.scan_inflight = True
+                        self.scanning = True
                 if scan:
-                    try:
-                        self.scan()
-                    finally:
-                        self.next_scan = time.time() + self.config["interval"]
+                    threading.Thread(target=self.scan_background, daemon=True).start()
                 self.update_reviews()
+                self.track_validations()
+                self.dispatch_automatic()
             except Exception as error:
                 with self.lock:
                     self.error = str(error)
@@ -711,7 +842,11 @@ class Handler(BaseHTTPRequestHandler):
             if self.path == '/api/checkout':
                 self.reply(200, inbox.checkout(payload.get('folder_id', '')))
                 return
-            if self.path == '/api/validate':
+            if self.path == '/api/dismiss':
+                if not isinstance(payload.get('id'), str):
+                    raise ValueError('Review ID required')
+                inbox.dismiss(payload['id'])
+            elif self.path == '/api/validate':
                 if not isinstance(payload.get('id'), str):
                     raise ValueError('Review ID required')
                 inbox.request_validation(payload['id'])

@@ -27,6 +27,7 @@ type Poller struct {
 	Include         config.Globs // owner/repo globs; empty: every repo
 	Exclude         config.Globs
 	ProcessExisting bool
+	OptInFirst      bool // Crew prioritizes explicit reactions before notification backlogs.
 	DryRun          bool
 	StatePath       string // where finished passes save the state
 	Launch          func(context.Context, session.Request) bool
@@ -109,16 +110,21 @@ func (p *Poller) Poll(ctx context.Context, s *State) error {
 	}
 	ps := &pass{Poller: p, s: s, now: now, windowStart: windowStart, scopes: map[scope]resolved{}, workflowRefs: maps.Clone(s.WorkflowPRs)}
 
+	firstLive := !s.Initialized && !p.DryRun
+	cutoff := unix(now) - float64(cfg.LookbackHours)*3600
+	maps.DeleteFunc(s.Candidates, func(_ string, c Candidate) bool { return c.SeenAt < cutoff })
+	ps.baseline = firstLive && !p.ProcessExisting
+
+	optInEnabled := slices.ContainsFunc(cfg.Layers(), func(c config.Config) bool { return c.Triggers.OptIn.Enabled })
+	if p.OptInFirst && optInEnabled {
+		ps.optIn(ctx)
+	}
+
 	ns, err := p.GH.Notifications(ctx, windowStart)
 	if err != nil {
 		return err
 	}
 	p.Log.Info(fmt.Sprintf("fetched %d notifications from last %dh", len(ns), cfg.LookbackHours))
-
-	firstLive := !s.Initialized && !p.DryRun
-	cutoff := unix(now) - float64(cfg.LookbackHours)*3600
-	maps.DeleteFunc(s.Candidates, func(_ string, c Candidate) bool { return c.SeenAt < cutoff })
-	ps.baseline = firstLive && !p.ProcessExisting
 
 	// 1) Notification feed: own PRs + discover non-owned candidates.
 	for _, x := range ns {
@@ -218,7 +224,7 @@ func (p *Poller) Poll(ctx context.Context, s *State) error {
 		}
 	}
 
-	if slices.ContainsFunc(cfg.Layers(), func(c config.Config) bool { return c.Triggers.OptIn.Enabled }) {
+	if !p.OptInFirst && optInEnabled {
 		ps.optIn(ctx)
 	}
 	ps.workflows(ctx)

@@ -796,3 +796,23 @@ func TestWatchedMentionRetriesFailedLaunch(t *testing.T) {
 	h.poll(p, s)
 	require.Len(t, h.launches, 2)
 }
+
+func TestCrewChecksOptInBeforeNotificationBacklog(t *testing.T) {
+	h := newHub(t)
+	h.pr(5, "bob")
+	h.involved = []map[string]any{{"repository_url": "https://api.github.com/repos/o/r", "number": 5, "user": map[string]any{"login": "bob"}}}
+	h.eyes["o/r#5"] = new("PR description")
+	h.activity["o/r#5"] = []map[string]any{act(1, "2026-01-01", "bob", "")}
+	p := h.poller("")
+	p.OptInFirst = true
+	original := p.GH.Run
+	p.GH.Run = func(ctx context.Context, cmd proc.Cmd) (proc.Result, error) {
+		if strings.Contains(strings.Join(cmd.Args, " "), "notifications?") {
+			require.Len(t, h.launches, 1, "explicit opt-in must be processed before notifications")
+		}
+		return original(ctx, cmd)
+	}
+	h.poll(p, liveState(t))
+	require.Len(t, h.launches, 1)
+	require.Contains(t, h.launches[0].trigger, "opt-in")
+}

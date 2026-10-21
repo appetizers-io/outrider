@@ -31,7 +31,8 @@
       "/api/spawn",
       "/api/chat/folders",
       "/api/chat/slots",
-      "/api/chat"
+      "/api/chat",
+      "/api/notifications/push"
     ],
     "network": true,
     "storage": true
@@ -57,5 +58,14 @@
         "from kiro_crew.apps.manager import app_dir; import runpy; runpy.run_path(str(app_dir(\"outrider\") / \"backend/mcp_server.py\"), run_name=\"__main__\")"
       ]
     }
+  },
+  "notifications": {
+    "channels": [
+      {
+        "id": "sessions",
+        "name": "Outrider sessions",
+        "icon": "GitPullRequest"
+      }
+    ]
   }
 }

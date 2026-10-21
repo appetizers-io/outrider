@@ -47,7 +47,7 @@ class InboxTest(unittest.TestCase):
         self.inbox = backend.Inbox(self.data, self.gateway, self.agent)
         self.item_id = 'a' * 64
         backend.atomic_json(self.data / 'inbox/queue' / (self.item_id + '.json'), {
-            'id': self.item_id, 'repo': 'o/r', 'pr': 1, 'created': '2026-01-01', 'prompt': 'untrusted snapshot'
+            'id': self.item_id, 'repo': 'o/r', 'pr': 1, 'created': '2026-01-01T00:00:00Z', 'prompt': 'untrusted snapshot'
         })
 
     def test_review_survives_restart_and_finishes_without_duplicate_dispatch(self):
@@ -321,6 +321,70 @@ class InboxTest(unittest.TestCase):
         self.assertFalse(self.inbox.scanning)
         self.assertIsNone(self.inbox.scan_started)
         self.assertIn('Scan timed out', backend.Inbox(self.data, self.gateway, self.agent).error)
+
+    def enable_automatic(self, maximum=1):
+        self.inbox.config.update(repos=['o/r'], automatic={'o/r': True}, automatic_since={'o/r': '2025-01-01T00:00:00+00:00'}, max_sessions=maximum, folders={'o/r': 'folder'}, validation_remotes={'o/r': 'upstream'})
+
+    def test_automatic_dispatch_reserves_capacity_and_does_not_duplicate(self):
+        self.enable_automatic()
+        with patch.object(backend.threading, 'Thread') as thread:
+            self.inbox.dispatch_automatic()
+            self.inbox.dispatch_automatic()
+        self.assertEqual(thread.call_count, 1)
+        self.assertEqual(self.inbox.active_sessions(), 1)
+        self.assertEqual(self.inbox.validations[self.item_id]['status'], 'preparing')
+
+    def test_automatic_opt_out_pause_backlog_and_dismissal(self):
+        self.enable_automatic()
+        with patch.object(self.inbox, 'request_validation') as launch:
+            self.inbox.config['paused'] = True
+            self.inbox.dispatch_automatic()
+            self.inbox.config['paused'] = False
+            self.inbox.config['automatic']['o/r'] = False
+            self.inbox.dispatch_automatic()
+            self.inbox.config['automatic']['o/r'] = True
+            self.inbox.config['automatic_since']['o/r'] = '2027-01-01T00:00:00+00:00'
+            self.inbox.dispatch_automatic()
+            self.inbox.config['automatic_since']['o/r'] = '2025-01-01T00:00:00+00:00'
+            self.inbox.dismiss(self.item_id)
+            self.inbox.dispatch_automatic()
+            launch.assert_not_called()
+        self.assertTrue(self.inbox.snapshot()['items'][0]['dismissed'])
+        self.assertIn(self.item_id, backend.Inbox(self.data, self.gateway, self.agent).dismissed)
+
+    def test_same_pr_is_serialized_even_with_spare_capacity(self):
+        self.enable_automatic(3)
+        self.inbox.validations['existing'] = {'status': 'started', 'repo': 'o/r', 'pr': 1}
+        with self.assertRaisesRegex(ValueError, 'PR is already active'):
+            self.inbox.request_validation(self.item_id)
+
+    def test_same_pr_guard_covers_both_review_types(self):
+        self.enable_automatic(3)
+        self.inbox.runs[self.item_id] = {'status': 'running'}
+        with self.assertRaisesRegex(ValueError, 'PR is already active'):
+            self.inbox.request_validation(self.item_id)
+        self.inbox.runs.clear()
+        self.inbox.validations['existing'] = {'status': 'started', 'repo': 'o/r', 'pr': 1}
+        with self.assertRaisesRegex(ValueError, 'PR is already active'):
+            self.inbox.request_review(self.item_id)
+
+    def test_completed_chat_releases_capacity_but_unknown_status_does_not(self):
+        self.inbox.validations[self.item_id] = {'status': 'started', 'slot': 's', 'repo': 'o/r', 'pr': 1, 'started_at': 1}
+        self.gateway.call = lambda *a: {'running': False, 'queue': [], 'messages': []}
+        self.inbox.track_validations()
+        self.assertEqual(self.inbox.active_sessions(), 1)
+        self.gateway.call = lambda *a: {'running': False, 'queue': [], 'messages': [{'role': 'assistant', 'content': 'Done'}]}
+        self.inbox.track_validations()
+        self.assertEqual(self.inbox.active_sessions(), 0)
+        self.assertEqual(self.inbox.validations[self.item_id]['status'], 'completed')
+
+    def test_latest_item_per_pr_wins_automatic_dispatch(self):
+        self.enable_automatic()
+        newer = self.inbox.item(self.item_id) | {'id': 'b' * 64, 'created': '2026-02-01T00:00:00Z'}
+        backend.atomic_json(self.data / 'inbox/queue' / (newer['id'] + '.json'), newer)
+        with patch.object(self.inbox, 'request_validation') as launch:
+            self.inbox.dispatch_automatic()
+        launch.assert_called_once_with(newer['id'])
 
     def test_config_validation_and_argv(self):
         for invalid in [['--help'], ['o/r;touch bad'], ['../r'], ['o/*']]:
