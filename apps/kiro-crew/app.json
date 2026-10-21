@@ -30,7 +30,8 @@
       "/apps/outrider/api",
       "/api/spawn",
       "/api/chat/folders",
-      "/api/chat/slots"
+      "/api/chat/slots",
+      "/api/chat"
     ],
     "network": true,
     "storage": true

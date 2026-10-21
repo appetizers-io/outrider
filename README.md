@@ -72,7 +72,7 @@ the network. [Safety](docs/safety.md) lists what is and isn't enforced.
 | [Safety](docs/safety.md) | Modes, push and post approval, guards, tool gate |
 | [Configuration](docs/configuration.md) | The config file by topic, flags, the schema |
 | [Classifiers](docs/classifiers.md) | Jev, your own launch check and tool gate |
-| [Kiro Crew](apps/kiro-crew/README.md) | Crew app, review inbox, static snapshot reviews |
+| [Kiro Crew](apps/kiro-crew/README.md) | Crew app, review inbox, snapshot reviews and local fork validation |
 | [Terminals](docs/terminals.md) | Terminal detection, tmux, Windows |
 | [Recipes](docs/recipes.md) | Forks, bots, Codex, background service, many repos |
 | [Examples](docs/examples/README.md) | Example configs, classifier scripts, service files |

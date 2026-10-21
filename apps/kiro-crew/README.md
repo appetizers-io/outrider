@@ -239,3 +239,38 @@ CLI file is never changed or linked. Session settings remain with Crew; custom
 classifier definitions are not imported, and a selected custom launch classifier
 is disabled in the draft with a warning. Review profiles, tool-based workflow
 execution, and standalone process settings are outside this import's scope.
+
+
+### Validate upstream PRs in a local fork
+
+In **Repositories**, select the upstream GitHub repository and the existing Crew
+folder for your local fork. Click **Detect checkout and remotes**, select the
+matching remote (usually `upstream`), and **Save settings**. The checkout comes
+from the folder's `project_dir`, including inherited parent folders; set that
+in Crew first if it is missing. Only remotes pointing to the watched GitHub
+repository are offered. Both SSH and HTTPS GitHub remotes are supported.
+
+The inbox now offers **Validate locally** alongside **Review snapshot**. Local
+validation fetches the upstream PR head and checks it still matches the captured
+commit. It creates a detached worktree at
+`<primary-checkout>/.claude/worktrees/outrider-<snapshot-id-prefix>` without
+switching branches or touching uncommitted work in the original checkout.
+A regular app-owned Crew chat is created in the selected folder and bound to the
+worktree. No agent, model, backend, trust, or approval settings are supplied:
+Crew's default chat agent and session configuration apply. This does not inherit
+per-chat overrides from some other existing chat.
+
+The chat receives the PR identity, pinned commit, and the selected workflow's
+steps from the current saved repository settings. It can inspect code and run
+validation tools subject to Crew approval. Validation instructions prohibit
+committing, pushing or posting to GitHub; this is a task scope, not a replacement
+for Crew's permission enforcement. Snapshot reviews retain their no-tools policy.
+
+Progress, approvals, and final validation results live in the Crew chat. The
+inbox records `started` as a successful handoff, not as completed validation.
+Worktrees are retained for inspection; remove one with `git worktree remove`
+when finished. A timeout or interrupted handoff is marked uncertain and never
+automatically resent. Preflight failures before a worktree exists can be retried.
+`/api/chat` permission is required for dispatch to the app's own chats; Crew
+continues to enforce chat ownership. Local validation is explicitly started by
+the user, not automatically launched by polling.

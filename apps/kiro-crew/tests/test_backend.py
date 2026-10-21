@@ -355,3 +355,105 @@ class InboxTest(unittest.TestCase):
 
 if __name__ == '__main__':
     unittest.main()
+
+class LocalValidationTest(unittest.TestCase):
+    def setUp(self):
+        self.temp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.temp.cleanup)
+        self.root = Path(self.temp.name)
+        self.gateway = FakeGateway()
+        self.inbox = backend.Inbox(self.root / 'data', self.gateway)
+        self.item = {'id': 'a' * 64, 'repo': 'o/r', 'head': 'b' * 40, 'pr': 2, 'url': 'https://github.com/o/r/pull/2', 'workflow': 'test'}
+        self.inbox.validations[self.item['id']] = {'status': 'preparing'}
+        self.calls = []
+        def gateway(path, payload=None):
+            self.calls.append((path, payload))
+            if path == '/api/chat/folders':
+                return [{'id': 'parent', 'name': 'Parent', 'project_dir': str(self.root)}, {'id': 'child', 'parent_id': 'parent', 'name': 'Child'}]
+            if path == '/api/chat/slots':
+                return {'key': 'outrider-local-test'}
+            return {'ok': True}
+        self.gateway.call = gateway
+        def git(cwd, *args):
+            if args == ('rev-parse', '--show-toplevel'): return str(self.root)
+            if args == ('remote',): return 'origin\nupstream'
+            if args[:2] == ('remote', 'get-url'): return 'git@github.com:' + ('me/fork' if args[2] == 'origin' else 'o/r') + '.git'
+            if args == ('rev-parse', 'refs/outrider/' + self.item['id']): return self.item['head']
+            if args[:2] == ('worktree', 'list'): return 'worktree ' + str(self.root) + '\0\0'
+            return ''
+        self.git_patch = patch.object(self.inbox, 'git', side_effect=git)
+        self.git = self.git_patch.start()
+        self.addCleanup(self.git_patch.stop)
+
+    def test_inherited_folder_checkout_and_crew_owned_settings(self):
+        self.inbox.validate_local(self.item, 'child', 'upstream', {'workflows': [{'name': 'test', 'steps': ['Run focused tests']}]})
+        result = self.inbox.validations[self.item['id']]
+        self.assertEqual(result['status'], 'started')
+        expected = str(self.root / '.claude/worktrees' / ('outrider-' + self.item['id'][:24]))
+        self.assertEqual(result['worktree'], expected)
+        self.git.assert_any_call(str(self.root), 'worktree', 'add', '--detach', expected, self.item['head'])
+        create = next(payload for path, payload in self.calls if path == '/api/chat/slots')
+        self.assertEqual(create, {'name': 'outrider-local-' + self.item['id'][:24], 'folder_id': 'child'})
+        project = next(payload for path, payload in self.calls if path.endswith('/project'))
+        self.assertEqual(project, {'project': expected})
+        message = next(payload for path, payload in self.calls if path == '/api/chat?ws=1')
+        self.assertEqual(set(message), {'slot', 'message'})
+        self.assertIn('Run focused tests', message['message'])
+        self.assertIn(self.item['head'], message['message'])
+
+    def test_wrong_remote_never_creates_worktree_or_chat(self):
+        self.inbox.validate_local(self.item, 'child', 'origin', {})
+        self.assertEqual(self.inbox.validations[self.item['id']]['status'], 'failed')
+        self.assertFalse(any(path == '/api/chat/slots' for path, _ in self.calls))
+        self.assertFalse(any(c.args[1:3] == ('worktree', 'add') for c in self.git.call_args_list))
+
+    def test_moved_head_never_dispatches(self):
+        original = self.git.side_effect
+        self.git.side_effect = lambda cwd, *args: 'c' * 40 if args == ('rev-parse', 'refs/outrider/' + self.item['id']) else original(cwd, *args)
+        self.inbox.validate_local(self.item, 'child', 'upstream', {})
+        self.assertEqual(self.inbox.validations[self.item['id']]['status'], 'failed')
+        self.assertFalse(any(path == '/api/chat/slots' for path, _ in self.calls))
+
+    def test_ambiguous_send_survives_restart_without_retry(self):
+        original = self.gateway.call
+        def call(path, payload=None):
+            if path == '/api/chat?ws=1': raise TimeoutError('ambiguous')
+            return original(path, payload)
+        self.gateway.call = call
+        self.inbox.validate_local(self.item, 'child', 'upstream', {})
+        self.assertEqual(self.inbox.validations[self.item['id']]['status'], 'uncertain')
+        restarted = backend.Inbox(self.root / 'data', self.gateway)
+        self.assertEqual(restarted.validations[self.item['id']]['status'], 'uncertain')
+        self.assertEqual(restarted.validations[self.item['id']]['slot'], 'outrider-local-test')
+
+    def test_real_worktree_preserves_dirty_checkout(self):
+        source = backend.ROOT.parents[1]
+        checkout = self.root / 'fork'
+        backend.subprocess.run(['git', 'clone', '--shared', str(source), str(checkout)], check=True, capture_output=True)
+        real_git = lambda cwd, *args: backend.Inbox.git(self.inbox, cwd, *args)
+        self.item['head'] = real_git(checkout, 'rev-parse', 'HEAD')
+        real_git(checkout, 'remote', 'add', 'upstream', 'git@github.com:o/r.git')
+        (checkout / 'uncommitted-validation-test.txt').write_text('keep this untouched')
+        before = real_git(checkout, 'status', '--porcelain')
+        branch = real_git(checkout, 'symbolic-ref', 'HEAD')
+        old_root = self.root
+        self.root = checkout
+        def git(cwd, *args):
+            if args[0] == 'fetch':
+                # Exercise real fetch/worktree commands with local transport, no GitHub writes.
+                return real_git(cwd, 'fetch', '--no-tags', str(source), self.item['head'] + ':refs/outrider/' + self.item['id'])
+            return real_git(cwd, *args)
+        self.git.side_effect = git
+        try:
+            self.inbox.validate_local(self.item, 'child', 'upstream', {'workflows': [{'name': 'test', 'steps': ['Inspect code']}]})
+            record = self.inbox.validations[self.item['id']]
+            self.assertEqual(record['status'], 'started', record)
+            self.assertEqual(real_git(checkout, 'symbolic-ref', 'HEAD'), branch)
+            # Ignore only the newly created .claude directory, if not globally ignored.
+            after = real_git(checkout, 'status', '--porcelain')
+            self.assertEqual(after.replace('?? .claude/\n', '').replace('\n?? .claude/', ''), before)
+            self.assertEqual((checkout / 'uncommitted-validation-test.txt').read_text(), 'keep this untouched')
+            self.assertEqual(real_git(record['worktree'], 'rev-parse', 'HEAD'), self.item['head'])
+            real_git(checkout, 'worktree', 'remove', record['worktree'])
+        finally:
+            self.root = old_root

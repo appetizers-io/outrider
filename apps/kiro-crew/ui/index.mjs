@@ -19,6 +19,8 @@ export default function Outrider() {
   const [initialized, setInitialized] = useState(false);
   const [folders, setFolders] = useState([]);
   const [mapping, setMapping] = useState({});
+  const [validationRemotes, setValidationRemotes] = useState({});
+  const [checkoutContext, setCheckoutContext] = useState(null);
   const [repoSettings, setRepoSettings] = useState({});
   const [selectedRepo, setSelectedRepo] = useState('');
   const [advanced, setAdvanced] = useState('{}');
@@ -115,6 +117,7 @@ export default function Outrider() {
     editOptions(current => ({ ...current, workflows: (current.workflows || []).map((workflow, i) => i === index ? { ...workflow, ...patch } : workflow) }));
   }
   async function selectRepo(repo) {
+    setCheckoutContext(null);
     setBusy(true); setError(''); setNotice('');
     try {
       const next = selectedRepo ? { ...repoSettings, [selectedRepo]: await draft() } : repoSettings;
@@ -126,7 +129,7 @@ export default function Outrider() {
   }
   async function configure(target = 'repositories') {
     if (!initialized) {
-      setMapping(data.config.folders || {}); setRepoSettings(data.config.repo_settings || {});
+      setMapping(data.config.folders || {}); setValidationRemotes(data.config.validation_remotes || {}); setRepoSettings(data.config.repo_settings || {});
       const first = data.config.repos[0] || '';
       setSelectedRepo(first); setAdvanced(JSON.stringify(data.config.repo_settings?.[first] || {}, null, 2));
       setIntervalValue(data.config.interval); setInitialized(true);
@@ -155,7 +158,7 @@ export default function Outrider() {
     e.preventDefault(); setBusy(true); setError('');
     try {
       const settings = { ...repoSettings, [selectedRepo]: await draft() };
-      if (await action('/config', { ...data.config, interval: Number(interval), folders: mapping, repo_settings: settings })) {
+      if (await action('/config', { ...data.config, interval: Number(interval), folders: mapping, repo_settings: settings, validation_remotes: validationRemotes })) {
         setRepoSettings(settings); setNotice('Repository settings saved.');
       }
     } catch (e) { setError(e.message); }
@@ -185,7 +188,14 @@ export default function Outrider() {
     data && view === 'repositories' && !!data.config.repos.length && h('form', { onSubmit: save },
       h('section', { style: box },
         h('label', null, 'Repository', h('select', { style: input, disabled: busy, value: selectedRepo, onChange: e => selectRepo(e.target.value) }, ...data.config.repos.map(repo => h('option', { key: repo, value: repo }, repo)))),
-        h('label', null, 'Review folder', folderSelect(mapping[selectedRepo] || '', e => setMapping({ ...mapping, [selectedRepo]: e.target.value })))),
+        h('label', null, 'Crew folder', folderSelect(mapping[selectedRepo] || '', e => { setMapping({ ...mapping, [selectedRepo]: e.target.value }); setCheckoutContext(null); const next = { ...validationRemotes }; delete next[selectedRepo]; setValidationRemotes(next); })),
+        h('h3', null, 'Local validation'),
+        h('p', null, 'Watch this GitHub repository and validate PRs in an isolated worktree of the Crew folder’s checkout. Crew controls the agent, model and permissions.'),
+        h('button', { style: button, type: 'button', disabled: busy || !mapping[selectedRepo], onClick: async () => { setBusy(true); setError(''); try { setCheckoutContext(await api.post(base + '/checkout', { folder_id: mapping[selectedRepo] })); } catch (e) { setError(e.message); } finally { setBusy(false); } } }, 'Detect checkout and remotes'),
+        checkoutContext && h('p', null, 'Local checkout: ' + checkoutContext.checkout),
+        checkoutContext && h('label', null, 'Remote to watch', h('select', { style: input, value: validationRemotes[selectedRepo] || '', onChange: e => { const next = { ...validationRemotes }; if (e.target.value) next[selectedRepo] = e.target.value; else delete next[selectedRepo]; setValidationRemotes(next); } }, h('option', { value: '' }, 'Snapshot reviews only'), ...checkoutContext.remotes.filter(r => r.repo.toLowerCase() === selectedRepo.toLowerCase()).map(r => h('option', { key: r.name, value: r.name }, r.name + ' · ' + r.repo)))),
+        checkoutContext && !checkoutContext.remotes.some(r => r.repo.toLowerCase() === selectedRepo.toLowerCase()) && h('p', { role: 'alert' }, 'No GitHub remote matches this watched repository. Add its upstream remote to the checkout, or select the correct repository.'),
+        validationRemotes[selectedRepo] && h('p', null, 'Local validation remote: ' + validationRemotes[selectedRepo] + '. Save settings to apply. Validation starts only when you click Validate locally in the inbox.')),
       h('details', { style: box }, h('summary', { style: { cursor: 'pointer' } }, 'Import CLI configuration'),
         h('p', null, 'Load your default Outrider config, choose another file, or paste YAML. The preview contains only supported Outrider settings. Agent, mode and other session settings are removed; Crew controls trust and execution.'),
         h('button', { style: button, type: 'button', disabled: busy, onClick: loadDefaultConfig }, 'Load default config'),
@@ -248,6 +258,8 @@ export default function Outrider() {
       item.run.awaiting_approval && h('p', null, 'Crew is waiting for approval. Open Crew tasks to inspect it.'),
       item.run.error && h('p', { role: 'alert', style: { color: '#c66' } }, item.run.error),
       item.run.result && h('details', { open: true }, h('summary', { style: { cursor: 'pointer', marginBottom: 12 } }, 'Findings'), h('pre', { style: { whiteSpace: 'pre-wrap', overflowWrap: 'anywhere', fontFamily: 'inherit', lineHeight: 1.65, fontSize: 14 } }, item.run.result)),
+      data.config.validation_remotes?.[item.repo] && (!item.validation || (item.validation.status === 'failed' && !item.validation.worktree)) && h('button', { style: button, disabled: busy, onClick: () => action('/validate', { id: item.id }) }, 'Validate locally'),
+      item.validation && h('div', { style: box }, h('p', null, 'Local validation: ' + item.validation.status + (item.validation.status === 'started' ? ' — follow progress and approvals in Crew; completion is reported in the chat.' : '')), item.validation.slot && h('p', null, 'Crew chat: ' + item.validation.slot), item.validation.worktree && h('p', { style: { overflowWrap: 'anywhere' } }, 'Worktree: ' + item.validation.worktree), item.validation.error && h('p', { role: 'alert' }, item.validation.error)),
       item.run.status === 'pending' && h('button', { style: button, disabled: busy || active, onClick: () => action('/review', { id: item.id }) }, 'Review snapshot'),
       ['failed', 'completed', 'uncertain'].includes(item.run.status) && h('button', { style: button, disabled: busy || active, onClick: () => { if (item.run.status !== 'uncertain' || window.confirm('Crew may already be running this review. Check Crew tasks first. Start another review?')) action('/review', { id: item.id, retry: true }); } }, 'Retry review'),
       item.run.result && h('button', { style: { ...button, marginLeft: 8 }, onClick: async () => {
