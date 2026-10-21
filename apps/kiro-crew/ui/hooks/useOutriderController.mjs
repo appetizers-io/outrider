@@ -205,6 +205,10 @@ export function useOutriderController() {
           ...data.config,
           repos: [...data.config.repos, repo],
           folders: { ...data.config.folders, [repo]: newFolder },
+          automatic: {
+            ...data.config.automatic,
+            ...(!newFolder ? { [repo]: false } : {}),
+          },
           validation_remotes: {
             ...data.config.validation_remotes,
             ...(newRemote ? { [repo]: newRemote } : {}),

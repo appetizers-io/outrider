@@ -32,7 +32,7 @@ def environment():
 def compatible(binary, runner=subprocess.run):
     try:
         for args, marker in [(['crew', 'scan', '--help'], '--state-dir'), (['crew', 'session-prompt', '--help'], ''), (['crew', 'capture', '--help'], '--pr'), (['mcp', '--help'], '--config-format')]:
-            result = runner([str(binary), *args], capture_output=True, text=True, timeout=10, check=False, env=environment())
+            result = runner([str(binary), *args], capture_output=True, text=True, encoding='utf-8', timeout=10, check=False, env=environment())
             if result.returncode or marker not in result.stdout:
                 return False
         return True

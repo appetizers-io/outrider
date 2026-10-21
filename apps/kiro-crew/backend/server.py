@@ -61,7 +61,7 @@ find_scanner = runtime.find
 
 
 def convert_settings(content):
-    result = subprocess.run([find_scanner(), "crew", "settings"], input=content, env=scanner_environment(), capture_output=True, text=True, timeout=15, check=False)
+    result = subprocess.run([find_scanner(), "crew", "settings"], input=content, env=scanner_environment(), capture_output=True, text=True, encoding='utf-8', timeout=15, check=False)
     if result.returncode:
         raise ValueError(result.stderr[-6000:] or "Invalid repository YAML")
     return json.loads(result.stdout)
@@ -107,7 +107,7 @@ def validate_repo_settings(options):
     with tempfile.TemporaryDirectory(prefix="outrider-config-") as directory:
         path = Path(directory) / "config.json"
         atomic_json(path, scan_config({"repos": list(options), "repo_settings": options}))
-        result = subprocess.run([find_scanner(), "config", "check", str(path)], env=scanner_environment(), capture_output=True, text=True, timeout=15, check=False)
+        result = subprocess.run([find_scanner(), "config", "check", str(path)], env=scanner_environment(), capture_output=True, text=True, encoding='utf-8', timeout=15, check=False)
         if result.returncode:
             raise ValueError(result.stderr[-6000:] or "Invalid repository settings")
 
@@ -291,11 +291,23 @@ class Inbox:
         remotes = body.get('validation_remotes', self.config.get('validation_remotes', {}))
         if not isinstance(remotes, dict) or any(not isinstance(v, str) or not re.fullmatch(r'[A-Za-z0-9_.-]{1,100}', v) or v.startswith('-') for v in remotes.values()):
             raise ValueError('Invalid validation remote')
-        for repo, remote in remotes.items():
-            if repo in repos:
-                context = self.checkout(folders.get(repo, ''))
-                if not any(r['name'] == remote and r['repo'].lower() == repo.lower() for r in context['remotes']):
-                    raise ValueError('Validation remote must point to the watched repository')
+        remotes = dict(remotes)
+        requested_auto = body.get('automatic', self.config.get('automatic', {}))
+        default_auto = body.get('automatic_default', self.config.get('automatic_default', False))
+        for repo in repos:
+            folder = folders.get(repo, '')
+            needs_auto = isinstance(requested_auto, dict) and requested_auto.get(repo, default_auto)
+            if repo not in remotes and (not folder or not needs_auto):
+                continue
+            # Add-repository clients may supply only the folder. Resolve a matching
+            # remote here too, rather than requiring a second settings save.
+            context = self.checkout(folder)
+            matches = [r for r in context['remotes'] if r['repo'].lower() == repo.lower()]
+            if repo not in remotes and matches:
+                selected = next((r for r in matches if r['name'] == 'upstream'), None) or next((r for r in matches if r['name'] == 'origin'), None) or matches[0]
+                remotes[repo] = selected['name']
+            if repo in remotes and not any(r['name'] == remotes[repo] for r in matches):
+                raise ValueError(f'{repo}: choose a remote in the selected Crew folder that points to this repository')
         maximum = body.get('max_sessions', self.config.get('max_sessions', 1))
         if type(maximum) is not int or not 1 <= maximum <= 20:
             raise ValueError('Max sessions must be between 1 and 20')
@@ -317,7 +329,7 @@ class Inbox:
         for repo in repos:
             if automatic.get(repo, default_auto):
                 if not folders.get(repo) or not remotes.get(repo):
-                    raise ValueError('Automatic sessions need a Crew folder and validation remote')
+                    raise ValueError(f'{repo}: automatic sessions need a Crew folder with a Git remote pointing to this repository')
                 if not self.automatic_enabled(repo):
                     starts[repo] = datetime.now(timezone.utc).isoformat()
         with self.lock:
@@ -437,7 +449,7 @@ class Inbox:
         return {'folder_id': folder_id, 'checkout': root, 'remotes': remotes}
 
     def git(self, cwd, *args):
-        result = subprocess.run(['git', '-c', 'core.hooksPath=' + os.devnull, '-C', str(cwd), *args], env=scanner_environment(), capture_output=True, text=True, timeout=120, check=False)
+        result = subprocess.run(['git', '-c', 'core.hooksPath=' + os.devnull, '-C', str(cwd), *args], env=scanner_environment(), capture_output=True, text=True, encoding='utf-8', timeout=120, check=False)
         if result.returncode:
             raise ValueError('Git could not prepare the checkout (' + args[0] + '). Check the folder, remote and Git authentication.')
         return result.stdout.strip()
@@ -475,7 +487,7 @@ class Inbox:
             if not match:
                 raise ValueError('This older queue entry has no reliable comment scope. Rescan before starting it.')
             item['scope'] = json.loads(match.group(1))
-        result = subprocess.run([find_scanner(), 'crew', 'session-prompt'], input=json.dumps({'item': item, 'settings': options, 'remote': remote, 'origin': origin, 'branch': branch}), env=scanner_environment(), capture_output=True, text=True, timeout=60, check=False)
+        result = subprocess.run([find_scanner(), 'crew', 'session-prompt'], input=json.dumps({'item': item, 'settings': options, 'remote': remote, 'origin': origin, 'branch': branch}), env=scanner_environment(), capture_output=True, text=True, encoding='utf-8', timeout=60, check=False)
         if result.returncode:
             raise ValueError(result.stderr[-6000:] or 'Could not prepare Crew task instructions')
         return json.loads(result.stdout)['prompt']
@@ -613,7 +625,7 @@ class Inbox:
             # Separate config file avoids racing a scheduled scan's config write.
             path = self.data / 'manual-config.json'
             atomic_json(path, config)
-            result = self.runner([find_scanner(), 'crew', 'capture', '--repo', repo, '--pr', str(number), '--config', str(path), '--state-dir', str(self.data / 'inbox')], env=scanner_environment(), capture_output=True, text=True, timeout=150, check=False)
+            result = self.runner([find_scanner(), 'crew', 'capture', '--repo', repo, '--pr', str(number), '--config', str(path), '--state-dir', str(self.data / 'inbox')], env=scanner_environment(), capture_output=True, text=True, encoding='utf-8', timeout=150, check=False)
             if result.returncode:
                 raise ValueError(result.stderr[-3000:] or 'PR capture failed')
             captured = json.loads(result.stdout)
@@ -729,7 +741,7 @@ class Inbox:
             args = [find_scanner(), "crew", "scan", "--config", str(config_path), "--state-dir", str(self.data / "inbox"), "--process-existing"]
             for repo in repos:
                 args += ["--repo", repo]
-            result = self.runner(args, cwd=self.data, env=scanner_environment(), capture_output=True, text=True, timeout=180, check=False)
+            result = self.runner(args, cwd=self.data, env=scanner_environment(), capture_output=True, text=True, encoding='utf-8', timeout=180, check=False)
             if result.returncode:
                 raise RuntimeError("Scan failed: " + result.stderr[-3000:])
             outcome = json.loads(getattr(result, 'stdout', '') or '{}')
@@ -988,7 +1000,7 @@ class Handler(BaseHTTPRequestHandler):
                 self.reply(202, inbox.generate_setup(payload))
                 return
             if self.path == "/api/settings/default":
-                result = subprocess.run([find_scanner(), "crew", "default-config"], env=scanner_environment(), capture_output=True, text=True, timeout=15, check=False)
+                result = subprocess.run([find_scanner(), "crew", "default-config"], env=scanner_environment(), capture_output=True, text=True, encoding='utf-8', timeout=15, check=False)
                 if result.returncode:
                     raise ValueError(result.stderr[-6000:] or "Could not read default CLI config")
                 self.reply(200, json.loads(result.stdout))
@@ -1001,7 +1013,7 @@ class Handler(BaseHTTPRequestHandler):
                 profile = payload.get("profile", "preserve")
                 if profile not in {"preserve", "common", "own", "others"}:
                     raise ValueError("Invalid import profile")
-                result = subprocess.run([find_scanner(), "crew", "import-settings", "--repo", repo, "--profile", profile], input=content, env=scanner_environment(), capture_output=True, text=True, timeout=15, check=False)
+                result = subprocess.run([find_scanner(), "crew", "import-settings", "--repo", repo, "--profile", profile], input=content, env=scanner_environment(), capture_output=True, text=True, encoding='utf-8', timeout=15, check=False)
                 if result.returncode:
                     raise ValueError(result.stderr[-6000:] or "Invalid CLI configuration")
                 self.reply(200, {"repo": repo, **json.loads(result.stdout)})

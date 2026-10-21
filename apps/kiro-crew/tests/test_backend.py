@@ -236,6 +236,15 @@ class InboxTest(unittest.TestCase):
             self.assertEqual(self.inbox.manual['status'], 'existing')
             start.assert_not_called()
 
+    def test_add_repository_resolves_folder_remote_when_global_automatic_is_on(self):
+        self.inbox.config = {'repos': [], 'interval': 60, 'automatic_default': True}
+        context = {'remotes': [{'name': 'origin', 'repo': 'me/fork'}, {'name': 'upstream', 'repo': 'o/r'}]}
+        with patch.object(self.inbox, 'checkout', return_value=context):
+            self.inbox.configure({'repos': ['https://github.com/o/r'], 'folders': {'o/r': 'folder'}})
+        self.assertEqual(self.inbox.config['validation_remotes']['o/r'], 'upstream')
+        self.assertTrue(self.inbox.config['automatic_default'])
+        self.assertEqual(self.inbox.config['folders']['o/r'], 'folder')
+
     def test_repository_urls(self):
         self.inbox.configure({'repos': ['https://github.com/org/repo.git/', 'org/repo']})
         self.assertEqual(self.inbox.config['repos'], ['org/repo'])
