@@ -351,6 +351,15 @@
           "minItems": 1,
           "description": "PRs this override applies to: any of these identities."
         },
+        "claude_plugin_dirs": {
+          "items": {
+            "type": "string",
+            "minLength": 1
+          },
+          "type": "array",
+          "uniqueItems": true,
+          "description": "Absolute paths to trusted local Claude Code plugin directories. Requires agent: claude; unsupported in read-only sandboxes. Lists replace in overrides."
+        },
         "review": {
           "oneOf": [
             {
@@ -929,6 +938,15 @@
       ],
       "description": "supervised: Claude sessions get deny rules for risky tools and, when its classifier is available, the tool_gate on every call; other people's PRs are review only. autonomous: no tool gating, and pushing to other people's PRs follows others_prs.allow_push (default: allowed).",
       "default": "supervised"
+    },
+    "claude_plugin_dirs": {
+      "items": {
+        "type": "string",
+        "minLength": 1
+      },
+      "type": "array",
+      "uniqueItems": true,
+      "description": "Absolute paths to trusted local Claude Code plugin directories. Requires agent: claude; unsupported in read-only sandboxes. Lists replace in overrides."
     },
     "review": {
       "oneOf": [

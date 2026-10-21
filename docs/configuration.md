@@ -120,6 +120,7 @@ for Outrider’s enforced no-network mode.
 | Key | Default | Meaning |
 |---|---|---|
 | `agent` | `codex` | `claude` or `codex` |
+| `claude_plugin_dirs` | `[]` | Absolute trusted plugin directories; Claude only, unavailable in read-only sandboxes. See [plugin workflows](workflows.md#claude-code-plugins). |
 | `network_access` | `null`: inherit owner settings | `true`: allow sandbox network hosts; `false`: block sandboxed outbound access |
 | `launcher` | `auto` | `auto`, `terminal`, `tmux`; see [Terminals](terminals.md) |
 | `terminal` | `auto` | a terminal name, or a command list with `{cmd}` |
@@ -185,7 +186,7 @@ overrides:
 ```
 
 Only per-PR keys can be overridden: `push`, `github_writes`, `sandbox`, `isolation`, `network_access`,
-`agent`, `ignore_authors`, `triggers`, `others_prs`, `launch_check`,
+`agent`, `claude_plugin_dirs`, `ignore_authors`, `triggers`, `others_prs`, `launch_check`,
 `tool_gate`, `prompts` and `workflows`. Others are errors. Conflicts (e.g. a read-only
 sandbox and `push: allow`) are checked at startup for each entry, and for all
 entries on your own PRs and on others' together. `config show --repo`,

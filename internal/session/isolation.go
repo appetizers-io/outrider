@@ -207,6 +207,13 @@ func (l *Launcher) startIsolated(ctx context.Context, r Request, lock string, cf
 	agent := []string{cfg.Agent}
 	if cfg.Agent == "claude" {
 		agent = append(agent, "--dangerously-skip-permissions", "--settings", isolatedHome+"/claude-settings.json")
+		for i, path := range cfg.ClaudePluginDirs {
+			name := fmt.Sprintf("plugin-%d/%s", i, filepath.Base(filepath.Clean(path)))
+			if err := snapshotTreeMode(path, filepath.Join(input, name), true); err != nil {
+				return fmt.Errorf("snapshot Claude plugin: %w", err)
+			}
+			agent = append(agent, "--plugin-dir", isolatedHome+"/"+name)
+		}
 	} else {
 		agent = append(agent, "--dangerously-bypass-approvals-and-sandbox", "-c", `cli_auth_credentials_store="file"`)
 	}
@@ -254,6 +261,12 @@ func snapshotFile(src, dst string) error {
 }
 
 func snapshotTree(src, dst string) error {
+	return snapshotTreeMode(src, dst, false)
+}
+
+// Plugin hooks may be executable scripts; ordinary configuration snapshots
+// retain their existing non-executable permissions.
+func snapshotTreeMode(src, dst string, executable bool) error {
 	source, err := os.OpenRoot(src)
 	if errors.Is(err, os.ErrNotExist) {
 		return nil
@@ -300,7 +313,11 @@ func snapshotTree(src, dst string) error {
 		if err != nil {
 			return err
 		}
-		return target.WriteFile(path, data, 0o600)
+		mode := os.FileMode(0o600)
+		if executable && st.Mode()&0o111 != 0 {
+			mode = 0o700
+		}
+		return target.WriteFile(path, data, mode)
 	})
 }
 

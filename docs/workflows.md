@@ -127,3 +127,40 @@ are evaluated independently in file order. Normal agent locks and
 `overrides`; the list replaces earlier workflows, and `workflows: []` disables
 them for that override. Push, sandbox, scope and GitHub write policies apply
 throughout every workflow.
+
+## Claude Code plugins
+
+Load trusted local plugins into Claude sessions with `claude_plugin_dirs`.
+Clone or install the plugin yourself, then use its absolute directory path:
+
+```yaml
+agent: claude
+claude_plugin_dirs:
+  - /absolute/path/to/claude-code/plugins/pr-review-toolkit
+workflows:
+  - name: toolkit-review
+    match: [{prs: others, events: [opt_in, review_change]}]
+    steps:
+      - Identify the PR base and head and review their full diff, even when the worktree is clean.
+      - Use pr-review-toolkit's code-reviewer, pr-test-analyzer, silent-failure-hunter, comment-analyzer and type-design-analyzer where relevant. If unavailable, stop and explain.
+      - Consolidate findings with file and line references. Suggest changes without editing the PR. Keep the report in this session.
+```
+
+The [PR Review Toolkit](https://github.com/anthropics/claude-code/tree/main/plugins/pr-review-toolkit)
+provides specialized review agents and `/pr-review-toolkit:review-pr`. The example
+selects its reviewers explicitly because its simplifier can edit code and its
+command starts by inspecting local changes. Outrider reviews committed PR diffs.
+
+Outrider passes each directory as a separate `--plugin-dir` argument. It does
+not download or update plugins. These directories load in addition to plugins
+from Claude's enabled user settings. Use trusted plugins: hooks and other plugin
+components execute with the agent's access. Outrider's push and post policies
+still apply; a workflow does not authorize edits to someone else's PR.
+
+The list can be set in per-PR `overrides`; `[]` clears explicit directories,
+without disabling installed user plugins. Codex and `sandbox: read-only` reject
+nonempty lists. Read-only sessions restrict tools and disable settings, so they
+cannot run this toolkit's subagents. Docker isolation snapshots the plugin
+directories into the VM and uses VM paths; executable hook scripts retain executable permissions. Symlinks are preserved
+without copying their host targets, so plugins should keep their dependencies
+inside their directory.
