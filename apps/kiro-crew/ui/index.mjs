@@ -184,11 +184,18 @@ export default function Outrider() {
       }
     } catch (e) { setError(e.message); }
   }
+  async function saveGlobal(e) {
+    e.preventDefault(); setBusy(true); setError('');
+    try {
+      if (await action('/config', { ...data.config, interval: Number(interval), lookback_hours: Number(lookback), automatic_default: automaticDefault, session_trust_default: trustDefault, reviewer_default: reviewerDefault, max_sessions: Number(maxSessions) })) setNotice('Global settings saved.');
+    } catch (e) { setError(e.message); }
+    finally { setBusy(false); }
+  }
   async function save(e) {
     e.preventDefault(); setBusy(true); setError('');
     try {
       const settings = { ...repoSettings, [selectedRepo]: await draft() };
-      if (await action('/config', { ...data.config, interval: Number(interval), lookback_hours: Number(lookback), folders: mapping, repo_settings: settings, validation_remotes: validationRemotes, automatic, automatic_default: automaticDefault, session_trust_default: trustDefault, session_trust: trustOverrides, reviewer_default: reviewerDefault, reviewers, max_sessions: Number(maxSessions) })) {
+      if (await action('/config', { ...data.config, folders: mapping, repo_settings: settings, validation_remotes: validationRemotes, automatic, session_trust: trustOverrides, reviewers })) {
         setRepoSettings(settings); setNotice('Repository settings saved.');
       }
     } catch (e) { setError(e.message); }
@@ -211,11 +218,12 @@ export default function Outrider() {
   return h('main', { className: 'outrider-app', style: { containerType: 'inline-size', padding: 28, overflowY: 'auto', maxWidth: 1100, width: '100%', boxSizing: 'border-box', margin: '0 auto', color: 'inherit' } },
     h('style', null, `.outrider-app { line-height: 1.6; } .outrider-header { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 20px; align-items: start; margin-bottom: 24px; } .outrider-heading { min-width: 0; overflow-wrap: anywhere; } .outrider-header nav { justify-self: end; justify-content: flex-end; } @container (max-width: 760px) { .outrider-header { grid-template-columns: minmax(0, 1fr); } .outrider-header nav { grid-row: 1; max-width: 100%; } .outrider-heading { grid-row: 2; } } .outrider-app p { margin: 12px 0 20px; } .outrider-app h2, .outrider-app h3 { line-height: 1.3; margin: 24px 0 16px; } .outrider-app label { display: block; margin-bottom: 16px; } .outrider-app details[open] > summary { margin-bottom: 20px; } .outrider-app button + p { margin-top: 18px; } .outrider-app section > :last-child { margin-bottom: 0; } .outrider-app legend { padding: 0 8px; } .outrider-app button + button { margin-left: 8px; }`),
     h('header', { className: 'outrider-header' },
-      h('div', { className: 'outrider-heading' }, h('img', { src: '/apps/outrider/ui/logo.svg', alt: 'Outrider', width: 44, height: 44, style: { float: 'left', marginRight: 14, padding: 4, boxSizing: 'border-box', borderRadius: 10, background: '#102027' } }), h('h1', { style: { margin: '0 0 6px', fontSize: 28 } }, view === 'activity' ? 'Activity log' : view === 'setup' ? 'Add repository' : view === 'repositories' ? 'Repositories' : 'Outrider'), h('p', { style: { margin: 0, opacity: .7 } }, view === 'activity' ? 'Polling, session progress, and errors.' : view === 'inbox' ? 'Your PR work queue. Automatic sessions run under Crew’s settings.' : view === 'setup' ? 'Choose a repository to watch and where its reviews belong.' : 'Configure triggers and workflows for each repository.')),
+      h('div', { className: 'outrider-heading' }, h('img', { src: '/apps/outrider/ui/logo.svg', alt: 'Outrider', width: 44, height: 44, style: { float: 'left', marginRight: 14, padding: 4, boxSizing: 'border-box', borderRadius: 10, background: '#102027' } }), h('h1', { style: { margin: '0 0 6px', fontSize: 28 } }, view === 'settings' ? 'Settings' : view === 'activity' ? 'Activity log' : view === 'setup' ? 'Add repository' : view === 'repositories' ? 'Repositories' : 'Outrider'), h('p', { style: { margin: 0, opacity: .7 } }, view === 'settings' ? 'Global session defaults, polling, and limits.' : view === 'activity' ? 'Polling, session progress, and errors.' : view === 'inbox' ? 'Your PR work queue. Automatic sessions run under Crew’s settings.' : view === 'setup' ? 'Choose a repository to watch and where its reviews belong.' : 'Configure triggers and workflows for each repository.')),
       data && h('nav', { 'aria-label': 'Outrider views', style: { display: 'flex', gap: 8, flexWrap: 'wrap' } },
         h('button', { style: view === 'inbox' ? selectedButton : button, disabled: busy, 'aria-current': view === 'inbox' ? 'page' : undefined, onClick: () => { setView('inbox'); setNotice(''); setError(''); } }, 'Queue', pendingCount > 0 && h('span', { style: { marginLeft: 8, borderRadius: 12, padding: '2px 7px', background: '#0003' } }, pendingCount)),
         h('button', { style: view === 'repositories' ? selectedButton : button, disabled: busy, 'aria-current': view === 'repositories' ? 'page' : undefined, onClick: () => configure() }, 'Repositories'),
         h('button', { style: view === 'setup' ? selectedButton : button, 'aria-current': view === 'setup' ? 'page' : undefined, disabled: busy, onClick: () => configure('setup') }, 'Add repository'),
+        h('button', { style: view === 'settings' ? selectedButton : button, disabled: busy, 'aria-current': view === 'settings' ? 'page' : undefined, onClick: () => configure('settings') }, 'Settings'),
         h('button', { style: view === 'activity' ? selectedButton : button, disabled: busy, 'aria-current': view === 'activity' ? 'page' : undefined, onClick: () => { setView('activity'); setNotice(''); setError(''); } }, 'Activity log'),
         h('button', { style: { ...button, borderColor: data.config.paused ? '#8886' : '#59b98a', color: data.config.paused ? 'inherit' : '#75d6a4' }, type: 'button', 'aria-pressed': !data.config.paused, disabled: busy || !!connectionError, onClick: async () => { const paused = !data.config.paused; if (await action('/polling', { paused })) setNotice(paused ? 'Polling and new automatic sessions are inactive. Running work will finish.' : 'Polling is active and resumes automatically when Crew starts.'); } }, data.config.paused ? '○ Inactive' : '● Active'))),
     data && h('p', { style: { opacity: .7 } }, `${data.config.paused ? 'Polling inactive' : 'Always-on polling · every ' + data.config.interval + 's'} · ${data.active_sessions || 0}/${data.config.max_sessions || 1} sessions active. Status is restored when Crew starts.`),
@@ -234,13 +242,16 @@ export default function Outrider() {
       h('p', { style: { opacity: .7 } }, 'The first scan finds existing activity. You choose when to start each review. Triggers and workflows can be configured next.'),
       h('div', { style: { display: 'flex', gap: 8 } }, h('button', { style: button, disabled: busy, type: 'submit' }, 'Add repository'), h('button', { style: button, disabled: busy, type: 'button', onClick: () => setView('repositories') }, 'Cancel'))),
     data && view === 'repositories' && !data.config.repos.length && h('section', { style: box }, h('h2', null, 'No repositories yet'), h('p', null, 'Add a repository to configure its review activity.'), h('button', { style: button, onClick: () => configure('setup') }, 'Add repository')),
-    data && view === 'repositories' && !!data.config.repos.length && h('form', { onSubmit: save },
+    data && view === 'settings' && h('form', { onSubmit: saveGlobal },
       h('section', { style: box }, h('h2', null, 'Global session defaults'),
         h('label', null, h('input', { type: 'checkbox', checked: automaticDefault, onChange: e => setAutomaticDefault(e.target.checked) }), ' Automatically start sessions'),
         h('label', null, 'Reviewer Crew member', h('select', { style: input, value: reviewerDefault, onChange: e => setReviewerDefault(e.target.value) }, ...memberOptions)),
         h('label', null, 'Session trust', h('select', { style: input, value: trustDefault, onChange: e => setTrustDefault(e.target.value) }, ...trustOptions)),
-        h('p', null, 'Repositories inherit these defaults unless overridden below. Trust changes apply to new Outrider sessions and require Crew’s session approval grant. Existing sessions keep their settings.')),
+        h('p', null, 'Repositories inherit these defaults unless overridden in the Repositories view. Trust changes apply to new Outrider sessions and require Crew’s session approval grant. Existing sessions keep their settings.')),
 
+      h('details', { style: box, open: true }, h('summary', { style: { cursor: 'pointer' } }, 'Polling and session limits · all repositories'), h('label', null, 'Lookback hours', h('input', { style: { ...input, maxWidth: 180 }, type: 'number', min: 1, value: lookback, onChange: e => setLookback(e.target.value) })), h('p', null, 'GitHub notification window and candidate retention. Changing it does not clear existing queued work.'), h('label', null, 'Maximum active sessions', h('input', { style: { ...input, maxWidth: 180 }, type: 'number', min: 1, max: 20, value: maxSessions, onChange: e => setMaxSessions(e.target.value) })), h('label', null, 'Poll interval in seconds', h('input', { style: { ...input, maxWidth: 180 }, type: 'number', min: 30, max: 3600, value: interval, onChange: e => setIntervalValue(e.target.value) }))),
+      h('button', { style: button, type: 'submit', disabled: busy }, busy ? 'Saving…' : 'Save global settings')),
+    data && view === 'repositories' && !!data.config.repos.length && h('form', { onSubmit: save },
       h('section', { style: box },
         h('label', null, 'Repository', h('select', { style: input, disabled: busy, value: selectedRepo, onChange: e => selectRepo(e.target.value) }, ...data.config.repos.map(repo => h('option', { key: repo, value: repo }, repo)))),
         h('label', null, 'Crew folder', folderSelect(mapping[selectedRepo] || '', e => { setMapping({ ...mapping, [selectedRepo]: e.target.value }); setCheckoutContext(null); const next = { ...validationRemotes }; delete next[selectedRepo]; setValidationRemotes(next); })),
@@ -299,7 +310,7 @@ export default function Outrider() {
 
         h('p', { style: { opacity: .7 } }, 'Snapshot reviews use captured context. Local validation can run workflow steps with Crew’s tools and permissions.')
       ),
-      h('details', { style: box }, h('summary', { style: { cursor: 'pointer' } }, 'Polling and session limits · all repositories'), h('label', null, 'Lookback hours', h('input', { style: { ...input, maxWidth: 180 }, type: 'number', min: 1, value: lookback, onChange: e => setLookback(e.target.value) })), h('p', null, 'GitHub notification window and candidate retention. Changing it does not clear existing queued work.'), h('label', null, 'Maximum active sessions', h('input', { style: { ...input, maxWidth: 180 }, type: 'number', min: 1, max: 20, value: maxSessions, onChange: e => setMaxSessions(e.target.value) })), h('label', null, 'Poll interval in seconds', h('input', { style: { ...input, maxWidth: 180 }, type: 'number', min: 30, max: 3600, value: interval, onChange: e => setIntervalValue(e.target.value) }))),
+
       h('button', { style: button, type: 'submit', disabled: busy }, busy ? 'Saving…' : 'Save settings')),
     view === 'inbox' && data && h('section', { style: box },
       h('label', null, 'Filter by repository', h('select', { style: input, value: queueRepo, onChange: e => setQueueRepo(e.target.value) }, h('option', { value: '' }, 'All repositories'), ...data.config.repos.map(repo => h('option', { key: repo, value: repo }, repo)))),

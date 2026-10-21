@@ -332,7 +332,7 @@ budget for manual invocations. Last scan outcome survives backend restarts.
 
 ### Session defaults and repository overrides
 
-In **Repositories**, configure global automatic sessions, the reviewer Crew member,
+In **Settings**, configure global automatic sessions, the reviewer Crew member,
 and session trust. Each repository can inherit those settings or override them.
 Existing explicit per-repository on/off values remain overrides after upgrading.
 The default reviewer is Crew's default; an explicit selection sends the member's
@@ -347,7 +347,7 @@ Sessions are titled with repository, PR number, and PR title, pinned against Cre
 automatic naming. **Start session** is the main queue action; text-only reviews
 are under Advanced. Their previous errors are separate from local-session status.
 
-**Polling and session limits** includes Lookback hours (default 168), passed to
+**Settings → Polling and session limits** includes Lookback hours (default 168), passed to
 the isolated scanner config. This controls the notification window and candidate
 retention; it does not erase existing work. The Queue repository filter scopes
 its pending count and **Clear pending queue**. Clearing requires confirmation,
