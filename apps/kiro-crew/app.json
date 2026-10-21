@@ -2,7 +2,7 @@
   "name": "outrider",
   "version": "0.1.0",
   "displayName": "Outrider",
-  "description": "Turn GitHub PR activity into a review inbox and read-only snapshot reviews.",
+  "description": "GitHub PR work queue with automatic Crew sessions. Source and support: https://github.com/appetizers-io/outrider",
   "author": "appetizers-io",
   "agents": [
     "agents/reviewer.json",
@@ -32,10 +32,12 @@
       "/api/chat/folders",
       "/api/chat/slots",
       "/api/chat",
-      "/api/notifications/push"
+      "/api/notifications/push",
+      "/api/agents"
     ],
     "network": true,
-    "storage": true
+    "storage": true,
+    "sessionApproval": true
   },
   "dependencies": {
     "commands": [

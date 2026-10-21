@@ -93,7 +93,7 @@ def scan_config(settings):
         layers.append({'match': [{'repo': repo}], **{k: v for k, v in options.items() if k != 'overrides'}})
         for override in options.get('overrides', []):
             layers.append({**override, 'match': [{'repo': repo, 'prs': match['prs']} for match in override['match']]})
-    return {'repos': {'include': settings['repos']}, 'overrides': layers}
+    return {'repos': {'include': settings['repos']}, 'lookback_hours': settings.get('lookback_hours', 168), 'overrides': layers}
 
 
 def validate_repo_settings(options):
@@ -193,6 +193,15 @@ class Gateway:
             raise GatewayRejected(error.code) from error
 
 
+def no_tools_policy_matches(actual, expected):
+    # Crew materializes the app's own MCP definition even when tools is empty.
+    # No tools can be selected, and the deny-all hook remains mandatory.
+    if not isinstance(actual, dict):
+        return False
+    servers = actual.get('mcpServers', {})
+    return isinstance(servers, dict) and set(servers) <= {'outrider:outrider'} and all(actual.get(k) == expected[k] for k in ('name', 'tools', 'allowedTools', 'includeMcpJson', 'resources', 'hooks'))
+
+
 class Inbox:
     def __init__(self, data, gateway, agent_path=None, runner=subprocess.run):
         self.data, self.gateway, self.runner = Path(data), gateway, runner
@@ -243,6 +252,12 @@ class Inbox:
         except Exception:
             self.log_event('Crew notification could not be delivered; session state is unchanged.', 'warning')
 
+    def automatic_enabled(self, repo):
+        return self.config.get('automatic', {}).get(repo, self.config.get('automatic_default', False))
+
+    def session_trust(self, repo):
+        return self.config.get('session_trust', {}).get(repo, self.config.get('session_trust_default', 'inherit'))
+
     def active_sessions(self):
         return sum(r['status'] in ACTIVE or (r['status'] == 'uncertain' and not r.get('capacity_released')) for r in self.runs.values()) + sum(v['status'] in {'preparing', 'dispatching', 'started', 'uncertain'} for v in self.validations.values())
 
@@ -265,6 +280,9 @@ class Inbox:
         repos = [normalize_repo(repo) for repo in repos]
         if type(interval) is not int or not 30 <= interval <= 3600:
             raise ValueError("Poll interval must be between 30 and 3600 seconds")
+        lookback = body.get('lookback_hours', self.config.get('lookback_hours', 168))
+        if type(lookback) is not int or lookback < 1:
+            raise ValueError('Lookback hours must be a positive integer')
         folders = body.get("folders", self.config.get("folders", {}))
         if not isinstance(folders, dict) or any(not isinstance(k, str) or not isinstance(v, str) or len(v) > 200 for k, v in folders.items()):
             raise ValueError("Invalid folder mapping")
@@ -287,15 +305,26 @@ class Inbox:
         automatic = body.get('automatic', self.config.get('automatic', {}))
         if not isinstance(automatic, dict) or any(type(v) is not bool for v in automatic.values()):
             raise ValueError('Automatic sessions must be enabled or disabled per repository')
+        default_auto = body.get('automatic_default', self.config.get('automatic_default', False))
+        trust_default = body.get('session_trust_default', self.config.get('session_trust_default', 'inherit'))
+        trust = body.get('session_trust', self.config.get('session_trust', {}))
+        modes = {'inherit', 'normal', 'trust_reads', 'trust'}
+        if type(default_auto) is not bool or (not isinstance(trust_default, str) or trust_default not in modes) or not isinstance(trust, dict) or any(not isinstance(v, str) or v not in modes for v in trust.values()):
+            raise ValueError('Invalid automatic session defaults or trust level')
+        reviewer_default = body.get('reviewer_default', self.config.get('reviewer_default', ''))
+        reviewers = body.get('reviewers', self.config.get('reviewers', {}))
+        valid_member = lambda v: isinstance(v, str) and len(v) <= 200 and not any(ord(c) < 32 for c in v)
+        if not valid_member(reviewer_default) or not isinstance(reviewers, dict) or any(not valid_member(v) for v in reviewers.values()):
+            raise ValueError('Invalid reviewer selection')
         starts = dict(self.config.get('automatic_since', {}))
         for repo in repos:
-            if automatic.get(repo):
+            if automatic.get(repo, default_auto):
                 if not folders.get(repo) or not remotes.get(repo):
                     raise ValueError('Automatic sessions need a Crew folder and validation remote')
-                if not self.config.get('automatic', {}).get(repo):
+                if not self.automatic_enabled(repo):
                     starts[repo] = datetime.now(timezone.utc).isoformat()
         with self.lock:
-            self.config = {"max_sessions": maximum, "automatic": {r: automatic.get(r, False) for r in repos}, "automatic_since": {r: starts[r] for r in repos if r in starts}, "paused": self.config.get("paused", False), "validation_remotes": {r: remotes[r] for r in repos if r in remotes},"repos": sorted(set(repos)), "interval": interval, "folders": {r: folders[r] for r in repos if folders.get(r)}, "repo_settings": {r: options[r] for r in repos if r in options}}
+            self.config = {"lookback_hours": lookback, "reviewer_default": reviewer_default, "reviewers": {r: reviewers[r] for r in repos if r in reviewers}, "automatic_default": default_auto, "session_trust_default": trust_default, "session_trust": {r: trust[r] for r in repos if r in trust}, "max_sessions": maximum, "automatic": {r: automatic[r] for r in repos if r in automatic}, "automatic_since": {r: starts[r] for r in repos if r in starts}, "paused": self.config.get("paused", False), "validation_remotes": {r: remotes[r] for r in repos if r in remotes},"repos": sorted(set(repos)), "interval": interval, "folders": {r: folders[r] for r in repos if folders.get(r)}, "repo_settings": {r: options[r] for r in repos if r in options}}
             atomic_json(self.data / "settings.json", self.config)
             self.scan_requested = bool(repos) and not self.config.get("paused", False)
         self.log_event('Repository settings saved; max sessions: ' + str(maximum))
@@ -315,7 +344,7 @@ class Inbox:
                 raise ValueError("A setup draft is already being generated")
             expected = read_json(ROOT / "agents/setup.json", {})
             actual = read_json(self.agent_path.with_name("outrider--outrider-setup.json"), {})
-            if any(actual.get(key) != expected[key] for key in ("name", "tools", "allowedTools", "includeMcpJson", "mcpServers", "resources", "hooks")):
+            if not no_tools_policy_matches(actual, expected):
                 raise ValueError("Reinstall the app to register the no-tools setup assistant")
             self.gateway.authenticate()
             prompt = f"Draft repository settings for {repo}. Return YAML only. User request: {intent}\nExisting settings:\n{current}\n" + SETUP_SCHEMA
@@ -467,12 +496,22 @@ class Inbox:
             save(worktree=str(worktree))
             # Persist ambiguity BEFORE any chat creation/send; never replay on restart.
             save(status='dispatching')
-            slot = self.gateway.call('/api/chat/slots', {'name': 'outrider-local-' + item['id'][:24], 'folder_id': folder})
+            creation = {'name': 'outrider-local-' + item['id'][:24], 'folder_id': folder, 'title': (item['repo'].split('/')[-1] + '#' + str(item['pr']) + ' · ' + item.get('title', 'PR review'))[:200]}
+            reviewer = self.config.get('reviewers', {}).get(item['repo'], self.config.get('reviewer_default', ''))
+            if reviewer:
+                creation.update(agent=reviewer, agent_kind='member')
+            slot = self.gateway.call('/api/chat/slots', creation)
             key = slot.get('key')
             if not isinstance(key, str) or not key:
                 raise ValueError('Crew did not return a chat key')
             save(slot=key)
             self.gateway.call('/api/chat/slots/' + quote(key, safe='') + '/project', {'project': str(worktree)})
+            trust = self.session_trust(item['repo'])
+            if trust != 'inherit':
+                try:
+                    self.gateway.call('/api/chat/mode', {'slot': key, 'mode': trust})
+                except GatewayRejected as error:
+                    raise ValueError('Crew refused the session trust setting. Grant Outrider session approval in Crew or choose Inherit Crew, then continue in the created chat.') from error
             workflows = options.get('workflows', [])
             workflow = next((w for w in workflows if w.get('name') == item.get('workflow')), None)
             if item.get('workflow') and workflow is None:
@@ -547,6 +586,23 @@ class Inbox:
             raise ValueError("Review not found")
         return item
 
+    def clear_queue(self, repo=None):
+        with self.lock:
+            if repo is not None and repo not in self.config['repos']:
+                raise ValueError('Unknown repository')
+            count = 0
+            for item in self.items():
+                key = item['id']
+                if repo and item['repo'] != repo:
+                    continue
+                if key in self.dismissed or self.runs.get(key, {}).get('status') in ACTIVE | {'uncertain', 'completed'} or self.validations.get(key, {}).get('status') in {'preparing', 'dispatching', 'started', 'uncertain', 'completed'}:
+                    continue
+                self.dismissed[key] = time.time()
+                count += 1
+            atomic_json(self.data / 'dismissed.json', self.dismissed)
+        self.log_event(f'Cleared {count} pending items' + (f' in {repo}' if repo else ''))
+        return {'cleared': count}
+
     def dismiss(self, item_id):
         with self.lock:
             item = self.item(item_id)
@@ -579,7 +635,7 @@ class Inbox:
     def check_agent(self):
         actual = read_json(self.agent_path, None)
         expected = read_json(ROOT / "agents/reviewer.json", {})
-        if actual is None or any(actual.get(key) != expected[key] for key in ("name", "tools", "allowedTools", "includeMcpJson", "mcpServers", "resources", "hooks")):
+        if not no_tools_policy_matches(actual, expected):
             raise RuntimeError("The installed Outrider reviewer is missing or its no-tools policy changed. Reinstall the app before reviewing.")
 
     def scan(self):
@@ -708,7 +764,7 @@ class Inbox:
         with self.lock:
             if self.config.get('paused'):
                 return
-            automatic = dict(self.config.get('automatic', {}))
+            automatic = {repo: self.automatic_enabled(repo) for repo in self.config['repos']}
             starts = dict(self.config.get('automatic_since', {}))
         # Latest snapshot per PR wins; old snapshots remain available for manual inspection.
         latest = {}
@@ -802,6 +858,9 @@ class Handler(BaseHTTPRequestHandler):
             if self.command == "GET" and self.path == "/api/setup":
                 self.reply(200, inbox.setup_status())
                 return
+            if self.command == "GET" and self.path == "/api/members":
+                self.reply(200, inbox.gateway.call("/api/agents"))
+                return
             if self.command == "GET" and self.path == "/api/folders":
                 self.reply(200, inbox.folders())
                 return
@@ -841,6 +900,9 @@ class Handler(BaseHTTPRequestHandler):
                 return
             if self.path == '/api/checkout':
                 self.reply(200, inbox.checkout(payload.get('folder_id', '')))
+                return
+            if self.path == '/api/queue/clear':
+                self.reply(200, inbox.clear_queue(payload.get('repo')))
                 return
             if self.path == '/api/dismiss':
                 if not isinstance(payload.get('id'), str):

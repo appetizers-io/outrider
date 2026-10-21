@@ -290,7 +290,7 @@ Save settings and Add repository show a persistent, dismissible success toast.
 
 **Active / Inactive** controls always-on polling and new automatic sessions.
 The setting survives restarts; an active app resumes when Crew starts. Running
-work finishes when polling is paused. The expandable **Activity log** shows scan
+work finishes when polling is paused. The dedicated **Activity log** view beside Active / Inactive shows scan
 progress, saved settings, dispatches, completion, and errors (last 200 events).
 Crew notifications announce local session starts and dispatch failures. The Queue
 navigation badge counts pending PRs; it is not an arbitrary Crew sidebar badge.
@@ -329,3 +329,31 @@ progress, not a successful full scan; subsequent passes continue pending work.
 This avoids discarding completed notification bookkeeping when a large initial
 scan exceeds the backend deadline. `crew scan --timeout` can change the scanner
 budget for manual invocations. Last scan outcome survives backend restarts.
+
+### Session defaults and repository overrides
+
+In **Repositories**, configure global automatic sessions, the reviewer Crew member,
+and session trust. Each repository can inherit those settings or override them.
+Existing explicit per-repository on/off values remain overrides after upgrading.
+The default reviewer is Crew's default; an explicit selection sends the member's
+name and namespace when creating the chat. Trust defaults to **Inherit Crew**;
+Normal, Reads, and Trust apply only to newly created Outrider chats. Crew requires
+its session-approval disclosure to be accepted when enabling this app. A refused
+trust change stops dispatch and leaves the created chat available for inspection.
+YOLO is not offered because it changes Crew globally. Imported CLI agent/mode
+values still do not set these controls.
+
+Sessions are titled with repository, PR number, and PR title, pinned against Crew's
+automatic naming. **Start session** is the main queue action; text-only reviews
+are under Advanced. Their previous errors are separate from local-session status.
+
+**Polling and session limits** includes Lookback hours (default 168), passed to
+the isolated scanner config. This controls the notification window and candidate
+retention; it does not erase existing work. The Queue repository filter scopes
+its pending count and **Clear pending queue**. Clearing requires confirmation,
+dismisses pending/failed items, retains active/uncertain sessions and history,
+and permits future activity to enqueue new work. The Crew sidebar badge counts
+unread notifications, independently of pending PRs.
+
+Activity log is a dedicated navigation view. GitHub source and support links are
+available in the footer of every view.

@@ -386,6 +386,35 @@ class InboxTest(unittest.TestCase):
             self.inbox.dispatch_automatic()
         launch.assert_called_once_with(newer['id'])
 
+    def test_global_defaults_and_repository_overrides(self):
+        self.inbox.config.update(automatic_default=True, automatic={'o/off': False}, session_trust_default='trust_reads', session_trust={'o/normal': 'normal'})
+        self.assertTrue(self.inbox.automatic_enabled('o/new'))
+        self.assertFalse(self.inbox.automatic_enabled('o/off'))
+        self.assertEqual(self.inbox.session_trust('o/new'), 'trust_reads')
+        self.assertEqual(self.inbox.session_trust('o/normal'), 'normal')
+        self.inbox.configure({'repos': ['o/r'], 'automatic_default': False, 'lookback_hours': 4, 'reviewer_default': 'reviewer', 'session_trust_default': 'inherit'})
+        self.assertEqual(backend.scan_config(self.inbox.config)['lookback_hours'], 4)
+        self.assertEqual(self.inbox.config['reviewer_default'], 'reviewer')
+        with self.assertRaises(ValueError):
+            self.inbox.configure({'repos': ['o/r'], 'session_trust_default': 'yolo'})
+
+    def test_clear_queue_scopes_and_keeps_active_work(self):
+        self.inbox.config['repos'] = ['o/r', 'o/other']
+        other = self.inbox.item(self.item_id) | {'id': 'b' * 64, 'repo': 'o/other'}
+        backend.atomic_json(self.data / 'inbox/queue' / (other['id'] + '.json'), other)
+        self.inbox.validations[self.item_id] = {'status': 'started'}
+        self.assertEqual(self.inbox.clear_queue('o/r')['cleared'], 0)
+        self.assertEqual(self.inbox.clear_queue('o/other')['cleared'], 1)
+        self.assertNotIn(self.item_id, self.inbox.dismissed)
+        self.assertIn(other['id'], self.inbox.dismissed)
+
+    def test_materialized_own_mcp_does_not_grant_tools(self):
+        expected = json.loads((backend.ROOT / 'agents/reviewer.json').read_text())
+        actual = expected | {'mcpServers': {'outrider:outrider': {'command': 'python3'}}}
+        self.assertTrue(backend.no_tools_policy_matches(actual, expected))
+        self.assertFalse(backend.no_tools_policy_matches(actual | {'tools': ['@outrider:outrider']}, expected))
+        self.assertFalse(backend.no_tools_policy_matches(actual | {'hooks': {}}, expected))
+
     def test_config_validation_and_argv(self):
         for invalid in [['--help'], ['o/r;touch bad'], ['../r'], ['o/*']]:
             with self.assertRaises(ValueError):
@@ -509,13 +538,27 @@ class LocalValidationTest(unittest.TestCase):
         self.assertEqual(result['worktree'], expected)
         self.git.assert_any_call(str(self.root), 'worktree', 'add', '--detach', expected, self.item['head'])
         create = next(payload for path, payload in self.calls if path == '/api/chat/slots')
-        self.assertEqual(create, {'name': 'outrider-local-' + self.item['id'][:24], 'folder_id': 'child'})
+        self.assertEqual(create, {'name': 'outrider-local-' + self.item['id'][:24], 'folder_id': 'child', 'title': 'r#2 · PR review'})
         project = next(payload for path, payload in self.calls if path.endswith('/project'))
         self.assertEqual(project, {'project': expected})
         message = next(payload for path, payload in self.calls if path == '/api/chat?ws=1')
         self.assertEqual(set(message), {'slot', 'message'})
         self.assertIn('Run focused tests', message['message'])
         self.assertIn(self.item['head'], message['message'])
+
+    def test_selected_member_and_session_trust_apply_before_send(self):
+        self.inbox.config.update(reviewer_default='global', reviewers={'o/r': 'reviewer'}, session_trust_default='normal', session_trust={'o/r': 'trust_reads'})
+        self.item['title'] = 'Fix transfer logs'
+        self.item['workflow'] = ''
+        self.inbox.validate_local(self.item, 'child', 'upstream', {})
+        create = next(payload for path, payload in self.calls if path == '/api/chat/slots')
+        self.assertEqual(create['agent'], 'reviewer')
+        self.assertEqual(create['agent_kind'], 'member')
+        self.assertEqual(create['title'], 'r#2 · Fix transfer logs')
+        mode_index = next(i for i, (path, payload) in enumerate(self.calls) if path == '/api/chat/mode')
+        send_index = next(i for i, (path, payload) in enumerate(self.calls) if path == '/api/chat?ws=1')
+        self.assertLess(mode_index, send_index)
+        self.assertEqual(self.calls[mode_index][1]['mode'], 'trust_reads')
 
     def test_wrong_remote_never_creates_worktree_or_chat(self):
         self.inbox.validate_local(self.item, 'child', 'origin', {})
