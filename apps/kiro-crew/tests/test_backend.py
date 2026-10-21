@@ -209,6 +209,19 @@ class InboxTest(unittest.TestCase):
             with self.assertRaisesRegex(RuntimeError, 'No compatible'):
                 backend.find_scanner(lambda *a, **kw: type('Result', (), {'returncode': 0, 'stdout': 'old CLI'})())
 
+    def test_gui_path_includes_cli_directories_and_preserves_auth_environment(self):
+        original = {'PATH': '/crew/bin:/usr/bin', 'GH_CONFIG_DIR': '/custom/gh', 'GH_TOKEN': 'test-only'}
+        with patch.dict(backend.os.environ, original, clear=True):
+            env = backend.scanner_environment()
+            self.assertEqual(backend.os.environ['PATH'], original['PATH'])
+        entries = env['PATH'].split(backend.os.pathsep)
+        self.assertEqual(entries[:2], ['/crew/bin', '/usr/bin'])
+        for directory in ['/opt/homebrew/bin', '/usr/local/bin', str(Path.home() / '.local/bin')]:
+            self.assertIn(directory, entries)
+        self.assertEqual(entries.count('/usr/bin'), 1)
+        self.assertEqual(env['GH_CONFIG_DIR'], '/custom/gh')
+        self.assertEqual(env['GH_TOKEN'], 'test-only')
+
     def test_config_validation_and_argv(self):
         for invalid in [['--help'], ['o/r;touch bad'], ['../r'], ['o/*']]:
             with self.assertRaises(ValueError):
@@ -223,6 +236,7 @@ class InboxTest(unittest.TestCase):
             self.inbox.scan()
         self.assertEqual(calls[0][0][-2:], ['--repo', 'o/r'])
         self.assertNotIn('shell', calls[0][1])
+        self.assertIn('/opt/homebrew/bin', calls[0][1]['env']['PATH'].split(backend.os.pathsep))
         self.assertFalse(self.inbox.scanning)
         with self.assertRaises(ValueError):
             self.inbox.request_review('../state')

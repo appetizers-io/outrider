@@ -49,9 +49,18 @@ def normalize_repo(value):
     return value
 
 
+def scanner_environment():
+    """GUI-launched Crew may omit user and package-manager binary directories."""
+    env = os.environ.copy()
+    entries = env.get("PATH", os.defpath).split(os.pathsep)
+    entries += [str(Path.home() / ".local/bin"), "/opt/homebrew/bin", "/usr/local/bin", "/usr/bin", "/bin"]
+    env["PATH"] = os.pathsep.join(dict.fromkeys(entry for entry in entries if entry))
+    return env
+
+
 def find_scanner(runner=subprocess.run):
     override = os.environ.get("OUTRIDER_BIN")
-    candidates = [override] if override else [str(Path.home() / ".local/bin/outrider"), shutil.which("outrider")]
+    candidates = [override] if override else [str(Path.home() / ".local/bin/outrider"), shutil.which("outrider", path=scanner_environment()["PATH"])]
     for candidate in dict.fromkeys(candidates):
         if not candidate:
             continue
@@ -263,7 +272,7 @@ class Inbox:
             args = [find_scanner(), "crew", "scan", "--state-dir", str(self.data / "inbox"), "--process-existing"]
             for repo in repos:
                 args += ["--repo", repo]
-            result = self.runner(args, cwd=self.data, capture_output=True, text=True, timeout=180, check=False)
+            result = self.runner(args, cwd=self.data, env=scanner_environment(), capture_output=True, text=True, timeout=180, check=False)
             if result.returncode:
                 raise RuntimeError("Scan failed: " + result.stderr[-3000:])
             with self.lock:

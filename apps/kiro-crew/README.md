@@ -149,3 +149,8 @@ Repository input accepts `owner/repo` and `https://github.com/owner/repo` URLs.
 The backend probes `~/.local/bin/outrider` before PATH for `crew scan --state-dir`
 support. `OUTRIDER_BIN` can select an explicit binary. An older Homebrew install
 will no longer shadow the compatible local install.
+
+The scanner subprocess also inherits Crew’s environment with missing user and
+Homebrew executable directories appended to PATH, so `gh` is available in
+GUI-launched Crew. Existing PATH precedence and GitHub authentication variables
+are preserved; no shell startup files are sourced.
