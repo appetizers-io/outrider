@@ -357,3 +357,6 @@ unread notifications, independently of pending PRs.
 
 Activity log is a dedicated navigation view. GitHub source and support links are
 available in the footer of every view.
+
+Queue entries include **Open Crew session** once a local validation chat exists.
+The link targets that exact chat and remains available in history after completion.
