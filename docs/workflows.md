@@ -127,3 +127,41 @@ are evaluated independently in file order. Normal agent locks and
 `overrides`; the list replaces earlier workflows, and `workflows: []` disables
 them for that override. Push, sandbox, scope and GitHub write policies apply
 throughout every workflow.
+
+## Installed Claude Code plugins
+
+Plugins installed and enabled at user scope in Claude Code are available in
+ordinary Outrider Claude sessions. No plugin paths or additional Outrider
+configuration are needed to load them. A workflow tells Claude when and how
+to use the plugin's agents.
+
+For example, install and enable the
+[PR Review Toolkit](https://github.com/anthropics/claude-code/tree/main/plugins/pr-review-toolkit)
+at **user scope** through Claude's `/plugin` interface, then configure:
+
+```yaml
+agent: claude
+workflows:
+  - name: toolkit-review
+    match: [{prs: others, events: [opt_in, review_change]}]
+    steps:
+      - Identify the PR base and head and review their full diff, even when the worktree is clean.
+      - Use pr-review-toolkit's code-reviewer, pr-test-analyzer, silent-failure-hunter, comment-analyzer and type-design-analyzer where relevant. If unavailable, stop and explain.
+      - Consolidate findings with file and line references. Suggest changes without editing the PR. Keep the report in this session.
+```
+
+This runs on opt-in and review-change events. It selects the toolkit's reviewers
+explicitly because its simplifier can edit code and its `review-pr` command
+starts by inspecting local changes. Outrider reviews committed PR diffs.
+The report stays in the session; the workflow does not authorize GitHub posts
+or edits to someone else's PR.
+
+Review-only sessions retain user settings but exclude project and local
+settings, so installing the plugin only for a repository is insufficient.
+`sandbox: read-only` disables settings and restricts tools; the toolkit's
+subagents are unavailable there. This example is for ordinary host Claude
+sessions, not Codex or Docker isolation.
+
+Use `claude plugin list` to check the plugin's scope and enabled status. See
+[Claude's plugin documentation](https://code.claude.com/docs/en/discover-plugins)
+for installation and management. Outrider does not install or update plugins.

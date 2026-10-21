@@ -646,16 +646,16 @@ func TestMentionOnOthersPRLaunchesScoped(t *testing.T) {
 		mention(1, fresh(600), "@me old mention"), // outside the 2h window
 		mention(2, fresh(5), "what do you think, @Me?"),
 		mention(3, fresh(5), "cc @meadow and me@example.com"), // not me
-		mention(4, fresh(5), "note to self @me", "me"),        // my own
+		mention(4, fresh(5), "note to self @me", "me"),        // my own mention counts too
 	}
 	s := liveState(t)
 	p := h.poller("lookback_hours: 2")
 	h.poll(p, s)
 	r.Len(h.launches, 1)
-	r.Equal("@me mentioned: https://x/c2", h.launches[0].trigger)
-	r.Equal([]string{"https://x/c2"}, h.launches[0].scope)
-	r.Equal([]int64{2}, ids(h.launches[0].gated))
-	r.Equal([]string{"comment:2"}, s.Mentions["o/r#9"])
+	r.Equal("@me mentioned: https://x/c2 https://x/c4", h.launches[0].trigger)
+	r.Equal([]string{"https://x/c2", "https://x/c4"}, h.launches[0].scope)
+	r.Equal([]int64{2, 4}, ids(h.launches[0].gated))
+	r.Equal([]string{"comment:2", "comment:4"}, s.Mentions["o/r#9"])
 
 	h.notifications[0]["updated_at"] = "t2" // same mention, next notification
 	h.poll(p, s)
@@ -725,4 +725,94 @@ func TestKnownCandidateOnlyRechecksNewNotifications(t *testing.T) {
 	h.poll(p, s)
 	require.Len(t, h.launches, 2)
 	require.Equal(t, "@me mentioned: https://x/c3", h.launches[1].trigger)
+}
+
+func TestWatchedMentions(t *testing.T) {
+	for _, tc := range []struct {
+		name, author, body, config string
+		old, dryRun                bool
+		want                       int
+	}{
+		{name: "self mention without notification", author: "ME", body: "@me check again", want: 1},
+		{name: "other author", author: "bob", body: "@me check again", want: 1},
+		{name: "ordinary self comment", author: "me", body: "checked again"},
+		{name: "not my login", author: "me", body: "@meadow check again"},
+		{name: "disabled", author: "me", body: "@me check again", config: "triggers: {mentions: {enabled: false}}"},
+		{name: "ignored author", author: "bot", body: "@me check again", config: "ignore_authors: [bot]"},
+		{name: "stale", author: "me", body: "@me check again", old: true},
+		{name: "dry run", author: "me", body: "@me check again", dryRun: true, want: 1},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			h := newHub(t)
+			h.pr(5, "bob")
+			h.eyes["o/r#5"] = new("comment")
+			at := fresh(5)
+			if tc.old {
+				at = fresh(180)
+			}
+			h.activity["o/r#5"] = []map[string]any{mention(2, at, tc.body, tc.author)}
+			fp := "stale"
+			s := watchedState(t, new(fp))
+			p := h.poller("lookback_hours: 2\n" + tc.config)
+			p.DryRun = tc.dryRun
+			h.poll(p, s)
+			require.Len(t, h.launches, tc.want)
+			if tc.want > 0 {
+				require.Equal(t, "@me mentioned: https://x/c2", h.launches[0].trigger)
+				require.Equal(t, []string{"https://x/c2"}, h.launches[0].scope)
+				require.Equal(t, []int64{2}, ids(h.launches[0].gated))
+			}
+			if tc.dryRun {
+				require.Empty(t, s.Mentions)
+				require.Equal(t, fp, *s.Watched["o/r#5"].Fingerprint)
+				require.Equal(t, "2026-01-01", s.Handled["o/r#5"])
+				return
+			}
+			h.poll(p, s)
+			require.Len(t, h.launches, tc.want, "same mention must not launch twice")
+		})
+	}
+}
+
+func TestWatchedMentionRetriesFailedLaunch(t *testing.T) {
+	h := newHub(t)
+	h.pr(5, "bob")
+	h.eyes["o/r#5"] = new("comment")
+	h.activity["o/r#5"] = []map[string]any{mention(2, fresh(5), "@me check again", "me")}
+	s := watchedState(t, new("stale"))
+	p := h.poller("triggers: {mentions: {check: false, scope: pr}}")
+	h.launchOK = false
+	h.poll(p, s)
+	require.Len(t, h.launches, 1)
+	require.Empty(t, s.Mentions)
+	require.Equal(t, "stale", *s.Watched["o/r#5"].Fingerprint)
+	require.Equal(t, "2026-01-01", s.Handled["o/r#5"])
+	h.launchOK = true
+	h.poll(p, s)
+	require.Len(t, h.launches, 2)
+	require.False(t, h.launches[1].hasGate)
+	require.Nil(t, h.launches[1].scope)
+	require.Equal(t, []string{"comment:2"}, s.Mentions["o/r#5"])
+	h.poll(p, s)
+	require.Len(t, h.launches, 2)
+}
+
+func TestCrewChecksOptInBeforeNotificationBacklog(t *testing.T) {
+	h := newHub(t)
+	h.pr(5, "bob")
+	h.involved = []map[string]any{{"repository_url": "https://api.github.com/repos/o/r", "number": 5, "user": map[string]any{"login": "bob"}}}
+	h.eyes["o/r#5"] = new("PR description")
+	h.activity["o/r#5"] = []map[string]any{act(1, "2026-01-01", "bob", "")}
+	p := h.poller("")
+	p.OptInFirst = true
+	original := p.GH.Run
+	p.GH.Run = func(ctx context.Context, cmd proc.Cmd) (proc.Result, error) {
+		if strings.Contains(strings.Join(cmd.Args, " "), "notifications?") {
+			require.Len(t, h.launches, 1, "explicit opt-in must be processed before notifications")
+		}
+		return original(ctx, cmd)
+	}
+	h.poll(p, liveState(t))
+	require.Len(t, h.launches, 1)
+	require.Contains(t, h.launches[0].trigger, "opt-in")
 }

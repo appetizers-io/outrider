@@ -1,0 +1,111 @@
+name: Publish Crew app
+
+# Called by Release after GoReleaser succeeds. Dispatch the same version to
+# recover a failed Crew publication without creating another CLI release.
+on:
+  workflow_call:
+    inputs:
+      version:
+        required: true
+        type: string
+  workflow_dispatch:
+    inputs:
+      version:
+        description: Published stable CLI tag (for example v0.2.0)
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: crew-release
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    environment: release
+    permissions:
+      contents: write
+      pull-requests: write
+      id-token: write
+      attestations: write
+    steps:
+      - name: Validate published release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          VERSION: ${{ inputs.version }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          [[ "$VERSION" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]] || exit 1
+          gh release view "$VERSION" --json isDraft,isPrerelease --jq 'if .isDraft or .isPrerelease then error("Expected a published stable release") else . end'
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ inputs.version }}
+          persist-credentials: false
+      - name: Verify downloads and stage versioned app
+        env:
+          GH_TOKEN: ${{ github.token }}
+          VERSION: ${{ inputs.version }}
+        run: python scripts/prepare_crew_release.py "$VERSION" --output "$RUNNER_TEMP/crew-app"
+      - name: Test and package pinned app
+        run: |
+          python -m unittest discover -s apps/kiro-crew/tests -v
+          node --experimental-vm-modules --test apps/kiro-crew/tests/test_ui.mjs
+          python scripts/package_crew.py --marketplace --app-dir "$RUNNER_TEMP/crew-app"
+      - name: Attach Crew package to the CLI release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          VERSION: ${{ inputs.version }}
+          GH_REPO: ${{ github.repository }}
+        run: gh release upload "$VERSION" build/crew/*.tar.gz build/crew/*.sha256 --clobber
+      - uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
+        continue-on-error: ${{ github.event.repository.private }}
+        with:
+          subject-path: build/crew/*.tar.gz
+      # The registry installs main, so publish a reviewed source update too.
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: main
+          path: marketplace-source
+          persist-credentials: false
+      - name: Update marketplace pin and version
+        env:
+          VERSION: ${{ inputs.version }}
+        run: |
+          python - <<'PY'
+          import json, os
+          from pathlib import Path
+          app = Path('marketplace-source/apps/kiro-crew')
+          manifest_path = app / 'app.json'
+          manifest = json.loads(manifest_path.read_text())
+          version = os.environ['VERSION'][1:]
+          def parts(value):
+              return tuple(map(int, value.split('.')))
+          if parts(manifest['version']) > parts(version):
+              raise SystemExit('Refusing to downgrade the marketplace app')
+          manifest['version'] = version
+          manifest_path.write_text(json.dumps(manifest, indent=2) + '\n')
+          lock = Path(os.environ['RUNNER_TEMP']) / 'crew-app/release/runtime.json'
+          (app / 'release/runtime.json').write_bytes(lock.read_bytes())
+          PY
+      - name: Open marketplace source update
+        uses: peter-evans/create-pull-request@5f6978faf089d4d20b00c7766989d076bb2fc7f1 # v8
+        with:
+          path: marketplace-source
+          base: main
+          branch: chore/crew-runtime-${{ inputs.version }}
+          sign-commits: true
+          add-paths: |
+            apps/kiro-crew/app.json
+            apps/kiro-crew/release/runtime.json
+          commit-message: 'chore: pin Crew runtime to ${{ inputs.version }}'
+          title: 'chore: pin Crew runtime to ${{ inputs.version }}'
+          body: |
+            Pin the Crew app to the published CLI release ${{ inputs.version }} and align the app version.
+
+            All six published runtime archives were downloaded and checked against checksums.txt. The marketplace package passed the Crew tests and is attached to the same release.
+
+            Review and merge this PR to update source installs. GitHub's default workflow token does not trigger PR CI; close and reopen this PR as a maintainer to run the required checks before merging.

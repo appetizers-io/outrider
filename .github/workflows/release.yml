@@ -6,7 +6,8 @@ name: Release
 # release notes. GoReleaser then creates the tag and the GitHub release with
 # those notes and attaches the archives, publishes the Homebrew cask (only
 # when the HOMEBREW_TAP_TOKEN secret is set) and the run attests the archives'
-# build provenance.
+# build provenance. The Crew job then verifies the published downloads, uploads
+# the pinned app package and opens a marketplace source-update PR.
 
 on:
   workflow_dispatch:
@@ -28,6 +29,8 @@ jobs:
   release:
     if: github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.cliff.outputs.version }}
     environment: release # main only; maintainers approve the run
     permissions:
       contents: write # create the tag and the release
@@ -46,6 +49,7 @@ jobs:
         with:
           version: 3.x
       - run: task test
+      - run: task crew:test
       - name: git-cliff arguments
         id: args
         env:
@@ -74,7 +78,7 @@ jobs:
       # Local tag only: GoReleaser needs it; GitHub creates the remote tag
       # together with the release.
       - run: git tag "${{ steps.cliff.outputs.version }}"
-      - uses: goreleaser/goreleaser-action@f06c13b6b1a9625abc9e6e439d9c05a8f2190e94 # v7.2.3
+      - uses: goreleaser/goreleaser-action@a4f02ab5355a589de60d917a659ce617ed19b3de # v7.3.0
         with:
           version: v2.18.3
           args: release --clean --release-notes ${{ runner.temp }}/RELEASE_NOTES.md
@@ -92,3 +96,14 @@ jobs:
             dist/*.tar.gz
             dist/*.zip
             dist/checksums.txt
+
+  crew:
+    needs: release
+    permissions:
+      contents: write
+      pull-requests: write
+      id-token: write
+      attestations: write
+    uses: ./.github/workflows/crew-release.yml
+    with:
+      version: ${{ needs.release.outputs.version }}

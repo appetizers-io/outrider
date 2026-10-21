@@ -15,6 +15,8 @@ var promptTmpl = template.Must(template.New("prompt.tmpl").Funcs(template.FuncMa
 
 // PromptInput is what the agent prompt is about.
 type PromptInput struct {
+	Crew          bool // Crew owns tools and approvals; no CLI guard claims.
+	LocalBranch   string
 	Review        *Review
 	Workflow      *config.Workflow
 	Repo, Trigger string
@@ -62,7 +64,7 @@ func Prompt(in PromptInput) (string, error) {
 	}
 	sandbox := in.ContextDir != nil
 	data := map[string]any{
-		"Review": in.Review, "Workflow": in.Workflow, "WorkflowPost": in.Workflow != nil && in.Workflow.Post,
+		"Crew": in.Crew, "LocalBranch": in.LocalBranch, "Review": in.Review, "Workflow": in.Workflow, "WorkflowPost": in.Workflow != nil && in.Workflow.Post,
 		"Trigger": in.Trigger, "Repo": in.Repo, "N": in.N, "URL": in.PR.URL, "Title": in.PR.Title,
 		"Author": author, "Head": owner + "/" + name, "HeadRef": in.PR.HeadRefName,
 		"MaintainerCanModify": tristate(in.PR.MaintainerCanModify), "Base": in.PR.BaseRefName,
@@ -77,7 +79,19 @@ func Prompt(in PromptInput) (string, error) {
 		data["ContextDir"] = *in.ContextDir
 	}
 	var b strings.Builder
-	if err := promptTmpl.Execute(&b, data); err != nil {
+	tmpl := promptTmpl
+	if in.Crew {
+		var err error
+		tmpl, err = promptTmpl.Clone()
+		if err != nil {
+			return "", err
+		}
+		tmpl, err = tmpl.ParseFS(prompts.FS, "crew.tmpl")
+		if err != nil {
+			return "", err
+		}
+	}
+	if err := tmpl.Execute(&b, data); err != nil {
 		return "", fmt.Errorf("render prompt: %w", err)
 	}
 	return b.String(), nil

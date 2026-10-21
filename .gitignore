@@ -3,3 +3,7 @@
 *.test
 *.out
 .DS_Store
+
+/build/crew/
+
+__pycache__/

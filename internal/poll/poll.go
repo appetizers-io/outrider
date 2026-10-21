@@ -27,6 +27,7 @@ type Poller struct {
 	Include         config.Globs // owner/repo globs; empty: every repo
 	Exclude         config.Globs
 	ProcessExisting bool
+	OptInFirst      bool // Crew prioritizes explicit reactions before notification backlogs.
 	DryRun          bool
 	StatePath       string // where finished passes save the state
 	Launch          func(context.Context, session.Request) bool
@@ -109,16 +110,21 @@ func (p *Poller) Poll(ctx context.Context, s *State) error {
 	}
 	ps := &pass{Poller: p, s: s, now: now, windowStart: windowStart, scopes: map[scope]resolved{}, workflowRefs: maps.Clone(s.WorkflowPRs)}
 
+	firstLive := !s.Initialized && !p.DryRun
+	cutoff := unix(now) - float64(cfg.LookbackHours)*3600
+	maps.DeleteFunc(s.Candidates, func(_ string, c Candidate) bool { return c.SeenAt < cutoff })
+	ps.baseline = firstLive && !p.ProcessExisting
+
+	optInEnabled := slices.ContainsFunc(cfg.Layers(), func(c config.Config) bool { return c.Triggers.OptIn.Enabled })
+	if p.OptInFirst && optInEnabled {
+		ps.optIn(ctx)
+	}
+
 	ns, err := p.GH.Notifications(ctx, windowStart)
 	if err != nil {
 		return err
 	}
 	p.Log.Info(fmt.Sprintf("fetched %d notifications from last %dh", len(ns), cfg.LookbackHours))
-
-	firstLive := !s.Initialized && !p.DryRun
-	cutoff := unix(now) - float64(cfg.LookbackHours)*3600
-	maps.DeleteFunc(s.Candidates, func(_ string, c Candidate) bool { return c.SeenAt < cutoff })
-	ps.baseline = firstLive && !p.ProcessExisting
 
 	// 1) Notification feed: own PRs + discover non-owned candidates.
 	for _, x := range ns {
@@ -218,7 +224,7 @@ func (p *Poller) Poll(ctx context.Context, s *State) error {
 		}
 	}
 
-	if slices.ContainsFunc(cfg.Layers(), func(c config.Config) bool { return c.Triggers.OptIn.Enabled }) {
+	if !p.OptInFirst && optInEnabled {
 		ps.optIn(ctx)
 	}
 	ps.workflows(ctx)
@@ -370,6 +376,20 @@ func (ps *pass) optIn(ctx context.Context) {
 		}
 		t := s.Handled[k]
 		newer := NewerThan(items, t)
+		// Explicit mentions, including my own, take precedence over the
+		// ordinary activity filter and use the mention trigger's settings.
+		mentioned, ok := ps.mentionsIn(ctx, ref.Repo, ref.N, pr, newer)
+		if !ok {
+			continue // leave the activity pending for another attempt
+		}
+		if mentioned {
+			if !ps.DryRun {
+				w.Fingerprint = &fp
+				s.Watched[k] = w
+				s.Handled[k] = iso(ps.Now())
+			}
+			continue // the mention already handled this change
+		}
 		_, ignore := ps.scoped(ref.Repo, false)
 		if OnlyNoise(newer, ps.Login, ignore, optIn.OnChange.IgnoreOwnActivity) {
 			// my own or ignored authors' activity, or edits/deletions only
@@ -508,15 +528,10 @@ func idString(id *int64) string {
 
 // mentions launches for new @mentions of me on someone else's PR; false: retry.
 func (ps *pass) mentions(ctx context.Context, repo string, n int, pr *github.PR) bool {
-	cfg, ignore := ps.scoped(repo, false)
-	rules := cfg.Triggers.Mentions
-	if !rules.Enabled {
+	cfg, _ := ps.scoped(repo, false)
+	if !cfg.Triggers.Mentions.Enabled {
 		return true
 	}
-	after := ps.after(rules.FreshWithinHours)
-	k := key(repo, n)
-	done := ps.s.Mentions[k]
-	replied := ps.s.Replies[k] // already handled as a reply
 	if pr == nil {
 		got, err := ps.GH.PRView(ctx, repo, n)
 		if err != nil {
@@ -527,17 +542,32 @@ func (ps *pass) mentions(ctx context.Context, repo string, n int, pr *github.PR)
 	if !pr.Open() {
 		return true
 	}
-	desc := github.ActivityOf("description", github.Comment{
-		ID: new(int64(0)), User: pr.Author, UpdatedAt: &pr.CreatedAt, Body: &pr.Body, HTMLURL: &pr.URL,
-	})
 	items, err := ps.GH.Activity(ctx, repo, n)
 	if err != nil {
 		return false
 	}
+	desc := github.ActivityOf("description", github.Comment{
+		ID: new(int64(0)), User: pr.Author, UpdatedAt: &pr.CreatedAt, Body: &pr.Body, HTMLURL: &pr.URL,
+	})
+	_, ok := ps.mentionsIn(ctx, repo, n, *pr, append([]github.Activity{desc}, items...))
+	return ok
+}
+
+// mentionsIn handles fresh mentions in already fetched activity. It reports
+// whether a mention was found and whether processing succeeded.
+func (ps *pass) mentionsIn(ctx context.Context, repo string, n int, pr github.PR, items []github.Activity) (bool, bool) {
+	cfg, ignore := ps.scoped(repo, false)
+	rules := cfg.Triggers.Mentions
+	if !rules.Enabled {
+		return false, true
+	}
+	after := ps.after(rules.FreshWithinHours)
+	k := key(repo, n)
+	done := ps.s.Mentions[k]
+	replied := ps.s.Replies[k] // already handled as a reply
 	var fresh []github.Activity
-	for _, x := range append([]github.Activity{desc}, items...) {
+	for _, x := range items {
 		if x.At >= after && ps.mentioned(x.Body) &&
-			!strings.EqualFold(x.UserLogin(), ps.Login) &&
 			!ignore.MatchLogin(x.UserLogin()) &&
 			!slices.Contains(done, x.Kind+":"+idString(x.ID)) &&
 			(x.ID == nil || !slices.Contains(replied, *x.ID)) {
@@ -554,7 +584,7 @@ func (ps *pass) mentions(ctx context.Context, repo string, n int, pr *github.PR)
 			urls = append(urls, url)
 		}
 		req := session.Request{
-			Repo: repo, N: n, PR: *pr, Event: "mention", Trigger: "@" + ps.Login + " mentioned: " + strings.Join(urls, " "),
+			Repo: repo, N: n, PR: pr, Event: "mention", Trigger: "@" + ps.Login + " mentioned: " + strings.Join(urls, " "),
 			ScopeWhy: "where someone mentioned @" + ps.Login,
 		}
 		if rules.Check {
@@ -564,7 +594,7 @@ func (ps *pass) mentions(ctx context.Context, repo string, n int, pr *github.PR)
 			req.Scope = urls
 		}
 		if !ps.Launch(ctx, req) {
-			return false
+			return true, false
 		}
 	}
 	if !ps.DryRun {
@@ -577,5 +607,5 @@ func (ps *pass) mentions(ctx context.Context, repo string, n int, pr *github.PR)
 		slices.Sort(handled)
 		ps.s.Mentions[k] = handled
 	}
-	return true
+	return len(fresh) > 0, true
 }
