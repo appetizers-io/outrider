@@ -390,16 +390,6 @@ func (l *Launcher) Prepare(r Request, worktree, lock string, sb *Sandbox) (Prepa
 	agent := []string{agentPath}
 	switch {
 	case cfg.Agent == "claude":
-		for _, path := range cfg.ClaudePluginDirs {
-			info, err := os.Stat(path)
-			if err != nil {
-				return Prepared{}, fmt.Errorf("claude plugin directory: %w", err)
-			}
-			if !info.IsDir() {
-				return Prepared{}, fmt.Errorf("claude plugin path %s is not a directory", path)
-			}
-			agent = append(agent, "--plugin-dir", path)
-		}
 		if reviewOnly && sb == nil {
 			agent = append(agent, "--setting-sources", "user", "--strict-mcp-config")
 		}

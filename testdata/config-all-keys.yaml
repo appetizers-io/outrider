@@ -14,7 +14,6 @@ isolation:
   read_only: []              # extra absolute host paths, always read-only
 
 agent: claude
-claude_plugin_dirs: []
 launcher: auto                # terminal window on a desktop, else tmux
 terminal: [alacritty, -e, "{cmd}"]
 interval_seconds: 120

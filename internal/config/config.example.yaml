@@ -233,9 +233,3 @@ prompts:
 #       profile: deep
 #     - triggers: [mentions, review_replies]
 #       profile: quick
-
-# Trusted local Claude Code plugins, loaded for each session (agent: claude).
-# Use absolute paths. Unsupported with sandbox: read-only. Overrides replace
-# this list; [] removes explicit plugin directories. Installed user plugins
-# still follow Claude's user settings.
-claude_plugin_dirs: []

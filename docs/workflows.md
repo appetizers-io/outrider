@@ -128,15 +128,19 @@ are evaluated independently in file order. Normal agent locks and
 them for that override. Push, sandbox, scope and GitHub write policies apply
 throughout every workflow.
 
-## Claude Code plugins
+## Installed Claude Code plugins
 
-Load trusted local plugins into Claude sessions with `claude_plugin_dirs`.
-Clone or install the plugin yourself, then use its absolute directory path:
+Plugins installed and enabled at user scope in Claude Code are available in
+ordinary Outrider Claude sessions. No plugin paths or additional Outrider
+configuration are needed to load them. A workflow tells Claude when and how
+to use the plugin's agents.
+
+For example, install and enable the
+[PR Review Toolkit](https://github.com/anthropics/claude-code/tree/main/plugins/pr-review-toolkit)
+at **user scope** through Claude's `/plugin` interface, then configure:
 
 ```yaml
 agent: claude
-claude_plugin_dirs:
-  - /absolute/path/to/claude-code/plugins/pr-review-toolkit
 workflows:
   - name: toolkit-review
     match: [{prs: others, events: [opt_in, review_change]}]
@@ -146,21 +150,18 @@ workflows:
       - Consolidate findings with file and line references. Suggest changes without editing the PR. Keep the report in this session.
 ```
 
-The [PR Review Toolkit](https://github.com/anthropics/claude-code/tree/main/plugins/pr-review-toolkit)
-provides specialized review agents and `/pr-review-toolkit:review-pr`. The example
-selects its reviewers explicitly because its simplifier can edit code and its
-command starts by inspecting local changes. Outrider reviews committed PR diffs.
+This runs on opt-in and review-change events. It selects the toolkit's reviewers
+explicitly because its simplifier can edit code and its `review-pr` command
+starts by inspecting local changes. Outrider reviews committed PR diffs.
+The report stays in the session; the workflow does not authorize GitHub posts
+or edits to someone else's PR.
 
-Outrider passes each directory as a separate `--plugin-dir` argument. It does
-not download or update plugins. These directories load in addition to plugins
-from Claude's enabled user settings. Use trusted plugins: hooks and other plugin
-components execute with the agent's access. Outrider's push and post policies
-still apply; a workflow does not authorize edits to someone else's PR.
+Review-only sessions retain user settings but exclude project and local
+settings, so installing the plugin only for a repository is insufficient.
+`sandbox: read-only` disables settings and restricts tools; the toolkit's
+subagents are unavailable there. This example is for ordinary host Claude
+sessions, not Codex or Docker isolation.
 
-The list can be set in per-PR `overrides`; `[]` clears explicit directories,
-without disabling installed user plugins. Codex and `sandbox: read-only` reject
-nonempty lists. Read-only sessions restrict tools and disable settings, so they
-cannot run this toolkit's subagents. Docker isolation snapshots the plugin
-directories into the VM and uses VM paths; executable hook scripts retain executable permissions. Symlinks are preserved
-without copying their host targets, so plugins should keep their dependencies
-inside their directory.
+Use `claude plugin list` to check the plugin's scope and enabled status. See
+[Claude's plugin documentation](https://code.claude.com/docs/en/discover-plugins)
+for installation and management. Outrider does not install or update plugins.

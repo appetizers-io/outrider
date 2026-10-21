@@ -53,21 +53,20 @@ type Config struct {
 // PRSettings are the keys that can differ per PR; overrides set them for
 // the PRs they match.
 type PRSettings struct {
-	ClaudePluginDirs []string    `yaml:"claude_plugin_dirs" jsonschema:"minLength=1,uniqueItems=true" jsonschema_description:"Absolute paths to trusted local Claude Code plugin directories. Requires agent: claude; unsupported in read-only sandboxes. Lists replace in overrides."`
-	Review           *Review     `yaml:"review,omitempty" jsonschema:"nullable" jsonschema_description:"Opt-in review profiles for other people’s PRs; absent preserves existing prompts."`
-	Workflows        []Workflow  `yaml:"workflows,omitempty" jsonschema_description:"Ordered agent workflows selected by PR metadata. First matching activity workflow wins; conditional workflows watch discovered PRs."`
-	Push             *string     `yaml:"push" jsonschema:"enum=ask,enum=never,enum=allow,nullable" jsonschema_description:"Pushes in sessions that may push (your own PRs, others' PRs with others_prs.allow_push). ask: every git push opens a dialog and runs only after you click Push (without a dialog it is refused). never: commits stay local. allow: no question. null: ask in supervised mode, allow in autonomous mode."`
-	GitHubWrites     *string     `yaml:"github_writes" jsonschema:"enum=ask,enum=never,enum=allow,nullable" jsonschema_description:"Comments, review comments and replies, reviews and reactions the agent posts with gh on the session's PR. ask: each one opens a dialog showing the text and runs only after you click Post (without a dialog it is refused). never: GitHub stays read-only. allow: no question. null: ask in supervised mode, allow in autonomous mode."`
-	Sandbox          string      `yaml:"sandbox" jsonschema:"enum=off,enum=read-only,default=off" jsonschema_description:"read-only: every session runs in the agent's own OS sandbox (Claude Code: sandbox settings and deny rules; Codex: --sandbox read-only, approvals never): no file writes, no commits, no pushes, no GitHub posts, no network. The PR context is fetched into the session dir first. push and github_writes must be never or unset. Where the sandbox is unavailable, sessions are refused. off: no sandbox."`
-	Isolation        Isolation   `yaml:"isolation" jsonschema_description:"Opt-in Docker Sandboxes microVM with a private writable clone and read-only configuration inputs. Requires autonomous mode; host approval dialogs are unavailable."`
-	NetworkAccess    *bool       `yaml:"network_access" jsonschema:"nullable" jsonschema_description:"Session override for the agent network sandbox. true: allow outbound hosts without network approval prompts; false: block sandboxed outbound access; null: inherit the owner settings. Codex: sandbox_workspace_write.network_access. Claude: sandbox network domain rules, only effective when its Bash sandbox is enabled. Does not enable a sandbox or change tool approvals, push or post guards. true conflicts with read-only sessions."`
-	Agent            string      `yaml:"agent" jsonschema:"enum=codex,enum=claude,default=codex" jsonschema_description:"Coding agent CLI to launch."`
-	IgnoreAuthors    []string    `yaml:"ignore_authors" jsonschema:"minLength=1" jsonschema_description:"Login globs (* and ?) whose activity alone never triggers a session, e.g. netlify[bot] or *[bot]."`
-	Triggers         Triggers    `yaml:"triggers"`
-	OthersPRs        OthersPRs   `yaml:"others_prs"`
-	LaunchCheck      LaunchCheck `yaml:"launch_check"`
-	ToolGate         ToolGate    `yaml:"tool_gate"`
-	Prompts          Prompts     `yaml:"prompts"`
+	Review        *Review     `yaml:"review,omitempty" jsonschema:"nullable" jsonschema_description:"Opt-in review profiles for other people’s PRs; absent preserves existing prompts."`
+	Workflows     []Workflow  `yaml:"workflows,omitempty" jsonschema_description:"Ordered agent workflows selected by PR metadata. First matching activity workflow wins; conditional workflows watch discovered PRs."`
+	Push          *string     `yaml:"push" jsonschema:"enum=ask,enum=never,enum=allow,nullable" jsonschema_description:"Pushes in sessions that may push (your own PRs, others' PRs with others_prs.allow_push). ask: every git push opens a dialog and runs only after you click Push (without a dialog it is refused). never: commits stay local. allow: no question. null: ask in supervised mode, allow in autonomous mode."`
+	GitHubWrites  *string     `yaml:"github_writes" jsonschema:"enum=ask,enum=never,enum=allow,nullable" jsonschema_description:"Comments, review comments and replies, reviews and reactions the agent posts with gh on the session's PR. ask: each one opens a dialog showing the text and runs only after you click Post (without a dialog it is refused). never: GitHub stays read-only. allow: no question. null: ask in supervised mode, allow in autonomous mode."`
+	Sandbox       string      `yaml:"sandbox" jsonschema:"enum=off,enum=read-only,default=off" jsonschema_description:"read-only: every session runs in the agent's own OS sandbox (Claude Code: sandbox settings and deny rules; Codex: --sandbox read-only, approvals never): no file writes, no commits, no pushes, no GitHub posts, no network. The PR context is fetched into the session dir first. push and github_writes must be never or unset. Where the sandbox is unavailable, sessions are refused. off: no sandbox."`
+	Isolation     Isolation   `yaml:"isolation" jsonschema_description:"Opt-in Docker Sandboxes microVM with a private writable clone and read-only configuration inputs. Requires autonomous mode; host approval dialogs are unavailable."`
+	NetworkAccess *bool       `yaml:"network_access" jsonschema:"nullable" jsonschema_description:"Session override for the agent network sandbox. true: allow outbound hosts without network approval prompts; false: block sandboxed outbound access; null: inherit the owner settings. Codex: sandbox_workspace_write.network_access. Claude: sandbox network domain rules, only effective when its Bash sandbox is enabled. Does not enable a sandbox or change tool approvals, push or post guards. true conflicts with read-only sessions."`
+	Agent         string      `yaml:"agent" jsonschema:"enum=codex,enum=claude,default=codex" jsonschema_description:"Coding agent CLI to launch."`
+	IgnoreAuthors []string    `yaml:"ignore_authors" jsonschema:"minLength=1" jsonschema_description:"Login globs (* and ?) whose activity alone never triggers a session, e.g. netlify[bot] or *[bot]."`
+	Triggers      Triggers    `yaml:"triggers"`
+	OthersPRs     OthersPRs   `yaml:"others_prs"`
+	LaunchCheck   LaunchCheck `yaml:"launch_check"`
+	ToolGate      ToolGate    `yaml:"tool_gate"`
+	Prompts       Prompts     `yaml:"prompts"`
 }
 
 // Isolation selects the existing Docker Sandboxes runtime.
@@ -180,11 +179,10 @@ func Default() Config {
 		Repos:           Repos{Include: []string{}, Exclude: []string{}},
 		Classifiers:     Classifiers{"jev": DefaultJev()},
 		PRSettings: PRSettings{
-			ClaudePluginDirs: []string{},
-			Sandbox:          "off",
-			Agent:            "codex",
-			Isolation:        Isolation{ReadOnly: []string{}},
-			IgnoreAuthors:    []string{},
+			Sandbox:       "off",
+			Agent:         "codex",
+			Isolation:     Isolation{ReadOnly: []string{}},
+			IgnoreAuthors: []string{},
 			Triggers: Triggers{
 				OwnPRs: OwnPRs{Enabled: true, Check: true},
 				OptIn: OptIn{
@@ -320,19 +318,6 @@ func JevBackendConfigured() bool {
 // crossCheck validates what spans several keys, which the schema can't.
 func (c *Config) crossCheck() []string {
 	errs := append(c.checkWorkflows(), c.checkReview()...)
-	if len(c.ClaudePluginDirs) > 0 {
-		if c.Agent != "claude" {
-			errs = append(errs, "claude_plugin_dirs requires agent: claude")
-		}
-		if c.SandboxFor(true) == ReadOnly || c.SandboxFor(false) == ReadOnly {
-			errs = append(errs, "claude_plugin_dirs is unsupported in read-only sandboxes")
-		}
-		for _, path := range c.ClaudePluginDirs {
-			if !filepath.IsAbs(path) || strings.ContainsAny(path, "\r\n") {
-				errs = append(errs, "claude_plugin_dirs entries must be absolute paths without newlines")
-			}
-		}
-	}
 	if c.ToolGate.IncludeProfile {
 		errs = append(errs, "tool_gate.include_profile must be false: playbooks cannot change gate policy")
 	}
