@@ -18,12 +18,11 @@ on:
 permissions:
   contents: read
 
-concurrency:
-  group: crew-release
-  cancel-in-progress: false
-
 jobs:
   publish:
+    concurrency:
+      group: outrider-crew-publication
+      cancel-in-progress: false
     if: github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
     environment: release
