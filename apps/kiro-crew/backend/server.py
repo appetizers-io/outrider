@@ -21,6 +21,15 @@ ROOT = Path(__file__).resolve().parents[1]
 ID = re.compile(r"[a-f0-9]{64}")
 REPO = re.compile(r"[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+")
 ACTIVE = {"requested", "dispatching", "running"}
+MAX_POLL_FAILURES = 5
+
+
+class GatewayRejected(RuntimeError):
+    """An HTTP response from Crew, retaining its status for recovery decisions."""
+
+    def __init__(self, status):
+        self.status = status
+        super().__init__(f"Crew returned HTTP {status}; check the app grant and gateway")
 
 
 def atomic_json(path, value):
@@ -77,17 +86,21 @@ class Gateway:
         with self.http.open(req, timeout=30) as response:
             return json.load(response)
 
-    def call(self, path, payload=None):
+    def authenticate(self):
+        """Acquire credentials before a review enters the dispatching state."""
         if not self.token:
             response = self._request(f"/api/apps/{APP}/token", {}, {"X-App-Secret": self.secret})
             self.token = response["token"]
+
+    def call(self, path, payload=None):
+        self.authenticate()
         try:
             return self._request(path, payload, {"Cookie": self.cookie_name + "=" + self.token})
         except HTTPError as error:
             error.close()
             if error.code == 401:
                 self.token = ""  # refresh on the NEXT call; never retry a spawn
-            raise RuntimeError(f"Crew returned HTTP {error.code}; check the app's session-control grant and gateway") from error
+            raise GatewayRejected(error.code) from error
 
 
 class Inbox:
@@ -189,6 +202,7 @@ class Inbox:
                 if run["status"] == "requested":
                     self.check_agent()
                     item = self.item(item_id)
+                    self.gateway.authenticate()
                     with self.lock:
                         self.runs[item_id]["status"] = "dispatching"
                         self.save_runs()
@@ -203,7 +217,7 @@ class Inbox:
                 elif run["status"] == "running":
                     response = self.gateway.call("/api/spawn/" + quote(run["task_id"], safe=""))
                     with self.lock:
-                        self.runs[item_id].update(result=response.get("result", ""), error=response.get("error", ""), awaiting_approval=response.get("awaiting_approval", False))
+                        self.runs[item_id].update(poll_failures=0, result=response.get("result", ""), error=response.get("error", ""), awaiting_approval=response.get("awaiting_approval", False))
                         if response.get("done"):
                             self.runs[item_id]["status"] = "failed" if response.get("error") or response.get("stopped") else "completed"
                         self.save_runs()
@@ -211,9 +225,16 @@ class Inbox:
                 with self.lock:
                     current = self.runs[item_id]
                     if current["status"] == "dispatching":
-                        current["status"] = "uncertain"
+                        rejected = isinstance(error, GatewayRejected) and 400 <= error.status < 500 and error.status != 408
+                        current["status"] = "failed" if rejected else "uncertain"
                     elif current["status"] == "requested":
                         current["status"] = "failed"
+                    elif current["status"] == "running":
+                        failures = current.get("poll_failures", 0) + 1
+                        current["poll_failures"] = failures
+                        gone = isinstance(error, GatewayRejected) and error.status in (404, 410)
+                        if gone or failures >= MAX_POLL_FAILURES:
+                            current["status"] = "uncertain"
                     current["error"] = str(error)
                     self.save_runs()
 

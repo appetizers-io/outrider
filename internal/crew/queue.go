@@ -185,7 +185,7 @@ func (s *Scanner) Enqueue(ctx context.Context, r session.Request) error {
 	}
 	dest := filepath.Join(queue, id+".json")
 	if _, err := os.Stat(dest); err == nil {
-		return nil
+		return syncSnapshot(dest, queue, s.Dir)
 	} else if !errors.Is(err, os.ErrNotExist) {
 		return err
 	}
@@ -197,5 +197,30 @@ func (s *Scanner) Enqueue(ctx context.Context, r session.Request) error {
 	if err := os.WriteFile(staged, encoded, 0o600); err != nil {
 		return err
 	}
-	return os.Rename(staged, dest)
+	if err := syncFile(staged); err != nil {
+		return err
+	}
+	if err := os.Rename(staged, dest); err != nil {
+		return err
+	}
+	return syncSnapshot(dest, queue, s.Dir)
+}
+
+// syncSnapshot also covers retries after an earlier directory sync failed.
+func syncSnapshot(path, queue, root string) error {
+	if err := syncFile(path); err != nil {
+		return err
+	}
+	if err := syncDirectory(queue); err != nil {
+		return err
+	}
+	return syncDirectory(root) // persist a newly created queue directory itself
+}
+
+func syncFile(path string) error {
+	f, err := os.OpenFile(path, os.O_RDWR, 0)
+	if err != nil {
+		return err
+	}
+	return errors.Join(f.Sync(), f.Close())
 }

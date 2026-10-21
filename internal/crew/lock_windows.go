@@ -14,3 +14,7 @@ func scanLock(dir string) (func(), error) {
 	}
 	return func() { _ = os.Remove(path) }, nil
 }
+
+// Windows does not support directory fsync via os.File.Sync. Snapshot files
+// are flushed, but the standalone scanner cannot promise power-loss durability.
+func syncDirectory(_ string) error { return nil }

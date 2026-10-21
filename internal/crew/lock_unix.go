@@ -3,6 +3,7 @@
 package crew
 
 import (
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -19,4 +20,12 @@ func scanLock(dir string) (func(), error) {
 		return nil, fmt.Errorf("another crew scan is running: %w", err)
 	}
 	return func() { _ = f.Close() }, nil
+}
+
+func syncDirectory(path string) error {
+	d, err := os.Open(path)
+	if err != nil {
+		return err
+	}
+	return errors.Join(d.Sync(), d.Close())
 }

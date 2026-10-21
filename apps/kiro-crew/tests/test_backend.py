@@ -20,6 +20,9 @@ class FakeGateway:
         self.calls = []
         self.fail = False
 
+    def authenticate(self):
+        pass
+
     def call(self, path, payload=None):
         self.calls.append((path, payload))
         if self.fail:
@@ -80,6 +83,55 @@ class InboxTest(unittest.TestCase):
         restarted = backend.Inbox(self.data, self.gateway, self.agent)
         restarted.update_reviews()
         self.assertEqual(len(self.gateway.calls), 1)
+
+    def test_auth_failure_happens_before_dispatch(self):
+        def fail_auth():
+            raise TimeoutError('auth unavailable')
+        self.gateway.authenticate = fail_auth
+        self.inbox.request_review(self.item_id)
+        self.inbox.update_reviews()
+        self.assertFalse(self.gateway.calls)
+        self.assertEqual(self.inbox.runs[self.item_id]['status'], 'failed')
+
+    def test_spawn_http_status_classification(self):
+        for code, expected in [(401, 'failed'), (403, 'failed'), (429, 'failed'), (408, 'uncertain'), (500, 'uncertain')]:
+            with self.subTest(code=code):
+                self.inbox.runs.clear()
+                def reject(*args, **kwargs):
+                    raise backend.GatewayRejected(code)
+                self.gateway.call = reject
+                self.inbox.request_review(self.item_id)
+                self.inbox.update_reviews()
+                self.assertEqual(self.inbox.runs[self.item_id]['status'], expected)
+
+    def test_lost_task_releases_active_slot(self):
+        for code in (404, 410):
+            with self.subTest(code=code):
+                self.inbox.runs[self.item_id] = {'status': 'running', 'task_id': 'lost'}
+                def reject(*args, **kwargs):
+                    raise backend.GatewayRejected(code)
+                self.gateway.call = reject
+                self.inbox.update_reviews()
+                self.assertEqual(self.inbox.runs[self.item_id]['status'], 'uncertain')
+                self.assertEqual(self.inbox.runs[self.item_id]['task_id'], 'lost')
+                self.inbox.request_review(self.item_id, retry=True)
+                self.assertEqual(self.inbox.runs[self.item_id]['status'], 'requested')
+
+    def test_repeated_poll_errors_are_bounded_and_success_resets_counter(self):
+        self.inbox.runs[self.item_id] = {'status': 'running', 'task_id': 'task1'}
+        self.gateway.fail = True
+        for _ in range(backend.MAX_POLL_FAILURES - 1):
+            self.inbox.update_reviews()
+        self.assertEqual(self.inbox.runs[self.item_id]['status'], 'running')
+        self.gateway.fail = False
+        self.gateway.call = lambda *args: {'done': False}
+        self.inbox.update_reviews()
+        self.assertEqual(self.inbox.runs[self.item_id]['poll_failures'], 0)
+        self.gateway.call = FakeGateway.call.__get__(self.gateway)
+        self.gateway.fail = True
+        for _ in range(backend.MAX_POLL_FAILURES):
+            self.inbox.update_reviews()
+        self.assertEqual(self.inbox.runs[self.item_id]['status'], 'uncertain')
 
     def test_restart_during_dispatch_is_uncertain(self):
         backend.atomic_json(self.data / 'runs.json', {self.item_id: {'status': 'dispatching'}})

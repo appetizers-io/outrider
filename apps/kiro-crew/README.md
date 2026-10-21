@@ -37,6 +37,9 @@ Crew tasks remain managed by Crew.
   they are sent to the model configured in Crew when you request a review.
 - Saves task IDs across backend restarts. An ambiguous dispatch becomes
   **uncertain**, requiring you to check Crew tasks before explicitly retrying.
+  Missing tasks (HTTP 404/410) or five consecutive status-poll failures also
+  become uncertain and release the review slot. Authentication failures and
+  definitive request rejections are failed reviews, not ambiguous launches.
 
 ## Session launch and configuration precedence
 
@@ -107,8 +110,10 @@ never the terminal watcher's state directory. Without `--process-existing`, the
 first scan records a baseline instead of queuing existing activity.
 
 A queued snapshot is written atomically before the event is acknowledged. On
-macOS/Linux a process lock is released automatically after a crash. Windows
-standalone scans use a directory lock: after a crash, confirm no scan remains
+macOS/Linux the snapshot file and queue directory are synced before acknowledgement,
+and a process lock is released automatically after a crash. Windows
+standalone scans flush snapshot files but cannot guarantee directory durability
+after power loss, and use a directory lock: after a crash, confirm no scan remains
 running before removing `<state-dir>/scan.lock`. The Crew app targets macOS/Linux.
 
 ## Development and verification
