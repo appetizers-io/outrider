@@ -10,6 +10,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/require"
 
@@ -165,4 +166,44 @@ func TestWorkflowAndRepositoryInstructionsAreCaptured(t *testing.T) {
 	other := cfg.For("other/repo", false)
 	require.Empty(t, other.Prompts.Extra)
 	require.Empty(t, other.Workflows)
+}
+
+func TestScanBudgetSavesCompletedNotifications(t *testing.T) {
+	s := fixture(t, "diff", false)
+	s.Config.Repos.Include = []string{"o/r"}
+	s.Config.Triggers.OptIn.Enabled = false
+	s.Config.Triggers.OwnPRs.Check = false
+	s.LookPath = func(string) (string, error) { return "", errors.New("not installed") }
+	s.ProcessExisting = true
+	snapshotRun := s.GH.Run
+	ctx, cancel := context.WithTimeout(t.Context(), time.Second)
+	defer cancel()
+	s.GH.Run = func(ctx context.Context, c proc.Cmd) (proc.Result, error) {
+		args := strings.Join(c.Args, " ")
+		switch {
+		case args == "gh api user":
+			return proc.Result{Stdout: `{"login":"me"}`}, nil
+		case strings.Contains(args, "notifications?"):
+			return proc.Result{Stdout: `[[{"id":"n1","updated_at":"2026-01-01T00:00:00Z","reason":"comment","repository":{"full_name":"o/r"},"subject":{"type":"PullRequest","url":"https://api.github.com/repos/o/r/pulls/1"}},{"id":"n2","updated_at":"2026-01-01T00:00:00Z","reason":"comment","repository":{"full_name":"o/r"},"subject":{"type":"PullRequest","url":"https://api.github.com/repos/o/r/pulls/2"}}]]`}, nil
+		case strings.Contains(args, "pr view 2"):
+			<-ctx.Done()
+			return proc.Result{}, ctx.Err()
+		case strings.Contains(args, "--json number,title,url,state,author"):
+			return proc.Result{Stdout: `{"number":1,"title":"test","state":"OPEN","author":{"login":"me"}}`}, nil
+		default:
+			return snapshotRun(ctx, c)
+		}
+	}
+	require.ErrorIs(t, s.Scan(ctx), ErrScanBudget)
+	raw, err := os.ReadFile(filepath.Join(s.Dir, "state.json"))
+	require.NoError(t, err)
+	var state struct {
+		Seen map[string]string `json:"seen"`
+	}
+	require.NoError(t, json.Unmarshal(raw, &state))
+	require.Contains(t, state.Seen, "n1")
+	require.NotContains(t, state.Seen, "n2")
+	paths, err := filepath.Glob(filepath.Join(s.Dir, "queue", "*.json"))
+	require.NoError(t, err)
+	require.Len(t, paths, 1)
 }

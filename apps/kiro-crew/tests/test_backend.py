@@ -286,6 +286,42 @@ class InboxTest(unittest.TestCase):
             with self.assertRaises(ValueError):
                 backend.validate_repo_settings({'o/r': {'overrides': [override]}})
 
+    def test_pause_persists_and_manual_scan_is_allowed(self):
+        self.inbox.config['repos'] = ['o/r']
+        self.assertTrue(self.inbox.scan_due())
+        self.inbox.set_paused(True)
+        self.assertFalse(self.inbox.scan_due())
+        restarted = backend.Inbox(self.data, self.gateway, self.agent)
+        self.assertTrue(restarted.config['paused'])
+        self.assertFalse(restarted.scan_due())
+        restarted.scan_requested = True
+        self.assertTrue(restarted.scan_due())
+        restarted.set_paused(False)
+        self.assertTrue(restarted.scan_due())
+
+    def test_partial_scan_is_not_a_successful_full_scan(self):
+        self.inbox.config['repos'] = ['o/r']
+        self.inbox.runner = lambda *a, **kw: type('Result', (), {'returncode': 0, 'stdout': '{"complete": false}'})()
+        self.inbox.scan()
+        self.assertTrue(self.inbox.snapshot()['scan_partial'])
+        self.assertIsNone(self.inbox.last_scan)
+        self.assertFalse(self.inbox.scanning)
+        self.assertIsNone(self.inbox.scan_started)
+        restarted = backend.Inbox(self.data, self.gateway, self.agent)
+        self.assertTrue(restarted.scan_partial)
+
+    def test_scan_timeout_is_actionable_and_persisted(self):
+        self.inbox.config['repos'] = ['o/r']
+        def timeout(*args, **kwargs):
+            raise backend.subprocess.TimeoutExpired(['sensitive-path'], 180)
+        self.inbox.runner = timeout
+        with self.assertRaisesRegex(RuntimeError, 'Scan timed out'):
+            self.inbox.scan()
+        self.assertNotIn('sensitive-path', self.inbox.error)
+        self.assertFalse(self.inbox.scanning)
+        self.assertIsNone(self.inbox.scan_started)
+        self.assertIn('Scan timed out', backend.Inbox(self.data, self.gateway, self.agent).error)
+
     def test_config_validation_and_argv(self):
         for invalid in [['--help'], ['o/r;touch bad'], ['../r'], ['o/*']]:
             with self.assertRaises(ValueError):

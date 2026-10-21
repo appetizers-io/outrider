@@ -1,11 +1,13 @@
 package cli
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
 	"log/slog"
+	"time"
 
 	"github.com/spf13/cobra"
 	"go.yaml.in/yaml/v3"
@@ -20,6 +22,7 @@ func crewCmd(d watch.Deps) *cobra.Command {
 	var dir, source string
 	var repos []string
 	var existing bool
+	var budget time.Duration
 	cmd := &cobra.Command{Use: "crew", Short: "Kiro Crew snapshot review integration"}
 	scan := &cobra.Command{Use: "scan", Short: "Poll once into a durable Crew inbox (no checkout or agent launch)", Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
@@ -40,8 +43,18 @@ func crewCmd(d watch.Deps) *cobra.Command {
 				cfg.Repos.Exclude[i] = config.RepoPattern(repo)
 			}
 			s := crew.Scanner{Dir: dir, Config: cfg, GH: &github.Client{Run: d.Run}, LookPath: d.LookPath, Log: slog.Default(), ProcessExisting: existing}
-			return s.Scan(cmd.Context())
+			if budget <= 0 {
+				return errors.New("scan timeout must be positive")
+			}
+			ctx, cancel := context.WithTimeout(cmd.Context(), budget)
+			defer cancel()
+			err = s.Scan(ctx)
+			if err != nil && !errors.Is(err, crew.ErrScanBudget) {
+				return err
+			}
+			return json.NewEncoder(cmd.OutOrStdout()).Encode(map[string]bool{"complete": err == nil})
 		}}
+	scan.Flags().DurationVar(&budget, "timeout", 150*time.Second, "scan budget; save progress before returning a partial pass")
 	scan.Flags().StringVar(&dir, "state-dir", "", "dedicated inbox and poll-state directory")
 	scan.Flags().StringVar(&source, "config", "", "optional Outrider YAML config (otherwise built-in defaults)")
 	scan.Flags().StringArrayVar(&repos, "repo", nil, "repository allowlist, owner/repo or glob (repeatable)")

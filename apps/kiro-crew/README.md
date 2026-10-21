@@ -278,3 +278,22 @@ automatically resent. Preflight failures before a worktree exists can be retried
 `/api/chat` permission is required for dispatch to the app's own chats; Crew
 continues to enforce chat ownership. Local validation is explicitly started by
 the user, not automatically launched by polling.
+
+### Import previews, feedback, and polling status
+
+**Preview import** opens a modal dialog with scrollable YAML, collapsible import
+notes, Cancel, and Use import draft. Escape closes it without applying the draft.
+Save settings and Add repository show a persistent, dismissible success toast.
+
+Polling status shows elapsed scan time, queued/running/failed/paused states, the
+last successful scan, and the next scheduled scan. **Pause polling** stops future
+automatic passes and lets the current pass finish; **Scan now** still runs once
+while paused. Resume polling schedules a new pass. Pause state survives restarts.
+
+Each scanner pass has a 150-second cooperative budget, below the backend's
+180-second emergency timeout. It saves completed poll progress before returning
+`{"complete": false}` when that budget expires. The UI labels this as partial
+progress, not a successful full scan; subsequent passes continue pending work.
+This avoids discarding completed notification bookkeeping when a large initial
+scan exceeds the backend deadline. `crew scan --timeout` can change the scanner
+budget for manual invocations. Last scan outcome survives backend restarts.

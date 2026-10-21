@@ -1,12 +1,31 @@
-import { createElement as h, useCallback, useEffect, useState } from 'react';
+import { createElement as h, useCallback, useEffect, useRef, useState } from 'react';
 import { useAppApi } from '@kirocrew/app-sdk';
 
 const base = '/apps/outrider/api';
-const box = { border: '1px solid var(--border, #8885)', borderRadius: 12, padding: 20, marginBottom: 16 };
-const button = { padding: '8px 14px', border: '1px solid var(--border, #8886)', borderRadius: 8, cursor: 'pointer', background: 'transparent', color: 'inherit' };
+const box = { border: '1px solid var(--border, #8885)', borderRadius: 12, padding: 24, marginBottom: 24 };
+const button = { padding: '10px 16px', lineHeight: 1.4, border: '1px solid var(--border, #8886)', borderRadius: 8, cursor: 'pointer', background: 'transparent', color: 'inherit' };
 const selectedButton = { ...button, background: '#b4a0ff', color: '#211b32', borderColor: '#b4a0ff', fontWeight: 650 };
 const reactions = [['eyes', '👀 Eyes'], ['+1', '👍 Thumbs up'], ['-1', '👎 Thumbs down'], ['laugh', '😄 Laugh'], ['confused', '😕 Confused'], ['heart', '❤️ Heart'], ['hooray', '🎉 Hooray'], ['rocket', '🚀 Rocket']];
-const input = { display: 'block', width: '100%', background: 'transparent', color: 'inherit', border: '1px solid #8886', borderRadius: 8, padding: 10, boxSizing: 'border-box', margin: '8px 0 12px' };
+const input = { display: 'block', width: '100%', background: 'transparent', color: 'inherit', border: '1px solid #8886', borderRadius: 8, padding: 10, boxSizing: 'border-box', margin: '10px 0 20px' };
+
+function ImportPreviewDialog({ preview, onDismiss, onUse }) {
+  const dialog = useRef(null);
+  useEffect(() => {
+    const previous = document.activeElement;
+    const element = dialog.current;
+    element.showModal();
+    return () => { element.close(); if (previous?.isConnected) previous.focus(); };
+  }, []);
+  return h('dialog', { ref: dialog, className: 'outrider-import-dialog', 'aria-labelledby': 'outrider-import-title', onCancel: e => { e.preventDefault(); onDismiss(); }, style: { padding: 0, width: 'min(900px, calc(100vw - 32px))', maxWidth: 'calc(100vw - 32px)', maxHeight: '85vh', border: '1px solid #8886', borderRadius: 16, background: 'var(--background, #1c1921)', color: 'var(--foreground, #eee)', boxShadow: '0 24px 80px #0008' } },
+    h('style', null, '.outrider-import-dialog::backdrop { background: #0009; }'),
+    h('div', { style: { display: 'flex', flexDirection: 'column', maxHeight: '85vh' } },
+      h('header', { style: { padding: '20px 24px', borderBottom: '1px solid #8885' } }, h('h2', { id: 'outrider-import-title', style: { margin: '0 0 8px' } }, 'Preview import'), h('div', { style: { overflowWrap: 'anywhere' } }, preview.repo), h('p', { style: { marginBottom: 0, opacity: .7 } }, 'Review the settings below. Nothing is saved until you use this draft and save settings.')),
+      h('div', { style: { padding: '16px 24px', overflowY: 'auto', minHeight: 0 } },
+        h('p', null, `${preview.settings.workflows?.length || 0} base workflows · ${preview.settings.overrides?.length || 0} ownership overrides`),
+        h('details', null, h('summary', { style: { cursor: 'pointer' } }, 'Import notes and removed settings'), ...preview.warnings.map((warning, index) => h('p', { key: index }, warning)), preview.skipped.length > 0 && h('p', null, 'Removed: ' + preview.skipped.join(', ')), preview.applied_overrides.length > 0 && h('p', null, 'Applied CLI overrides: ' + preview.applied_overrides.join('; '))),
+        h('pre', { tabIndex: 0, 'aria-label': 'Imported YAML', style: { padding: 16, border: '1px solid #8885', borderRadius: 8, whiteSpace: 'pre', overflow: 'auto', maxHeight: '45vh', fontSize: 13, lineHeight: 1.6, background: '#0002' } }, preview.yaml)),
+      h('footer', { style: { padding: '16px 24px', borderTop: '1px solid #8885', display: 'flex', justifyContent: 'flex-end', gap: 12 } }, h('button', { style: button, type: 'button', autoFocus: true, onClick: onDismiss }, 'Cancel'), h('button', { style: selectedButton, type: 'button', onClick: onUse }, 'Use import draft'))));
+}
 
 export default function Outrider() {
   const api = useAppApi();
@@ -164,18 +183,26 @@ export default function Outrider() {
     finally { setBusy(false); }
   }
   const items = data?.items || [];
+  const elapsed = data?.scan_started ? Math.max(0, Math.floor(Date.now() / 1000 - data.scan_started)) : 0;
+  const scanLabel = connectionError ? '○ Disconnected' : data?.scanning ? `● ${data.config.paused ? 'Finishing scan' : 'Scanning'} · ${elapsed}s` : data?.scan_requested ? '◷ Scan queued' : data?.config.paused ? 'Ⅱ Polling paused' : data?.error ? '✕ Scan failed' : data?.scan_partial ? '◷ Progress saved · more to scan' : !data?.config.repos.length ? '○ No repositories' : data?.last_scan ? '✓ Watching' : '◷ Waiting for first scan';
+  const scanColor = connectionError || data?.error ? '#e59a9a' : data?.scanning || data?.scan_requested || data?.scan_partial ? '#c5b4ff' : data?.config.paused || !data?.last_scan ? 'inherit' : '#75d6a4';
   const active = items.some(x => ['requested', 'dispatching', 'running'].includes(x.run.status));
   const folderSelect = (value, onChange) => h('select', { style: input, value, onChange }, h('option', { value: '' }, 'Inbox only'), ...folders.map(f => h('option', { key: f.id, value: f.id }, f.name)));
-  return h('main', { style: { padding: 28, overflowY: 'auto', maxWidth: 1100, width: '100%', boxSizing: 'border-box', margin: '0 auto', color: 'inherit' } },
+  return h('main', { className: 'outrider-app', style: { padding: 28, overflowY: 'auto', maxWidth: 1100, width: '100%', boxSizing: 'border-box', margin: '0 auto', color: 'inherit' } },
+    h('style', null, `.outrider-app { line-height: 1.6; } .outrider-app p { margin: 12px 0 20px; } .outrider-app h2, .outrider-app h3 { line-height: 1.3; margin: 24px 0 16px; } .outrider-app label { display: block; margin-bottom: 16px; } .outrider-app details[open] > summary { margin-bottom: 20px; } .outrider-app button + p { margin-top: 18px; } .outrider-app section > :last-child { margin-bottom: 0; } .outrider-app legend { padding: 0 8px; } .outrider-app button + button { margin-left: 8px; }`),
     h('header', { style: { display: 'flex', gap: 20, justifyContent: 'space-between', alignItems: 'start', flexWrap: 'wrap', marginBottom: 24 } },
       h('div', null, h('img', { src: '/apps/outrider/ui/logo.svg', alt: 'Outrider', width: 44, height: 44, style: { float: 'left', marginRight: 14, padding: 4, boxSizing: 'border-box', borderRadius: 10, background: '#102027' } }), h('h1', { style: { margin: '0 0 6px', fontSize: 28 } }, view === 'setup' ? 'Add repository' : view === 'repositories' ? 'Repositories' : 'Outrider'), h('p', { style: { margin: 0, opacity: .7 } }, view === 'inbox' ? 'Your PR review inbox.' : view === 'setup' ? 'Choose a repository to watch and where its reviews belong.' : 'Configure triggers and workflows for each repository.')),
       data && h('nav', { 'aria-label': 'Outrider views', style: { display: 'flex', gap: 8, flexWrap: 'wrap' } },
         h('button', { style: view === 'inbox' ? selectedButton : button, disabled: busy, 'aria-current': view === 'inbox' ? 'page' : undefined, onClick: () => { setView('inbox'); setNotice(''); setError(''); } }, 'Inbox'),
         h('button', { style: view === 'repositories' ? selectedButton : button, disabled: busy, 'aria-current': view === 'repositories' ? 'page' : undefined, onClick: () => configure() }, 'Repositories'),
         h('button', { style: view === 'setup' ? selectedButton : button, 'aria-current': view === 'setup' ? 'page' : undefined, disabled: busy, onClick: () => configure('setup') }, 'Add repository'),
-        h('button', { style: button, disabled: busy || !!connectionError || data.scanning || !data.config.repos.length, onClick: () => action('/scan') }, connectionError ? 'Reconnecting…' : data.scanning ? 'Scanning…' : 'Scan now'))),
+        h('button', { style: button, disabled: busy || !!connectionError || data.scanning || !data.config.repos.length, onClick: () => action('/scan') }, 'Scan now'))),
+    data && h('section', { 'aria-label': 'Polling status', style: { ...box, display: 'flex', flexWrap: 'wrap', gap: 12, alignItems: 'center', justifyContent: 'space-between' } },
+      h('div', null, h('strong', { role: 'status', style: { color: scanColor } }, scanLabel), h('p', { style: { margin: '6px 0 0', opacity: .7, fontSize: 13 } }, data.scanning ? (elapsed >= 120 ? 'Large scan: progress will be saved after 150 seconds and continued on the next pass.' : `Checking GitHub activity for ${data.config.repos.length} repositories. ${data.config.paused ? 'Automatic polling will stay paused after this scan.' : ''}`) : data.config.paused ? 'Automatic polling is paused. Scan now still runs once.' : data.scan_partial ? 'This pass reached its time budget. Saved progress resumes on the next scan; queued snapshots remain available.' : data.last_scan ? `Last successful scan: ${new Date(data.last_scan * 1000).toLocaleTimeString()}. ${data.next_scan ? 'Next scan in ' + Math.max(0, Math.ceil(data.next_scan - Date.now() / 1000)) + 's.' : ''}` : 'Waiting for the first scan to complete.')),
+      h('button', { style: button, type: 'button', disabled: busy || !!connectionError || !data.config.repos.length, onClick: async () => { const paused = !data.config.paused; if (await action('/polling', { paused })) setNotice(paused ? 'Automatic polling paused. Any current scan will finish.' : 'Automatic polling resumed.'); } }, data.config.paused ? 'Resume polling' : 'Pause polling')),
     (error || (view === 'inbox' && data?.error)) && h('p', { role: 'alert', style: { ...box, borderColor: '#c66' } }, error || data.error),
-    notice && h('p', { role: 'status' }, notice),
+    notice && h('aside', { role: 'status', 'aria-live': 'polite', style: { position: 'fixed', bottom: 24, right: 24, zIndex: 1000, maxWidth: 'min(480px, calc(100vw - 48px))', display: 'flex', gap: 16, alignItems: 'center', padding: '16px 20px', borderRadius: 12, border: '1px solid #59b98a', background: '#173c2c', color: '#e8fff1', boxShadow: '0 8px 32px #0006' } }, h('span', null, '✓ ' + notice), h('button', { style: button, type: 'button', 'aria-label': 'Dismiss notification', onClick: () => setNotice('') }, '×')),
+    importPreview && h(ImportPreviewDialog, { preview: importPreview, onDismiss: () => setImportPreview(null), onUse: useImport }),
     connectionError && h('p', { role: 'status', style: box }, 'Connection to Outrider interrupted. Retrying automatically… ', h('button', { style: button, onClick: refresh }, 'Retry now'), h('details', null, h('summary', null, 'Details'), connectionError)),
     !data && !error && !connectionError && h('p', { role: 'status' }, 'Loading…'),
     data && view === 'setup' && h('form', { style: { ...box, maxWidth: 650 }, onSubmit: addRepository },
@@ -205,14 +232,7 @@ export default function Outrider() {
         h('p', { style: { opacity: .7 } }, 'Own-PR and other-PR behavior is preserved automatically, including triggers and workflows. Crew keeps its session settings.'),
         h('button', { style: button, type: 'button', disabled: busy || !cliConfig.trim(), onClick: previewImport }, busy ? 'Preparing preview…' : 'Preview import'),
         importError && h('p', { role: 'alert', style: { ...box, borderColor: '#c66' } }, importError),
-        importPreview && h('div', null,
-          h('h3', null, 'Import preview · ' + importPreview.repo),
-          h('p', null, `${importPreview.settings.workflows?.length || 0} base workflows; ${importPreview.settings.overrides?.length || 0} ownership overrides preserved. Review both in the YAML below.`),
-          ...importPreview.warnings.map((warning, index) => h('p', { key: index }, warning)),
-          importPreview.skipped.length > 0 && h('p', null, 'Removed from imported YAML (not applied): ' + importPreview.skipped.join(', ')),
-          importPreview.applied_overrides.length > 0 && h('p', null, 'Applied CLI overrides: ' + importPreview.applied_overrides.join('; ')),
-          h('pre', { style: { whiteSpace: 'pre-wrap', overflowWrap: 'anywhere' } }, importPreview.yaml),
-          h('button', { style: button, type: 'button', disabled: busy || importPreview.repo !== selectedRepo, onClick: useImport }, 'Use import draft'))),
+      ),
       h('details', { style: box }, h('summary', { style: { cursor: 'pointer' } }, 'Set up with AI'),
         h('p', null, 'Describe what you want to watch. Crew drafts settings for you to review before saving.'),
         h('label', null, 'What should Outrider do?', h('textarea', { style: input, rows: 3, maxLength: 6000, value: intent, placeholder: 'Review dependency updates when CI passes; ignore bot comments.', onChange: e => setIntent(e.target.value) })),
@@ -243,7 +263,7 @@ export default function Outrider() {
         )),
         h('button', { style: button, type: 'button', onClick: () => editOptions(current => ({ ...current, workflows: [...(current.workflows || []), { name: 'review-' + ((current.workflows || []).length + 1), match: [{}], on: 'activity', steps: ['Inspect the changed code for correctness.', 'Summarize findings and remaining uncertainties.'] }] })) }, 'Add workflow'),
 
-        h('p', { style: { opacity: .7 } }, 'Workflows review captured snapshots. Steps requiring tools are reported as blocked. Crew owns session settings.')
+        h('p', { style: { opacity: .7 } }, 'Snapshot reviews use captured context. Local validation can run workflow steps with Crew’s tools and permissions.')
       ),
       h('details', { style: box }, h('summary', { style: { cursor: 'pointer' } }, 'Polling settings · all repositories'), h('label', null, 'Poll interval in seconds', h('input', { style: { ...input, maxWidth: 180 }, type: 'number', min: 30, max: 3600, value: interval, onChange: e => setIntervalValue(e.target.value) }))),
       h('button', { style: button, type: 'submit', disabled: busy }, busy ? 'Saving…' : 'Save settings')),

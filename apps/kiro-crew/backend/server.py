@@ -220,8 +220,12 @@ class Inbox:
         self.save_runs()
         self.scan_requested = False
         self.scanning = False
-        self.last_scan = None
-        self.error = ""
+        self.scan_started = None
+        self.next_scan = None
+        scan_state = read_json(self.data / 'scan-status.json', {})
+        self.last_scan = scan_state.get('last_scan')
+        self.error = scan_state.get('error', '')
+        self.scan_partial = scan_state.get('partial', False)
 
     def save_runs(self):
         atomic_json(self.data / "runs.json", self.runs)
@@ -250,9 +254,9 @@ class Inbox:
                 if not any(r['name'] == remote and r['repo'].lower() == repo.lower() for r in context['remotes']):
                     raise ValueError('Validation remote must point to the watched repository')
         with self.lock:
-            self.config = {"validation_remotes": {r: remotes[r] for r in repos if r in remotes},"repos": sorted(set(repos)), "interval": interval, "folders": {r: folders[r] for r in repos if folders.get(r)}, "repo_settings": {r: options[r] for r in repos if r in options}}
+            self.config = {"paused": self.config.get("paused", False), "validation_remotes": {r: remotes[r] for r in repos if r in remotes},"repos": sorted(set(repos)), "interval": interval, "folders": {r: folders[r] for r in repos if folders.get(r)}, "repo_settings": {r: options[r] for r in repos if r in options}}
             atomic_json(self.data / "settings.json", self.config)
-            self.scan_requested = bool(repos)
+            self.scan_requested = bool(repos) and not self.config.get("paused", False)
         self.wake.set()
 
     def generate_setup(self, body):
@@ -483,7 +487,7 @@ class Inbox:
         with self.lock:
             items = [{k: v for k, v in item.items() if k != "prompt"} | {"validation": self.validations.get(item["id"]), "run": self.runs.get(item["id"], {"status": "pending"})} for item in self.items()]
             items.sort(key=lambda x: x["created"], reverse=True)
-            return {"config": self.config, "items": items, "scanning": self.scanning, "last_scan": self.last_scan, "error": self.error}
+            return {"config": self.config, "items": items, "scanning": self.scanning, "last_scan": self.last_scan, "error": self.error, "scan_partial": self.scan_partial, "scan_started": self.scan_started, "scan_requested": self.scan_requested, "next_scan": self.next_scan}
 
     def item(self, item_id):
         if not ID.fullmatch(item_id):
@@ -520,6 +524,8 @@ class Inbox:
             repos = list(self.config["repos"])
             settings = scan_config(self.config)
             self.scanning = True
+            self.scan_started = time.time()
+            self.error = ""
         try:
             if not repos:
                 return
@@ -531,11 +537,25 @@ class Inbox:
             result = self.runner(args, cwd=self.data, env=scanner_environment(), capture_output=True, text=True, timeout=180, check=False)
             if result.returncode:
                 raise RuntimeError("Scan failed: " + result.stderr[-3000:])
+            outcome = json.loads(getattr(result, 'stdout', '') or '{}')
             with self.lock:
-                self.last_scan, self.error = time.time(), ""
+                self.scan_partial = outcome.get('complete') is False
+                if not self.scan_partial:
+                    self.last_scan = time.time()
+                self.error = ""
+        except subprocess.TimeoutExpired:
+            with self.lock:
+                self.error = 'Scan timed out after 3 minutes. Check GitHub connectivity and try again.'
+            raise RuntimeError(self.error) from None
+        except Exception as error:
+            with self.lock:
+                self.error = str(error)
+            raise
         finally:
             with self.lock:
                 self.scanning = False
+                self.scan_started = None
+                atomic_json(self.data / 'scan-status.json', {'last_scan': self.last_scan, 'error': self.error, 'partial': self.scan_partial})
 
     def update_reviews(self):
         with self.lock:
@@ -581,18 +601,29 @@ class Inbox:
                     current["error"] = str(error)
                     self.save_runs()
 
+    def set_paused(self, paused):
+        if type(paused) is not bool:
+            raise ValueError('paused must be true or false')
+        with self.lock:
+            self.config['paused'] = paused
+            self.scan_requested = not paused and bool(self.config['repos'])
+            atomic_json(self.data / 'settings.json', self.config)
+        self.wake.set()
+
+    def scan_due(self):
+        return bool(self.config['repos']) and (self.scan_requested or (not self.config.get('paused') and (self.next_scan is None or time.time() >= self.next_scan)))
+
     def work(self):
-        next_scan = 0.0
         while not self.stop.is_set():
             try:
                 with self.lock:
-                    scan = bool(self.config["repos"]) and (self.scan_requested or time.monotonic() >= next_scan)
+                    scan = self.scan_due()
                     self.scan_requested = False
                 if scan:
                     try:
                         self.scan()
                     finally:
-                        next_scan = time.monotonic() + self.config["interval"]
+                        self.next_scan = time.time() + self.config["interval"]
                 self.update_reviews()
             except Exception as error:
                 with self.lock:
@@ -686,6 +717,8 @@ class Handler(BaseHTTPRequestHandler):
                 inbox.request_validation(payload['id'])
             elif self.path == "/api/config":
                 inbox.configure(payload)
+            elif self.path == '/api/polling':
+                inbox.set_paused(payload.get('paused'))
             elif self.path == "/api/scan":
                 with inbox.lock:
                     inbox.scan_requested = True
