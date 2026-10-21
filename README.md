@@ -1,6 +1,4 @@
-# outrider
-
-*Rides ahead of your review queue.*
+![Outrider — Rides ahead of your review queue.](docs/brand/banner.png)
 
 [![CI](https://github.com/appetizers-io/outrider/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/appetizers-io/outrider/actions/workflows/ci.yml)
 [![Release](https://img.shields.io/github/v/release/appetizers-io/outrider)](https://github.com/appetizers-io/outrider/releases/latest)

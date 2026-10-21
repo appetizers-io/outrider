@@ -209,7 +209,9 @@ snapshot reviewer nor the setup assistant imports MCP tools. The manifest uses
 Crew's Python interpreter resolution and installed app-directory lookup so it
 works independently of the GUI PATH.
 
-The app ships a vector logo at `ui/logo.svg`, used in its header and sidebar.
+The app uses the official Outrider logo at `ui/logo.svg` in its header and sidebar.
+The original logo and README banner are stored in `docs/brand/` at the repository
+root. Keep the packaged `ui/logo.svg` copy identical to `docs/brand/logo.svg`.
 
 ### Reactions and CLI migration
 
