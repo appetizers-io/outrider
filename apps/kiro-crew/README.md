@@ -360,3 +360,8 @@ available in the footer of every view.
 
 Queue entries include **Open Crew session** once a local validation chat exists.
 The link targets that exact chat and remains available in history after completion.
+
+Closed/deleted unfinished chats become **stopped**, release capacity, and offer
+**Retry session** or **Dismiss**. Retry is explicit, uses a new chat/worktree, and
+retains the previous attempt. Completed work remains in history. Connection and
+permission failures keep capacity reserved until the session can be reconciled.

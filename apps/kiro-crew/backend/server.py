@@ -426,12 +426,16 @@ class Inbox:
             raise ValueError('Git could not prepare the checkout (' + args[0] + '). Check the folder, remote and Git authentication.')
         return result.stdout.strip()
 
-    def request_validation(self, item_id):
+    def request_validation(self, item_id, retry=False):
         with self.lock:
             item = self.item(item_id)
             if item_id in self.dismissed:
                 raise ValueError('This queued item was dismissed')
-            if item_id in self.validations and not (self.validations[item_id]['status'] == 'failed' and not self.validations[item_id].get('worktree')):
+            prior = self.validations.get(item_id, {})
+            if type(retry) is not bool:
+                raise ValueError('retry must be true or false')
+            retry_stopped = retry and prior.get('status') == 'stopped'
+            if prior and not retry_stopped and not (prior['status'] == 'failed' and not prior.get('worktree')):
                 raise ValueError('Local validation already requested. Open its Crew chat; it is never automatically redispatched.')
             if self.active_sessions() >= self.config.get('max_sessions', 1):
                 raise ValueError('Maximum active sessions reached')
@@ -442,7 +446,8 @@ class Inbox:
             if not folder or not remote:
                 raise ValueError('Configure a Crew folder and validation remote for this repository first')
             options = self.config.get('repo_settings', {}).get(item['repo'], {})
-            self.validations[item_id] = {'status': 'preparing', 'folder_id': folder, 'remote': remote, 'repo': item['repo'], 'pr': item['pr']}
+            history = prior.get('history', []) + ([{k: v for k, v in prior.items() if k != 'history'}] if prior else [])
+            self.validations[item_id] = {'status': 'preparing', 'folder_id': folder, 'remote': remote, 'repo': item['repo'], 'pr': item['pr'], 'history': history, 'attempt': prior.get('attempt', 1) + 1 if prior else 1}
             atomic_json(self.data / 'validations.json', self.validations)
         threading.Thread(target=self.validate_local, args=(item, folder, remote, options), daemon=True).start()
 
@@ -490,13 +495,14 @@ class Inbox:
                     break
             if not primary:
                 raise ValueError('Cannot locate the primary checkout')
-            worktree = Path(primary) / '.claude/worktrees' / ('outrider-' + item['id'][:24])
+            suffix = item['id'][:24] + (('-retry-' + str(record['attempt'])) if record.get('attempt', 1) > 1 else '')
+            worktree = Path(primary) / '.claude/worktrees' / ('outrider-' + suffix)
             worktree.parent.mkdir(parents=True, exist_ok=True)
             self.git(root, 'worktree', 'add', '--detach', str(worktree), item['head'])
             save(worktree=str(worktree))
             # Persist ambiguity BEFORE any chat creation/send; never replay on restart.
             save(status='dispatching')
-            creation = {'name': 'outrider-local-' + item['id'][:24], 'folder_id': folder, 'title': (item['repo'].split('/')[-1] + '#' + str(item['pr']) + ' · ' + item.get('title', 'PR review'))[:200]}
+            creation = {'name': 'outrider-local-' + suffix, 'folder_id': folder, 'title': (item['repo'].split('/')[-1] + '#' + str(item['pr']) + ' · ' + item.get('title', 'PR review'))[:200]}
             reviewer = self.config.get('reviewers', {}).get(item['repo'], self.config.get('reviewer_default', ''))
             if reviewer:
                 creation.update(agent=reviewer, agent_kind='member')
@@ -738,7 +744,7 @@ class Inbox:
 
     def track_validations(self):
         with self.lock:
-            rows = [(key, dict(v)) for key, v in self.validations.items() if v['status'] == 'started']
+            rows = [(key, dict(v)) for key, v in self.validations.items() if v['status'] in {'started', 'uncertain'} and v.get('slot')]
         for key, record in rows:
             try:
                 detail = self.gateway.call('/api/chat/slots/' + quote(record['slot'], safe='') + '?limit=10')
@@ -746,19 +752,34 @@ class Inbox:
                     raise ValueError('Crew did not return session activity')
                 busy = detail['running'] or bool(detail['queue']) or detail.get('stopping')
                 responded = any(m.get('role') == 'assistant' for m in detail.get('messages', []))
-                if not busy and (record.get('observed_running') or responded) and time.time() - record.get('started_at', 0) > 10:
+                if not busy and record.get('observed_stopping'):
+                    self.validation_stopped(key, record, 'The Crew session was stopped before completion.')
+                elif not busy and (record.get('observed_running') or responded) and time.time() - record.get('started_at', 0) > 10:
                     with self.lock:
                         self.validations[key].update(status='completed', tracking_error='')
                         atomic_json(self.data / 'validations.json', self.validations)
                     self.log_event(f"Session finished: {record.get('repo', '')}#{record.get('pr', '')}")
                 elif busy:
                     with self.lock:
-                        self.validations[key].update(observed_running=True, tracking_error='')
+                        self.validations[key].update(observed_running=True, observed_stopping=bool(detail.get('stopping')), tracking_error='')
+                        atomic_json(self.data / 'validations.json', self.validations)
+            except GatewayRejected as error:
+                if error.status in {404, 410}:
+                    self.validation_stopped(key, record, 'The Crew session was closed or deleted before completion was confirmed.', missing=True)
+                else:
+                    with self.lock:
+                        self.validations[key]['tracking_error'] = 'Cannot confirm Crew session status; capacity stays reserved.'
                         atomic_json(self.data / 'validations.json', self.validations)
             except Exception:
                 # Unknown/approval states retain capacity: never oversubscribe after losing contact.
                 with self.lock:
                     self.validations[key]['tracking_error'] = 'Cannot confirm Crew session status; capacity stays reserved.'
+
+    def validation_stopped(self, key, record, reason, missing=False):
+        with self.lock:
+            self.validations[key].update(status='stopped', error=reason, tracking_error='', session_missing=missing)
+            atomic_json(self.data / 'validations.json', self.validations)
+        self.log_event(f"Session stopped: {record.get('repo', '')}#{record.get('pr', '')} — {reason}", 'warning')
 
     def dispatch_automatic(self):
         with self.lock:
@@ -911,7 +932,7 @@ class Handler(BaseHTTPRequestHandler):
             elif self.path == '/api/validate':
                 if not isinstance(payload.get('id'), str):
                     raise ValueError('Review ID required')
-                inbox.request_validation(payload['id'])
+                inbox.request_validation(payload['id'], retry=payload.get('retry', False))
             elif self.path == "/api/config":
                 inbox.configure(payload)
             elif self.path == '/api/polling':

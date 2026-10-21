@@ -378,6 +378,50 @@ class InboxTest(unittest.TestCase):
         self.assertEqual(self.inbox.active_sessions(), 0)
         self.assertEqual(self.inbox.validations[self.item_id]['status'], 'completed')
 
+    def test_closed_session_releases_capacity_without_automatic_replay(self):
+        self.enable_automatic()
+        for status in (404, 410):
+            self.inbox.validations[self.item_id] = {'status': 'started', 'slot': 'closed', 'repo': 'o/r', 'pr': 1, 'worktree': '/retained'}
+            def missing(*args):
+                raise backend.GatewayRejected(status)
+            self.gateway.call = missing
+            self.inbox.track_validations()
+            self.assertEqual(self.inbox.active_sessions(), 0)
+            self.assertEqual(self.inbox.validations[self.item_id]['status'], 'stopped')
+            self.assertTrue(self.inbox.validations[self.item_id]['session_missing'])
+            with patch.object(self.inbox, 'request_validation') as launch:
+                self.inbox.dispatch_automatic()
+                launch.assert_not_called()
+            restarted = backend.Inbox(self.data, self.gateway, self.agent)
+            self.assertEqual(restarted.validations[self.item_id]['status'], 'stopped')
+
+    def test_unreachable_session_retains_capacity(self):
+        for error in (backend.GatewayRejected(403), backend.GatewayRejected(500), TimeoutError()):
+            self.inbox.validations[self.item_id] = {'status': 'started', 'slot': 's'}
+            with patch.object(self.gateway, 'call', side_effect=error):
+                self.inbox.track_validations()
+            self.assertEqual(self.inbox.active_sessions(), 1)
+            self.assertEqual(self.inbox.validations[self.item_id]['status'], 'started')
+
+    def test_stopped_session_retry_is_explicit_and_retains_history(self):
+        self.enable_automatic()
+        self.inbox.validations[self.item_id] = {'status': 'stopped', 'slot': 'old', 'worktree': '/retained', 'attempt': 1}
+        with self.assertRaises(ValueError):
+            self.inbox.request_validation(self.item_id)
+        with patch.object(backend.threading, 'Thread'):
+            self.inbox.request_validation(self.item_id, retry=True)
+        record = self.inbox.validations[self.item_id]
+        self.assertEqual(record['attempt'], 2)
+        self.assertEqual(record['history'][0]['slot'], 'old')
+        self.assertEqual(record['history'][0]['worktree'], '/retained')
+
+    def test_completed_session_remains_completed_when_closed_later(self):
+        self.inbox.validations[self.item_id] = {'status': 'completed', 'slot': 'old'}
+        with patch.object(self.gateway, 'call') as call:
+            self.inbox.track_validations()
+            call.assert_not_called()
+        self.assertEqual(self.inbox.validations[self.item_id]['status'], 'completed')
+
     def test_latest_item_per_pr_wins_automatic_dispatch(self):
         self.enable_automatic()
         newer = self.inbox.item(self.item_id) | {'id': 'b' * 64, 'created': '2026-02-01T00:00:00Z'}
@@ -559,6 +603,16 @@ class LocalValidationTest(unittest.TestCase):
         send_index = next(i for i, (path, payload) in enumerate(self.calls) if path == '/api/chat?ws=1')
         self.assertLess(mode_index, send_index)
         self.assertEqual(self.calls[mode_index][1]['mode'], 'trust_reads')
+
+    def test_retry_uses_new_chat_and_worktree(self):
+        self.inbox.validations[self.item['id']]['attempt'] = 2
+        self.item['workflow'] = ''
+        self.inbox.validate_local(self.item, 'child', 'upstream', {})
+        record = self.inbox.validations[self.item['id']]
+        self.assertEqual(record['status'], 'started')
+        self.assertTrue(record['worktree'].endswith('-retry-2'))
+        create = next(payload for path, payload in self.calls if path == '/api/chat/slots')
+        self.assertTrue(create['name'].endswith('-retry-2'))
 
     def test_wrong_remote_never_creates_worktree_or_chat(self):
         self.inbox.validate_local(self.item, 'child', 'origin', {})
