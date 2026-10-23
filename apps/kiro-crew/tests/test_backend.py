@@ -2,6 +2,7 @@ import hashlib
 import hmac
 import importlib.util
 import json
+import os
 from pathlib import Path
 import tempfile
 import threading
@@ -757,7 +758,7 @@ class LocalValidationTest(unittest.TestCase):
                 return {'key': 'outrider-local-test'}
             return {'ok': True}
         self.gateway.call = gateway
-        def git(cwd, *args):
+        def git(cwd, *args, **kwargs):
             if args == ('rev-parse', '--show-toplevel'): return str(self.root)
             if args == ('remote',): return 'origin\nupstream'
             if args[:2] == ('remote', 'get-url'): return 'git@github.com:' + ('me/fork' if args[2] == 'origin' else 'o/r') + '.git'
@@ -816,10 +817,25 @@ class LocalValidationTest(unittest.TestCase):
 
     def test_moved_head_never_dispatches(self):
         original = self.git.side_effect
-        self.git.side_effect = lambda cwd, *args: 'c' * 40 if args == ('rev-parse', 'refs/outrider/' + self.item['id']) else original(cwd, *args)
+        self.git.side_effect = lambda cwd, *args, **kwargs: 'c' * 40 if args == ('rev-parse', 'refs/outrider/' + self.item['id']) else original(cwd, *args, **kwargs)
         self.inbox.validate_local(self.item, 'child', 'upstream', {})
         self.assertEqual(self.inbox.validations[self.item['id']]['status'], 'failed')
         self.assertFalse(any(path == '/api/chat/slots' for path, _ in self.calls))
+
+    def test_pr_ref_is_fetched_over_github_https_even_for_ssh_remotes(self):
+        original = self.git.side_effect
+        for remote in ['git@github.com:o/r.git', 'ssh://git@github.com/o/r.git']:
+            with self.subTest(remote=remote):
+                self.git.reset_mock()
+                self.inbox.validations[self.item['id']] = {'status': 'preparing'}
+                self.git.side_effect = lambda cwd, *args, **kwargs: remote if args == ('remote', 'get-url', 'upstream') else original(cwd, *args, **kwargs)
+                self.inbox.validate_local(self.item, 'child', 'upstream', {})
+                self.assertEqual(self.inbox.validations[self.item['id']]['status'], 'started')
+                fetches = [c for c in self.git.call_args_list if c.args[1:2] == ('fetch',)]
+                self.assertEqual(len(fetches), 1)
+                self.assertEqual(fetches[0].args[-2:], ('https://github.com/o/r.git', 'refs/pull/2/head:refs/outrider/' + self.item['id']))
+                self.assertIs(fetches[0].kwargs.get('github'), True)
+                self.assertFalse([c for c in self.git.call_args_list if any(a in (remote, 'upstream') for a in c.args) and 'get-url' not in c.args])
 
     def test_ambiguous_send_survives_restart_without_retry(self):
         original = self.gateway.call
@@ -843,7 +859,7 @@ class LocalValidationTest(unittest.TestCase):
         source = backend.ROOT.parents[1]
         checkout = self.root / 'fork'
         backend.subprocess.run(['git', 'clone', '--shared', str(source), str(checkout)], check=True, capture_output=True)
-        real_git = lambda cwd, *args: backend.Inbox.git(self.inbox, cwd, *args)
+        real_git = lambda cwd, *args, **kwargs: backend.Inbox.git(self.inbox, cwd, *args, **kwargs)
         if detached:
             real_git(checkout, 'switch', '--detach')
         else:
@@ -856,11 +872,11 @@ class LocalValidationTest(unittest.TestCase):
         branch = real_git(checkout, 'rev-parse', '--abbrev-ref', 'HEAD')
         old_root = self.root
         self.root = checkout
-        def git(cwd, *args):
+        def git(cwd, *args, **kwargs):
             if args[0] == 'fetch':
-                # Exercise real fetch/worktree commands with local transport, no GitHub writes.
-                return real_git(cwd, 'fetch', '--no-tags', str(source), self.item['head'] + ':refs/outrider/' + self.item['id'])
-            return real_git(cwd, *args)
+                # Exercise real fetch/worktree commands with local transport, no GitHub access.
+                return real_git(cwd, 'fetch', '--no-tags', str(source), self.item['head'] + ':refs/outrider/' + self.item['id'], **kwargs)
+            return real_git(cwd, *args, **kwargs)
         self.git.side_effect = git
         try:
             self.inbox.validate_local(self.item, 'child', 'upstream', {'workflows': [{'name': 'test', 'steps': ['Inspect code']}]})
@@ -876,6 +892,80 @@ class LocalValidationTest(unittest.TestCase):
             real_git(checkout, 'worktree', 'remove', record['worktree'])
         finally:
             self.root = old_root
+
+    def plain_git(self, *args):
+        # Fixture setup only: isolated from the developer's Git config (signing, hooks, rewrites).
+        env = {k: v for k, v in os.environ.items() if k not in ('GH_TOKEN', 'GITHUB_TOKEN')}
+        return backend.subprocess.run(['git', *args], env=dict(env, GIT_CONFIG_GLOBAL=os.devnull, GIT_CONFIG_NOSYSTEM='1'), check=True, capture_output=True, text=True).stdout.strip()
+
+    def test_github_fetch_ignores_global_and_system_url_rewrites(self):
+        source, target, home = self.root / 'source', self.root / 'target', self.root / 'home'
+        home.mkdir()
+        self.plain_git('init', '-q', str(source))
+        self.plain_git('-C', str(source), '-c', 'user.name=t', '-c', 'user.email=t@example.invalid', 'commit', '-q', '--allow-empty', '-m', 'fixture')
+        self.plain_git('init', '-q', str(target))
+        head = self.plain_git('-C', str(source), 'rev-parse', 'HEAD')
+        # Stands in for `url.git@github.com:.insteadOf https://github.com/`: rewrite the fetch URL somewhere unreachable.
+        rewrite = self.root / 'rewrite.gitconfig'
+        # Forward slashes: Git config treats backslashes as escapes, and insteadOf matches the URL string as given.
+        rewrite.write_text('[url "%s"]\n\tinsteadOf = %s\n' % ((self.root / 'nowhere').as_posix(), source.as_posix()))
+        fetch = ('fetch', '--no-tags', source.as_posix(), 'HEAD:refs/outrider/' + self.item['id'])
+        for scope, env in [('global', {'GIT_CONFIG_GLOBAL': str(rewrite)}), ('system', {'GIT_CONFIG_GLOBAL': os.devnull, 'GIT_CONFIG_SYSTEM': str(rewrite)})]:
+            with self.subTest(scope=scope), patch.dict(os.environ, dict(env, HOME=str(home))):
+                for name in ('GIT_CONFIG_NOSYSTEM', 'GH_TOKEN', 'GITHUB_TOKEN'):
+                    os.environ.pop(name, None)
+                with self.assertRaisesRegex(ValueError, 'Could not read from remote repository'):
+                    backend.Inbox.git(self.inbox, target, *fetch)
+                backend.Inbox.git(self.inbox, target, *fetch, github=True)
+                self.assertEqual(self.plain_git('-C', str(target), 'rev-parse', 'refs/outrider/' + self.item['id']), head)
+                self.plain_git('-C', str(target), 'update-ref', '-d', 'refs/outrider/' + self.item['id'])
+
+    def test_git_never_prompts_and_uses_gh_credentials_only_for_github(self):
+        result = type('Result', (), {'returncode': 0, 'stdout': '', 'stderr': ''})()
+        fetch = ('fetch', 'https://github.com/o/r.git', 'refs/pull/2/head:refs/outrider/x')
+        for gh, github, helper in [('/opt/bin/gh', True, True), (None, True, False), ('/opt/bin/gh', False, False)]:
+            with self.subTest(gh=gh, github=github), patch.object(backend.subprocess, 'run', return_value=result) as run, \
+                    patch.object(backend.shutil, 'which', return_value=gh), patch.dict(os.environ, GIT_TERMINAL_PROMPT='1'):
+                backend.Inbox.git(self.inbox, self.root, *fetch, github=github)
+                command, env = list(run.call_args.args[0]), run.call_args.kwargs['env']
+                self.assertEqual(env['GIT_TERMINAL_PROMPT'], '0')
+                self.assertEqual(command[-3:], list(fetch))
+                helpers = [value for flag, value in zip(command, command[1:]) if flag == '-c' and value.startswith('credential')]
+                if helper:
+                    self.assertEqual(len(helpers), 1, command)
+                    self.assertRegex(helpers[0], r'^credential\.(https://github\.com\.)?helper=!\S*/opt/bin/gh\S* auth git-credential$')
+                else:
+                    self.assertEqual(helpers, [], command)
+
+    def test_git_failure_reports_redacted_stderr_tail(self):
+        tokens = ['ghp_' + 'A' * 36, 'gho_' + 'B' * 36, 'github_pat_' + 'C' * 22 + '_' + 'D' * 59, 'ghs_' + 'E' * 36]
+        for stderr, kept, hidden in [
+            ("fatal: unable to access 'https://alice:s3cret@github.com/o/r.git/': The requested URL returned error: 403", 'returned error: 403', ['alice', 's3cret']),
+            ("fatal: unable to access 'https://x-access-token:%s@github.com/o/r.git/': 401" % tokens[3], '401', [tokens[3], 'x-access-token']),
+            ('remote: Invalid credentials ' + ' '.join(tokens), 'Invalid credentials', tokens),
+            ('noise\n' * 1000 + 'fatal: final reason', 'fatal: final reason', []),
+        ]:
+            with self.subTest(kept=kept):
+                detail = backend.git_detail(stderr)
+                self.assertIn(kept, detail)
+                self.assertLess(len(detail), 1000)
+                for secret in hidden:
+                    self.assertNotIn(secret, detail)
+        target = self.root / 'target'
+        self.plain_git('init', '-q', str(target))
+        with patch.dict(os.environ, GIT_CONFIG_GLOBAL=os.devnull, GIT_CONFIG_NOSYSTEM='1'):
+            for name in ('GH_TOKEN', 'GITHUB_TOKEN'):
+                os.environ.pop(name, None)
+            with self.assertRaises(ValueError) as caught:
+                backend.Inbox.git(self.inbox, target, 'fetch', '--no-tags', str(self.root / 'missing'), 'HEAD:refs/x', github=True)
+            self.assertTrue(str(caught.exception).startswith('Git could not prepare the checkout (fetch)'), caught.exception)
+            self.assertIn('Could not read from remote repository', str(caught.exception))
+            # Git echoes the directory it could not enter; a token in that path must not reach the UI.
+            with self.assertRaises(ValueError) as caught:
+                backend.Inbox.git(self.inbox, self.root / tokens[0] / 'checkout', 'status')
+            self.assertTrue(str(caught.exception).startswith('Git could not prepare the checkout (status)'), caught.exception)
+            self.assertIn('cannot change to', str(caught.exception))
+            self.assertNotIn(tokens[0], str(caught.exception))
 
     def test_session_prompt_passes_settings_and_legacy_scope(self):
         self.prompt_patch.stop()
