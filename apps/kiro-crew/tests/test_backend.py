@@ -907,8 +907,9 @@ class LocalValidationTest(unittest.TestCase):
         head = self.plain_git('-C', str(source), 'rev-parse', 'HEAD')
         # Stands in for `url.git@github.com:.insteadOf https://github.com/`: rewrite the fetch URL somewhere unreachable.
         rewrite = self.root / 'rewrite.gitconfig'
-        rewrite.write_text('[url "%s"]\n\tinsteadOf = %s\n' % (self.root / 'nowhere', source))
-        fetch = ('fetch', '--no-tags', str(source), 'HEAD:refs/outrider/' + self.item['id'])
+        # Forward slashes: Git config treats backslashes as escapes, and insteadOf matches the URL string as given.
+        rewrite.write_text('[url "%s"]\n\tinsteadOf = %s\n' % ((self.root / 'nowhere').as_posix(), source.as_posix()))
+        fetch = ('fetch', '--no-tags', source.as_posix(), 'HEAD:refs/outrider/' + self.item['id'])
         for scope, env in [('global', {'GIT_CONFIG_GLOBAL': str(rewrite)}), ('system', {'GIT_CONFIG_GLOBAL': os.devnull, 'GIT_CONFIG_SYSTEM': str(rewrite)})]:
             with self.subTest(scope=scope), patch.dict(os.environ, dict(env, HOME=str(home))):
                 for name in ('GIT_CONFIG_NOSYSTEM', 'GH_TOKEN', 'GITHUB_TOKEN'):
