@@ -10,6 +10,7 @@ from pathlib import Path
 import re
 import shutil
 import secrets
+import shlex
 import subprocess
 import tempfile
 import threading
@@ -51,6 +52,14 @@ def normalize_repo(value):
     if not REPO.fullmatch(value) or any(p in {".", ".."} for p in value.split("/")):
         raise ValueError("Enter repositories as owner/repo or GitHub repository URLs")
     return value
+
+
+def git_detail(stderr):
+    """The last lines of Git's stderr, with URL credentials and GitHub tokens removed."""
+    lines = [line.strip() for line in (stderr or "").splitlines() if line.strip()][-5:]
+    text = re.sub(r"(?i)\b([a-z][a-z0-9+.-]*://)[^/\s]+@", r"\1", " ".join(lines))
+    text = re.sub(r"\b(gh[pousr]_|github_pat_)[A-Za-z0-9_]+", r"\1***", text)
+    return text[-400:] or "no error output"
 
 
 # Resolve sibling imports when loaded by Crew or importlib-based tests.
@@ -515,10 +524,19 @@ class Inbox:
                 remotes.append({'name': name, 'repo': normalize_repo(match[1]), 'url': url})
         return {'folder_id': folder_id, 'checkout': root, 'remotes': remotes}
 
-    def git(self, cwd, *args):
-        result = subprocess.run(['git', '-c', 'core.hooksPath=' + os.devnull, '-C', str(cwd), *args], env=scanner_environment(), capture_output=True, text=True, encoding='utf-8', timeout=120, check=False)
+    def git(self, cwd, *args, github=False):
+        env = scanner_environment()
+        env['GIT_TERMINAL_PROMPT'] = '0'
+        command = ['git', '-c', 'core.hooksPath=' + os.devnull]
+        if github:
+            # Skip user and system config so no insteadOf rewrite routes this back to SSH; authenticate via gh only.
+            env.update(GIT_CONFIG_GLOBAL=os.devnull, GIT_CONFIG_NOSYSTEM='1')
+            gh = shutil.which('gh', path=env['PATH'])
+            if gh:
+                command += ['-c', 'credential.helper=!' + shlex.quote(gh) + ' auth git-credential']
+        result = subprocess.run([*command, '-C', str(cwd), *args], env=env, capture_output=True, text=True, encoding='utf-8', timeout=120, check=False)
         if result.returncode:
-            raise ValueError('Git could not prepare the checkout (' + args[0] + '). Check the folder, remote and Git authentication.')
+            raise ValueError('Git could not prepare the checkout (' + args[0] + '): ' + git_detail(result.stderr).rstrip('.') + '. Check the folder, remote and Git authentication.')
         return result.stdout.strip()
 
     def request_validation(self, item_id, retry=False):
@@ -571,11 +589,11 @@ class Inbox:
                 raise ValueError('The selected remote no longer points to the watched repository. Recheck repository settings.')
             if not re.fullmatch(r'[0-9a-f]{40,64}', item['head']) or type(item['pr']) is not int or item['pr'] <= 0:
                 raise ValueError('Invalid PR commit identity')
-            remote_url = next(r['url'] for r in context['remotes'] if r['name'] == remote)
-            # Fetch the validated URL directly; preserve SSH versus HTTPS authentication.
+            repo = next(r['repo'] for r in context['remotes'] if r['name'] == remote)
+            # Fetch over HTTPS with gh credentials: a long-running backend can't answer SSH agent approval prompts.
             root = context['checkout']
             fetch_ref = 'refs/outrider/' + item['id']
-            self.git(root, 'fetch', '--no-tags', '--no-recurse-submodules', remote_url, 'refs/pull/' + str(item['pr']) + '/head:' + fetch_ref)
+            self.git(root, 'fetch', '--no-tags', '--no-recurse-submodules', 'https://github.com/' + repo + '.git', 'refs/pull/' + str(item['pr']) + '/head:' + fetch_ref, github=True)
             fetched = self.git(root, 'rev-parse', fetch_ref)
             if fetched != item['head']:
                 raise ValueError('The PR head changed since this snapshot. Scan again and validate the new snapshot.')
