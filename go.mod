@@ -6,7 +6,7 @@ require (
 	github.com/cenkalti/backoff/v7 v7.0.1
 	github.com/chainguard-dev/git-urls v1.0.2
 	github.com/dlclark/regexp2/v2 v2.9.1
-	github.com/gobwas/glob v1.0.0
+	github.com/gobwas/glob v1.1.0
 	github.com/invopop/jsonschema v0.14.0
 	github.com/kballard/go-shellquote v0.0.0-20180428030007-95032a82bc51
 	github.com/modelcontextprotocol/go-sdk v1.8.0
