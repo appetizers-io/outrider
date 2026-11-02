@@ -16,14 +16,23 @@ func TestJevEnvKeepsOnlyWhatJevNeeds(t *testing.T) {
 		"OPENROUTER_API_KEY=backend", "JEV_MODEL=small", "TYPESAFE_PROJECT=p",
 		"GH_TOKEN=secret", "GITHUB_TOKEN=secret", "AWS_SECRET_ACCESS_KEY=secret",
 		"KIROCREW_PROXY_SECRET=secret", "OUTRIDER_BIN=/usr/local/bin/outrider", "malformed",
-	})
+	}, false)
 	require.ElementsMatch(t, []string{
 		"PATH=/usr/bin", "HOME=/home/me", "LANG=C.UTF-8", "HTTPS_PROXY=http://proxy:3128",
 		"OPENROUTER_API_KEY=backend", "JEV_MODEL=small", "TYPESAFE_PROJECT=p",
 	}, env)
 	// An empty result must still replace the environment rather than inherit it.
-	require.NotNil(t, jevEnv([]string{"GH_TOKEN=secret"}))
-	require.Empty(t, jevEnv([]string{"GH_TOKEN=secret"}))
+	require.NotNil(t, jevEnv([]string{"GH_TOKEN=secret"}, false))
+	require.Empty(t, jevEnv([]string{"GH_TOKEN=secret"}, false))
+}
+
+func TestJevEnvFollowsWindowsVariableNaming(t *testing.T) {
+	// Windows hands over "Path" and treats names as case-insensitive; without
+	// its PATH the child cannot start, and a failed check launches anyway.
+	windows := []string{"Path=C:\\bin", "SystemRoot=C:\\Windows", "openrouter_api_key=backend", "jev_model=small", "GH_TOKEN=secret"}
+	require.ElementsMatch(t, []string{"Path=C:\\bin", "SystemRoot=C:\\Windows", "openrouter_api_key=backend", "jev_model=small"}, jevEnv(windows, true))
+	// Elsewhere names are case-sensitive, so only the exact spelling passes.
+	require.ElementsMatch(t, []string{"SystemRoot=C:\\Windows"}, jevEnv(windows, false))
 }
 
 func TestLaunchCheckRunsJevWithoutUnrelatedSecrets(t *testing.T) {

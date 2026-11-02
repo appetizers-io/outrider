@@ -111,12 +111,14 @@ func crewPromptCmd(d watch.Deps) *cobra.Command {
 }
 
 // forkHead tells whether the PR's head is in another repository, so its
-// commits are outside the watched repository's access control. An unknown
-// head owner counts as a fork: the caller uses this to withhold trust.
+// commits are outside the watched repository's access control. Owner and name
+// must both match, and head repository data that GitHub does not report
+// counts as a fork: the caller uses this to withhold trust.
 func forkHead(repo string, pr github.PR) bool {
-	owner, _, found := strings.Cut(repo, "/")
-	if !found || pr.HeadRepositoryOwner == nil || pr.HeadRepositoryOwner.Login == "" {
+	owner, name, found := strings.Cut(repo, "/")
+	if !found || pr.HeadRepositoryOwner == nil || pr.HeadRepositoryOwner.Login == "" ||
+		pr.HeadRepository == nil || pr.HeadRepository.Name == "" {
 		return true
 	}
-	return !strings.EqualFold(owner, pr.HeadRepositoryOwner.Login)
+	return !strings.EqualFold(owner, pr.HeadRepositoryOwner.Login) || !strings.EqualFold(name, pr.HeadRepository.Name)
 }

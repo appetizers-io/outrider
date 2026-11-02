@@ -2,6 +2,7 @@ package classifier
 
 import (
 	"os"
+	"runtime"
 	"strings"
 
 	"github.com/appetizers-io/outrider/internal/config"
@@ -31,38 +32,42 @@ var (
 )
 
 // jevEnv is the environment for a Jev child, built from environ
-// ("KEY=value" entries, like os.Environ).
-func jevEnv(environ []string) []string {
+// ("KEY=value" entries, like os.Environ). Windows variable names are
+// case-insensitive, and that is how Windows hands them over ("Path"), so
+// ignoreCase decides how a name is matched.
+func jevEnv(environ []string, ignoreCase bool) []string {
+	fold := func(key string) string {
+		if ignoreCase {
+			return strings.ToUpper(key)
+		}
+		return key
+	}
 	allowed := make(map[string]bool, len(jevEnvKeys)+len(config.JevBackendEnv))
 	for _, key := range jevEnvKeys {
-		allowed[key] = true
+		allowed[fold(key)] = true
 	}
 	for _, key := range config.JevBackendEnv {
-		allowed[key] = true
+		allowed[fold(key)] = true
 	}
-	out := make([]string, 0, len(allowed))
+	out := []string{} // Empty, unlike nil, still means "this exact environment".
 	for _, entry := range environ {
 		key, _, ok := strings.Cut(entry, "=")
 		if !ok {
 			continue
 		}
-		if allowed[key] {
+		if allowed[fold(key)] {
 			out = append(out, entry)
 			continue
 		}
 		for _, prefix := range jevEnvPrefixes {
-			if strings.HasPrefix(key, prefix) {
+			if strings.HasPrefix(fold(key), fold(prefix)) {
 				out = append(out, entry)
 				break
 			}
 		}
 	}
-	// An empty slice, unlike nil, still means "this exact environment".
-	if out == nil {
-		return []string{}
-	}
 	return out
 }
 
 // JevEnv is jevEnv over this process's environment.
-func JevEnv() []string { return jevEnv(os.Environ()) }
+func JevEnv() []string { return jevEnv(os.Environ(), runtime.GOOS == "windows") }

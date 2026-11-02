@@ -36,7 +36,7 @@ MAX_POLL_FAILURES = 5
 # worktree. Directories match at any depth; files match by name.
 AGENT_CONFIG_DIRS = {".kiro", ".claude", ".cursor", ".codex", ".gemini", ".continue", ".aider"}
 AGENT_CONFIG_FILES = {"agents.md", "claude.md", "claude.local.md", "gemini.md", "codex.md", ".mcp.json", "copilot-instructions.md", ".windsurfrules", ".clinerules"}
-AGENT_CONFIG_PREFIXES = (".github/agents/", ".github/instructions/", ".vscode/mcp.json")
+AGENT_CONFIG_PREFIXES = (".github/agents", ".github/instructions", ".vscode/mcp.json")
 
 
 class GatewayRejected(RuntimeError):
@@ -65,13 +65,20 @@ def normalize_repo(value):
 
 
 def agent_config_path(name):
-    """Whether a repository path configures an agent instead of carrying code."""
-    parts = name.split("/")
-    if parts[-1].lower() in AGENT_CONFIG_FILES:
+    """Whether a repository path configures an agent instead of carrying code.
+
+    Every segment counts, including the last: a PR can add a symlink named
+    `.kiro` pointing at an ordinary directory, and Kiro CLI follows it.
+    Matching ignores case, because `.KIRO/settings/mcp.json` is the same file
+    on macOS and Windows.
+    """
+    lowered = name.lower()
+    parts = lowered.split("/")
+    if parts[-1] in AGENT_CONFIG_FILES:
         return True
-    if any(part in AGENT_CONFIG_DIRS for part in parts[:-1]):
+    if any(part in AGENT_CONFIG_DIRS for part in parts):
         return True
-    return any(name == prefix or name.startswith(prefix) for prefix in AGENT_CONFIG_PREFIXES)
+    return any(lowered == prefix or lowered.startswith(prefix + "/") for prefix in AGENT_CONFIG_PREFIXES)
 
 
 def git_detail(stderr):

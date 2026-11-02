@@ -23,7 +23,7 @@ func TestCrewSessionPromptUsesExplicitConfigAndVerifiedFork(t *testing.T) {
 				case args == "gh api user":
 					return proc.Result{Stdout: `{"login":"me"}`}, nil
 				case strings.HasPrefix(args, "gh pr view"):
-					return proc.Result{Stdout: `{"author":{"login":"` + author + `"},"title":"Repair API","baseRefName":"main","headRefName":"fix/api","headRepositoryOwner":{"login":"o"},"state":"OPEN"}`}, nil
+					return proc.Result{Stdout: `{"author":{"login":"` + author + `"},"title":"Repair API","baseRefName":"main","headRefName":"fix/api","headRepository":{"name":"r"},"headRepositoryOwner":{"login":"o"},"state":"OPEN"}`}, nil
 				case args == "gh api repos/me/fork":
 					return proc.Result{Stdout: `{"fork":true,"owner":{"login":"me"},"parent":{"full_name":"o/r"}}`}, nil
 				default:
@@ -78,17 +78,28 @@ func TestCrewSessionPromptUsesExplicitConfigAndVerifiedFork(t *testing.T) {
 }
 func TestForkHeadIsConservative(t *testing.T) {
 	owner := func(login string) *github.User { return &github.User{Login: login} }
+	head := func(login, name string) github.PR {
+		pr := github.PR{HeadRepositoryOwner: owner(login)}
+		if name != "" {
+			pr.HeadRepository = &struct {
+				Name string `json:"name"`
+			}{Name: name}
+		}
+		return pr
+	}
 	for _, tc := range []struct {
 		name string
 		repo string
 		pr   github.PR
 		fork bool
 	}{
-		{name: "same owner", repo: "o/r", pr: github.PR{HeadRepositoryOwner: owner("O")}, fork: false},
-		{name: "other owner", repo: "o/r", pr: github.PR{HeadRepositoryOwner: owner("someone")}, fork: true},
-		{name: "unknown owner", repo: "o/r", pr: github.PR{}, fork: true},
-		{name: "empty login", repo: "o/r", pr: github.PR{HeadRepositoryOwner: owner("")}, fork: true},
-		{name: "malformed repo", repo: "r", pr: github.PR{HeadRepositoryOwner: owner("r")}, fork: true},
+		{name: "same repository", repo: "o/r", pr: head("O", "R"), fork: false},
+		{name: "other owner", repo: "o/r", pr: head("someone", "r"), fork: true},
+		{name: "same owner, other repository", repo: "o/r", pr: head("o", "r-fork"), fork: true},
+		{name: "unknown head", repo: "o/r", pr: github.PR{}, fork: true},
+		{name: "empty login", repo: "o/r", pr: head("", "r"), fork: true},
+		{name: "missing repository name", repo: "o/r", pr: head("o", ""), fork: true},
+		{name: "malformed repo", repo: "r", pr: head("r", "r"), fork: true},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			require.Equal(t, tc.fork, forkHead(tc.repo, tc.pr))
