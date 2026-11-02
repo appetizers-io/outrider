@@ -69,7 +69,7 @@ export function SettingsView({
       h(
         "p",
         null,
-        "Repositories inherit these defaults unless overridden in the Repositories view. Trust changes apply to new Outrider sessions and require Crew’s session approval grant. Existing sessions keep their settings.",
+        "Repositories inherit these defaults unless overridden in the Repositories view. Trust changes apply to new Outrider sessions and require Crew’s session approval grant. Existing sessions keep their settings. Trust applies only to pull requests you wrote whose branch is in the watched repository; anyone else’s PR, and any fork branch, keeps Crew’s own tool approvals however this is set.",
       ),
     ),
 

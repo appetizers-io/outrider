@@ -44,6 +44,19 @@ launch_check:
 The launch check sends the PR title, the new activity and the failing checks
 to your Jev backend provider.
 
+Jev is fetched at run time and is given PR text, so its launch check runs with
+an allowlisted environment, not outrider's own: `PATH`, `HOME` and the
+equivalent Windows variables, locale, proxy and CA settings, the four backend
+keys above, and anything starting with `JEV_` or `TYPESAFE_`. A `GH_TOKEN`,
+cloud credentials or any other secret in outrider's environment is not passed
+on. A registry reachable only through environment variables therefore needs
+`command` pointed at an installed `jev-use`. The tool gate runs as a hook
+inside the agent, which sets that child's environment itself.
+
+In Kiro Crew there is no launch check unless a repository configures one: the
+app sends `launch_check: {classifier: null}`, so the default below applies to
+the CLI only.
+
 ## Your own launch check
 
 A `kind: command` classifier with a `launch_command` reads a JSON request on
@@ -58,6 +71,9 @@ classifiers:
 launch_check:
   classifier: local
 ```
+
+Your own command is your own code, so it inherits outrider's environment
+unchanged.
 
 The request (abridged; the real one is a single line):
 

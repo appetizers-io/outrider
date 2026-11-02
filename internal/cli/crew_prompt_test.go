@@ -9,6 +9,7 @@ import (
 
 	"github.com/stretchr/testify/require"
 
+	"github.com/appetizers-io/outrider/internal/github"
 	"github.com/appetizers-io/outrider/internal/proc"
 	"github.com/appetizers-io/outrider/internal/watch"
 )
@@ -22,7 +23,7 @@ func TestCrewSessionPromptUsesExplicitConfigAndVerifiedFork(t *testing.T) {
 				case args == "gh api user":
 					return proc.Result{Stdout: `{"login":"me"}`}, nil
 				case strings.HasPrefix(args, "gh pr view"):
-					return proc.Result{Stdout: `{"author":{"login":"` + author + `"},"title":"Repair API","baseRefName":"main","headRefName":"fix/api","state":"OPEN"}`}, nil
+					return proc.Result{Stdout: `{"author":{"login":"` + author + `"},"title":"Repair API","baseRefName":"main","headRefName":"fix/api","headRepository":{"name":"r"},"headRepositoryOwner":{"login":"o"},"state":"OPEN"}`}, nil
 				case args == "gh api repos/me/fork":
 					return proc.Result{Stdout: `{"fork":true,"owner":{"login":"me"},"parent":{"full_name":"o/r"}}`}, nil
 				default:
@@ -44,9 +45,20 @@ func TestCrewSessionPromptUsesExplicitConfigAndVerifiedFork(t *testing.T) {
 			require.NoError(t, err)
 			cmd.SetIn(bytes.NewReader(encoded))
 			require.NoError(t, cmd.Execute())
-			var result map[string]string
+			var result struct {
+				Prompt  string `json:"prompt"`
+				Own     bool   `json:"own"`
+				Author  string `json:"author"`
+				Fork    bool   `json:"fork"`
+				BaseRef string `json:"base_ref"`
+			}
 			require.NoError(t, json.Unmarshal(out.Bytes(), &result))
-			p := result["prompt"]
+			p := result.Prompt
+			// Crew decides session trust and the agent configuration policy from these.
+			require.Equal(t, author == "me", result.Own)
+			require.Equal(t, author, result.Author)
+			require.False(t, result.Fork)
+			require.Equal(t, "main", result.BaseRef)
 			require.Contains(t, p, "Repair API")
 			require.Contains(t, p, "issuecomment-2")
 			if author == "me" {
@@ -64,6 +76,37 @@ func TestCrewSessionPromptUsesExplicitConfigAndVerifiedFork(t *testing.T) {
 		})
 	}
 }
+func TestForkHeadIsConservative(t *testing.T) {
+	owner := func(login string) *github.User { return &github.User{Login: login} }
+	head := func(login, name string) github.PR {
+		pr := github.PR{HeadRepositoryOwner: owner(login)}
+		if name != "" {
+			pr.HeadRepository = &struct {
+				Name string `json:"name"`
+			}{Name: name}
+		}
+		return pr
+	}
+	for _, tc := range []struct {
+		name string
+		repo string
+		pr   github.PR
+		fork bool
+	}{
+		{name: "same repository", repo: "o/r", pr: head("O", "R"), fork: false},
+		{name: "other owner", repo: "o/r", pr: head("someone", "r"), fork: true},
+		{name: "same owner, other repository", repo: "o/r", pr: head("o", "r-fork"), fork: true},
+		{name: "unknown head", repo: "o/r", pr: github.PR{}, fork: true},
+		{name: "empty login", repo: "o/r", pr: head("", "r"), fork: true},
+		{name: "missing repository name", repo: "o/r", pr: head("o", ""), fork: true},
+		{name: "malformed repo", repo: "r", pr: head("r", "r"), fork: true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			require.Equal(t, tc.fork, forkHead(tc.repo, tc.pr))
+		})
+	}
+}
+
 func TestCrewImportPreservesPollingAndTaskPolicies(t *testing.T) {
 	cmd := crewCmd(watch.Deps{})
 	var out bytes.Buffer

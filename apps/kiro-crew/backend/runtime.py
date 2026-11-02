@@ -31,7 +31,9 @@ def environment():
 
 def compatible(binary, runner=subprocess.run):
     try:
-        for args, marker in [(['crew', 'scan', '--help'], '--state-dir'), (['crew', 'session-prompt', '--help'], ''), (['crew', 'capture', '--help'], '--pr'), (['mcp', '--help'], '--config-format')]:
+        # session-prompt must report PR ownership: local sessions decide trust
+        # and the agent configuration policy from it.
+        for args, marker in [(['crew', 'scan', '--help'], '--state-dir'), (['crew', 'session-prompt', '--help'], 'ownership'), (['crew', 'capture', '--help'], '--pr'), (['mcp', '--help'], '--config-format')]:
             result = runner([str(binary), *args], capture_output=True, text=True, encoding='utf-8', timeout=10, check=False, env=environment())
             if result.returncode or marker not in result.stdout:
                 return False
@@ -84,11 +86,28 @@ def find(runner=subprocess.run):
     raise RuntimeError('No compatible Outrider runtime. Open Outrider → Doctor to check or install it.')
 
 
+def installed_version(binary):
+    """The version of the runtime in use, "" when it does not report one."""
+    try:
+        result = subprocess.run([str(binary), '--version'], capture_output=True, text=True, encoding='utf-8', timeout=10, check=False, env=environment())
+    except (OSError, subprocess.TimeoutExpired):
+        return ''
+    if result.returncode:
+        return ''
+    match = re.search(r'\d+\.\d+\.\d+(?:-[A-Za-z0-9.-]+)?', result.stdout)
+    return match.group() if match else ''
+
+
 def doctor(data=DATA):
     runtime = discover(data=data)
     pin = release()
     runtime['download_available'] = bool(pin.get('artifacts', {}).get(platform_key())) and not runtime.get('override')
+    # Name the binary actually in use: a compatible host installation wins
+    # over the pinned, checksum-verified private one.
     runtime['version'] = pin.get('version') if runtime.get('source') == 'private' else None
+    runtime['pinned_version'] = pin.get('version', '')
+    if runtime['status'] == 'ready' and runtime.get('source') == 'host':
+        runtime['version'] = installed_version(runtime['path']) or None
     checks = []
     for name, args, help_text in [('git', ['--version'], 'Install Git for your operating system.'), ('gh', ['auth', 'status', '--hostname', 'github.com'], 'Install GitHub CLI and run gh auth login on the machine running Crew.')]:
         path = shutil.which(name, path=environment()['PATH'])

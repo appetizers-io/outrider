@@ -94,7 +94,11 @@ export function DoctorView({
           ? h(
               "p",
               null,
-              `${report.runtime.source === "host" ? "Host installation" : "Plugin-managed runtime"}: ${report.runtime.path}`,
+              `In use — ${report.runtime.source === "host" ? "host installation" : "plugin-managed runtime, checksum-verified"}` +
+                `${report.runtime.version ? ` ${report.runtime.version}` : ""}: ${report.runtime.path}`,
+              report.runtime.source === "host" && report.runtime.pinned_version
+                ? ` A compatible host installation is preferred over this plugin's pinned ${report.runtime.pinned_version}.`
+                : "",
             )
           : h(
               "div",

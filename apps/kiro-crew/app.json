@@ -2,7 +2,7 @@
   "name": "outrider",
   "version": "0.2.1",
   "displayName": "Outrider",
-  "description": "AI writes code faster. Keep your reviews moving. Outrider watches GitHub and automatically starts PR reviews in Kiro Crew, helping you catch issues and follow up on feedback while you focus on your work.",
+  "description": "Outrider watches GitHub and starts PR review sessions in Kiro Crew. It picks up the activity that needs you — your own PRs, mentions, review replies and PRs you opt into with a reaction — and brings each one into the Crew folder you already review in.",
   "author": "appetizers-io",
   "agents": [
     "agents/reviewer.json",
@@ -29,8 +29,6 @@
     "api": [
       "/apps/outrider/api",
       "/api/spawn",
-      "/api/chat/folders",
-      "/api/chat/slots",
       "/api/chat",
       "/api/notifications/push",
       "/api/agents"

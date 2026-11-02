@@ -19,6 +19,7 @@ type Cmd struct {
 	Args    []string
 	Dir     string        // working directory; "" is the current one
 	Stdin   string        // written to the command's stdin
+	Env     []string      // nil: inherit this process's environment
 	Timeout time.Duration // 0: DefaultTimeout
 }
 
@@ -57,6 +58,7 @@ func Exec(ctx context.Context, c Cmd) (Result, error) {
 	defer cancel()
 	cmd := exec.CommandContext(ctx, c.Args[0], c.Args[1:]...)
 	cmd.Dir = c.Dir
+	cmd.Env = c.Env
 	if c.Stdin != "" {
 		cmd.Stdin = strings.NewReader(c.Stdin)
 	}

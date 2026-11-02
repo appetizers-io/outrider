@@ -132,6 +132,11 @@ export function RepositorySessionSettings({
       null,
       "Enabled: new queued work starts automatically, up to the session limit. Disabled: keep work in the queue for manual review. Requires a Crew folder and matching remote below. Existing backlog is not launched when enabling.",
     ),
+    h(
+      "p",
+      null,
+      "Session trust applies only to pull requests you wrote whose branch is in this repository. On anyone else’s PR, and on any fork branch, the session keeps Crew’s own tool approvals, and agent configuration the PR changes (instructions, MCP servers, hooks, subagents) is held back from the worktree. A session runs the PR’s checks as you, so pick a reviewer member whose approvals you want for that.",
+    ),
     h("h3", null, "Local validation"),
     h(
       "p",
