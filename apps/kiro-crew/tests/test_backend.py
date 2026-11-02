@@ -1106,7 +1106,10 @@ class LocalValidationTest(unittest.TestCase):
         self.plain_git('-C', str(repo), 'worktree', 'add', '-q', str(worktree), '--detach', head)
         self.git.side_effect = lambda cwd, *args, **kw: backend.Inbox.git(self.inbox, cwd, *args, **kw)
         self.assertEqual(self.inbox.withhold_agent_config(worktree, 'main', head), ['config/settings/mcp.json'])
-        self.assertEqual((worktree / '.kiro/settings/mcp.json').read_text(), '{"mcpServers":{}}')
+        self.assertEqual((worktree / 'config/settings/mcp.json').read_text(), '{"mcpServers":{}}')
+        if (worktree / '.kiro').is_symlink():
+            # Windows checks the link out as a plain file; the tree says it is one either way.
+            self.assertEqual((worktree / '.kiro/settings/mcp.json').read_text(), '{"mcpServers":{}}')
         self.assertEqual((worktree / 'app.py').read_text(), 'patched code\n')
         self.assertEqual(self.plain_git('-C', str(worktree), 'status', '--porcelain'), '')
 
