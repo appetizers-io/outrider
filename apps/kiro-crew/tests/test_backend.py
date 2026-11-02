@@ -1061,14 +1061,17 @@ class LocalValidationTest(unittest.TestCase):
         self.git.side_effect = lambda cwd, *args, **kw: backend.Inbox.git(self.inbox, cwd, *args, **kw)
         withheld = self.inbox.withhold_agent_config(worktree, 'main', head)
         # A file the PR only deletes is already absent and stays that way.
-        expected = ['.claude/settings.json', '.codex', '.kiro/settings/mcp.json', 'AGENTS.md'] if symlinked else \
-                   ['.claude/settings.json', '.kiro/settings/mcp.json', 'AGENTS.md']
+        expected = ['.claude/settings.json', '.kiro/settings/mcp.json', 'AGENTS.md']
+        if symlinked:
+            # The link and what it reaches both go; the diff keeps the evidence.
+            expected = sorted(expected + ['.codex', 'payload/settings/mcp.json'])
         self.assertEqual(withheld, expected)
         self.assertFalse((worktree / 'CLAUDE.md').exists())
         if symlinked:
-            # The payload stays as evidence in the diff; nothing loads it now.
             self.assertFalse((worktree / '.codex').is_symlink())
-            self.assertTrue((worktree / 'payload/settings/mcp.json').exists())
+            self.assertFalse((worktree / 'payload/settings/mcp.json').exists())
+        # The empty directory a withheld file leaves behind is cleaned up.
+        self.assertFalse((worktree / '.claude').exists())
         # The base version stays, the file the PR adds is gone, code is untouched.
         self.assertEqual((worktree / '.kiro/settings/mcp.json').read_text(), '{"mcpServers":{}}')
         self.assertEqual((worktree / 'AGENTS.md').read_text(), 'base instructions\n')
@@ -1077,6 +1080,35 @@ class LocalValidationTest(unittest.TestCase):
         # Nothing pending, so the session cannot commit or push the replacement.
         self.assertEqual(self.plain_git('-C', str(worktree), 'status', '--porcelain'), '')
         self.assertEqual(self.plain_git('-C', str(worktree), 'rev-parse', 'HEAD'), head)
+
+    def test_config_reachable_through_an_unchanged_symlink_is_withheld(self):
+        repo, worktree = self.root / 'linked', self.root / 'linked-worktree'
+        self.plain_git('init', '-q', '-b', 'main', str(repo))
+        commit = ['-c', 'user.name=t', '-c', 'user.email=t@example.invalid', 'commit', '-q', '-m']
+        (repo / 'config/settings').mkdir(parents=True)
+        (repo / 'config/settings/mcp.json').write_text('{"mcpServers":{}}')
+        (repo / 'app.py').write_text('base code\n')
+        try:
+            # The base repository itself keeps its agent configuration elsewhere.
+            os.symlink('config', repo / '.kiro')
+        except (OSError, NotImplementedError):
+            self.skipTest('This file system does not support symlinks')
+        self.plain_git('-C', str(repo), 'add', '-A')
+        self.plain_git('-C', str(repo), *commit, 'base')
+        self.plain_git('-C', str(repo), 'switch', '-qc', 'pr')
+        # The PR leaves the symlink alone and edits only its target.
+        (repo / 'config/settings/mcp.json').write_text('{"mcpServers":{"x":{"command":"sh"}}}')
+        (repo / 'app.py').write_text('patched code\n')
+        self.plain_git('-C', str(repo), 'add', '-A')
+        self.plain_git('-C', str(repo), *commit, 'pr')
+        head = self.plain_git('-C', str(repo), 'rev-parse', 'HEAD')
+        self.plain_git('-C', str(repo), 'switch', '-q', 'main')
+        self.plain_git('-C', str(repo), 'worktree', 'add', '-q', str(worktree), '--detach', head)
+        self.git.side_effect = lambda cwd, *args, **kw: backend.Inbox.git(self.inbox, cwd, *args, **kw)
+        self.assertEqual(self.inbox.withhold_agent_config(worktree, 'main', head), ['config/settings/mcp.json'])
+        self.assertEqual((worktree / '.kiro/settings/mcp.json').read_text(), '{"mcpServers":{}}')
+        self.assertEqual((worktree / 'app.py').read_text(), 'patched code\n')
+        self.assertEqual(self.plain_git('-C', str(worktree), 'status', '--porcelain'), '')
 
     def test_agent_config_paths(self):
         for name in ['.kiro/settings/mcp.json', '.kiro/steering/rules.md', 'AGENTS.md', 'docs/AGENTS.md', 'CLAUDE.md',

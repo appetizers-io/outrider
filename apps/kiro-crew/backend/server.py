@@ -176,20 +176,22 @@ _replay_lock = threading.Lock()
 _replayed = {}
 
 
-def spend_signature(signature, moment):
-    """Accept a state-changing signature once inside its window.
+def spend_signature(signature, stamp, moment):
+    """Accept a state-changing signature once while it is still acceptable.
 
     The gateway signs a second-resolution timestamp, so two identical reads
     can legitimately carry the same signature; only non-GET requests are
-    single-use.
+    single-use. Entries expire with the signed timestamp, not with the
+    verifier's clock, so a signature stamped ahead of this host is remembered
+    for as long as it would still verify.
     """
     with _replay_lock:
-        for seen, when in list(_replayed.items()):
-            if moment - when > SIGNATURE_WINDOW:
+        for seen, expiry in list(_replayed.items()):
+            if moment > expiry:
                 del _replayed[seen]
         if signature in _replayed:
             return False
-        _replayed[signature] = moment
+        _replayed[signature] = stamp + SIGNATURE_WINDOW
         return True
 
 
@@ -206,7 +208,7 @@ def verify_signature(header, method, target, body, secret, now=None):
         expected = hmac.new(secret.encode(), message.encode(), hashlib.sha256).hexdigest()
         if not hmac.compare_digest(signature.encode(), expected.encode()):
             return False
-        return method == "GET" or spend_signature(signature, moment)
+        return method == "GET" or spend_signature(signature, stamp, moment)
     except (ValueError, TypeError):
         return False
 
@@ -671,7 +673,17 @@ class Inbox:
             merge_base = self.git(worktree, 'merge-base', base, head)
         except ValueError:
             merge_base = base  # Unrelated histories: compare against the base tip itself.
-        changed = [name for name in self.git(worktree, 'diff', '--name-only', '-z', merge_base, head).split('\0') if name and agent_config_path(name)]
+        root = Path(worktree).resolve()
+        links = self.config_links(worktree, root, head)
+        changed = []
+        for name in self.git(worktree, 'diff', '--name-only', '-z', merge_base, head).split('\0'):
+            if not name:
+                continue
+            # A path is configuration by its own name, or because a
+            # configuration symlink the base already had points at it.
+            target = Path(os.path.normpath(root / name))
+            if agent_config_path(name) or any(link == target or link in target.parents for link in links):
+                changed.append(name)
         if not changed:
             return []
         in_base = self.tracked(worktree, merge_base, changed)
@@ -684,8 +696,36 @@ class Inbox:
                 self.git(worktree, 'restore', '--source=' + merge_base, '--worktree', '--', name)
             else:
                 (Path(worktree) / name).unlink(missing_ok=True)
+                self.prune_empty(root, name)
         self.git(worktree, 'update-index', '--skip-worktree', '--', *withheld)
         return withheld
+
+    def config_links(self, worktree, root, commit):
+        """Where configuration symlinks in commit point, inside the worktree.
+
+        Read from the tree, not the file system: Git checks a symlink out as
+        an ordinary file on Windows, and the indirection is just as effective.
+        """
+        links = []
+        for entry in self.git(worktree, 'ls-tree', '-r', '-z', commit).split('\0'):
+            name = entry.split('\t', 1)[-1]
+            if not entry.startswith('120000 ') or not agent_config_path(name):
+                continue
+            target = Path(os.path.normpath((root / name).parent / self.git(worktree, 'show', commit + ':' + name)))
+            if target != root and root not in target.parents:
+                continue  # Outside the worktree: nothing this PR can place.
+            links.append(target)
+        return links
+
+    def prune_empty(self, root, name):
+        """Drop directories a withheld path leaves behind, never the worktree."""
+        parent = Path(os.path.normpath(root / name)).parent
+        while parent != root and root in parent.parents:
+            try:
+                parent.rmdir()
+            except OSError:
+                return
+            parent = parent.parent
 
     def tracked(self, worktree, commit, names):
         """Which of names that commit has."""
