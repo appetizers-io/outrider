@@ -1080,6 +1080,8 @@ class LocalValidationTest(unittest.TestCase):
 
     def test_agent_config_paths(self):
         for name in ['.kiro/settings/mcp.json', '.kiro/steering/rules.md', 'AGENTS.md', 'docs/AGENTS.md', 'CLAUDE.md',
+                     # Kiro CLI still reads the legacy Amazon Q workspace configuration.
+                     '.amazonq/mcp.json', '.amazonq/cli-agents/x.json',
                      '.claude/agents/review.json', '.mcp.json', '.github/copilot-instructions.md', '.vscode/mcp.json',
                      '.github/agents/x.json', '.github/agents', '.cursor/rules',
                      # A symlink named like an agent directory, and the same name in another case.

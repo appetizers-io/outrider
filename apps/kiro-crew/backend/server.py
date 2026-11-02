@@ -34,7 +34,7 @@ MAX_POLL_FAILURES = 5
 # before it reads any task text, and an MCP server starts outside tool
 # approval, so a PR this user did not write must not place them in the
 # worktree. Directories match at any depth; files match by name.
-AGENT_CONFIG_DIRS = {".kiro", ".claude", ".cursor", ".codex", ".gemini", ".continue", ".aider"}
+AGENT_CONFIG_DIRS = {".kiro", ".amazonq", ".claude", ".cursor", ".codex", ".gemini", ".continue", ".aider"}
 AGENT_CONFIG_FILES = {"agents.md", "claude.md", "claude.local.md", "gemini.md", "codex.md", ".mcp.json", "copilot-instructions.md", ".windsurfrules", ".clinerules"}
 AGENT_CONFIG_PREFIXES = (".github/agents", ".github/instructions", ".vscode/mcp.json")
 
