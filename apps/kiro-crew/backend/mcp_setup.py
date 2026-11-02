@@ -16,7 +16,7 @@ STRING = {'type': 'string', 'minLength': 1}
 TOOLS = [
     tool('list_crew_folders', 'List Crew folders and project directories. Match the current project; ask when ambiguous.', {}),
     tool('inspect_crew_folder', 'Resolve a Crew folder’s inherited checkout and GitHub remotes before adding it.', {'folder_id': STRING}, ['folder_id']),
-    tool('add_repository', 'Register a repository when the user asks. Uses an existing Crew folder and matching Git remote; prefers upstream then origin. Preserves existing registrations and settings. Inherits polling and automatic-session defaults, so reviews may start. Never changes trust or permissions.', {'repo': STRING, 'folder_id': STRING, 'remote': STRING}, ['repo', 'folder_id'], write=True),
+    tool('add_repository', 'Register a repository when the user asks. Uses an existing Crew folder and matching Git remote; prefers upstream then origin. Preserves existing registrations and settings. The repository starts with manual sessions and Crew tool approvals, whatever the UI defaults are, so a person enables automatic sessions. Never changes trust or permissions.', {'repo': STRING, 'folder_id': STRING, 'remote': STRING}, ['repo', 'folder_id'], write=True),
 ]
 ROUTES = {'list_crew_folders': '/mcp/folders', 'inspect_crew_folder': '/mcp/checkout', 'add_repository': '/mcp/repositories'}
 

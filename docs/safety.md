@@ -321,7 +321,9 @@ closed by the OS sandbox instead.
 
 - **The launch check** sends the PR title, the new activity (comment and review
   text) and failing checks to the classifier. With Jev that is your Jev backend
-  provider.
+  provider. Jev runs with an allowlisted environment — its backend keys, not
+  your other secrets — and in Kiro Crew no launch check runs at all unless a
+  repository configures one. See [Classifiers](classifiers.md#jev).
 - **The agent** sends what it reads (the prompt, the code, the PR discussion)
   to its model provider, like any Claude Code or Codex session.
 - GitHub is only read, unless you allow posts.

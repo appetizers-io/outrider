@@ -9,6 +9,10 @@
 // as JSON; the command prints {"launch": bool} or {"probability": 0..1},
 // optionally with "reason". Anything else, a timeout or a failure launches.
 //
+// Jev is fetched at run time and judges PR text, so its launch check runs
+// with the allowlisted environment in env.go. A `kind: command` classifier
+// is the user's own binary and inherits outrider's environment.
+//
 // The tool gate is a Claude Code / Codex PreToolUse hook. It gets the
 // session's rules in $OUTRIDER_GATE_TEXT and the full session policy
 // as JSON in $OUTRIDER_POLICY_FILE (Jev reads $JEV_GATE_STATE, set to
@@ -44,6 +48,7 @@ type Resolved struct {
 	Kind                string // jev | command
 	LaunchCmd           []string
 	HookCmd             []string
+	Env                 []string // launch-check environment; nil: inherit
 	Timeout             time.Duration
 	ConfidenceThreshold *float64 // jev only
 }
@@ -94,10 +99,12 @@ func Resolve(name string, c config.Classifier, lookPath LookPath) (*Resolved, st
 			return nil, "no backend key (" + strings.Join(config.JevBackendEnv, ", ") + ")"
 		}
 		return &Resolved{
-			Name:                name,
-			Kind:                config.KindJev,
-			LaunchCmd:           append(append([]string{}, base...), "judge"),
-			HookCmd:             append(append([]string{}, base...), "hook", "gate"),
+			Name:      name,
+			Kind:      config.KindJev,
+			LaunchCmd: append(append([]string{}, base...), "judge"),
+			HookCmd:   append(append([]string{}, base...), "hook", "gate"),
+			// The hook runs inside the agent, which sets its own environment.
+			Env:                 JevEnv(),
 			Timeout:             time.Duration(j.TimeoutSeconds) * time.Second,
 			ConfidenceThreshold: j.ConfidenceThreshold,
 		}, shell.Join(base...)
@@ -168,7 +175,7 @@ func CheckLaunch(ctx context.Context, r *Resolved, req Request, skipBelow float6
 		return true, fmt.Sprintf("%s unavailable, launching anyway: %v", r.Name, err)
 	}
 	// jev-use exits 3 when escalated; the verdict is still on stdout
-	res, err := run(ctx, proc.Cmd{Args: r.LaunchCmd, Stdin: string(in), Timeout: r.Timeout})
+	res, err := run(ctx, proc.Cmd{Args: r.LaunchCmd, Stdin: string(in), Env: r.Env, Timeout: r.Timeout})
 	if err != nil && res.Code < 0 {
 		return true, fmt.Sprintf("%s unavailable, launching anyway: %v", r.Name, err)
 	}

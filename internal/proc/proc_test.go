@@ -21,6 +21,8 @@ func TestMain(m *testing.M) {
 		buf := make([]byte, 100)
 		n, _ := os.Stdin.Read(buf)
 		_, _ = os.Stdout.Write(buf[:n])
+	case "env":
+		_, _ = os.Stdout.WriteString(os.Getenv("PROC_TEST_SECRET") + "|" + os.Getenv("PROC_TEST_KEPT"))
 	default:
 		os.Exit(m.Run())
 	}
@@ -46,6 +48,21 @@ func TestExec(t *testing.T) {
 	r.True(errors.As(err, &pe))
 	r.Equal(3, res.Code)
 	r.Contains(err.Error(), "boom")
+}
+
+func TestEnvReplacesTheInheritedEnvironment(t *testing.T) {
+	c := self(t, "env")
+	t.Setenv("PROC_TEST_SECRET", "secret")
+	t.Setenv("PROC_TEST_KEPT", "kept")
+
+	res, err := Exec(t.Context(), c)
+	require.NoError(t, err)
+	require.Equal(t, "secret|kept", res.Stdout)
+
+	c.Env = []string{"PROC_TEST_MODE=env", "PROC_TEST_KEPT=kept"}
+	res, err = Exec(t.Context(), c)
+	require.NoError(t, err)
+	require.Equal(t, "|kept", res.Stdout)
 }
 
 func TestTimeoutIsAnError(t *testing.T) {

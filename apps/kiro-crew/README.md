@@ -112,6 +112,11 @@ Local reviews use an isolated worktree under the selected checkout's
 Outrider checks that the selected remote matches the watched repository and that
 the PR head is still current before launching.
 
+Each review keeps its worktree and its `review/outrider-…` branch after the
+session ends, so you can inspect what ran; the fetch refs are deleted once the
+branch exists. Remove the ones you no longer need with
+`git worktree remove <path>` and `git branch -D review/outrider-…`.
+
 Sessions receive PR metadata, trigger and comment scope, ownership rules, and the
 selected workflow's ordered steps. Your own PRs and other people's PRs can have
 different policies. Explicitly configured review forks can receive permitted
@@ -121,6 +126,28 @@ Crew controls the model, tools, reviewer, and approvals. CLI execution settings
 such as `agent`, `mode`, sandbox, and launcher are not imported or silently mapped
 to trust. Task policies such as `push`, `github_writes`, and `others_prs` remain
 part of the prompt; they do not install the CLI's tool guards or native dialogs.
+
+### Someone else's pull request
+
+A local session runs the PR's code and checks as you, and a worktree is not a
+sandbox. Two limits therefore do not depend on the task text:
+
+- **Session trust applies only to PRs you wrote** whose branch is in the watched
+  repository. On anyone else's PR, and on any fork branch, the session keeps
+  Crew's own tool approvals however trust is configured. The activity log says
+  when that happened.
+- **Agent configuration the PR changes is withheld from the worktree.**
+  Instructions, MCP servers, hooks and subagents (`.kiro/`, `.claude/`,
+  `AGENTS.md`, `CLAUDE.md`, `.mcp.json` and the like) are kept at the base
+  branch version, or removed when the PR adds them, because Kiro CLI loads
+  workspace configuration from the session's directory before it reads any task
+  text and an MCP server starts outside tool approval. The task names what was
+  withheld; review those files from the diff.
+
+What actually stops a session is Crew's tool approval, not the wording of the
+task. `push: ask` and `github_writes: ask` are instructions the agent is asked
+to follow; they install no dialog. For other people's PRs, pick a reviewer Crew
+member whose approval behaviour you want, and leave trust at Inherit Crew.
 
 **Review without tools** is an optional, limited review of captured context. It
 cannot inspect the checkout or run tests. Its fixed reviewer policy blocks tools;
@@ -139,8 +166,10 @@ Normal polling and MCP use only the app's own config and state. Runtime lookup i
 runtime. Nothing changes your system `PATH` or replaces your standalone binary.
 
 Form and YAML views edit the same settings: triggers, reactions, workflows,
-prompts, ignored authors, and launch checks. Switching to Form reformats YAML and
-removes comments. AI-assisted setup creates a validated draft for you to review
+prompts, ignored authors, and launch checks. A launch check runs only where a
+repository asks for one: unlike the CLI, Crew never enables the built-in `jev`
+classifier on its own, so no PR text leaves the machine until you configure it.
+Switching to Form reformats YAML and removes comments. AI-assisted setup creates a validated draft for you to review
 and save; it does not apply changes automatically.
 
 ## MCP and privacy
@@ -148,7 +177,16 @@ and save; it does not apply changes automatically.
 The app exposes these four read-only MCP tools, alongside the setup tools below: `list_repositories`,
 `configuration_schema`, `list_reviews`, and `propose_repository_config`. The
 portable Go MCP server receives explicit app config and state paths. It does not
-load host CLI configuration. Registering a repository can start reviews if your existing automatic-session defaults enable them. [Use MCP with other clients](../../docs/mcp.md).
+load host CLI configuration. A repository registered from a conversation starts
+with manual sessions and Crew's own tool approvals, whatever the UI defaults
+are, so starting reviews stays a person's decision. [Use MCP with other clients](../../docs/mcp.md).
+
+Outrider asks Crew for `/api/chat`, `/api/spawn`, `/api/notifications/push` and
+`/api/agents`, plus its own `/apps/outrider/api`. A grant covers everything
+below its path, so the `/api/chat` entry is what lets the app create a chat slot
+(`/api/chat/slots`), set its project and trust (`…/project`, `/api/chat/mode`),
+list folders (`/api/chat/folders`) and send the task (`/api/chat`). Those are
+the routes it calls.
 
 PR context is stored locally in the app data directory and sent to your configured
 Crew model when a review starts. GitHub notifications remain unread. Backend
@@ -181,8 +219,9 @@ flow so code, agent definitions, and permissions stay in sync.
 Ask **“Add this project to Outrider.”** The MCP setup tools discover Crew folders,
 inspect their checkouts and remotes, then register the repository through the
 running app. Ambiguous projects require a choice. Existing registrations and
-session preferences are preserved; new repositories inherit your polling and
-automatic-session defaults. Reload the app's MCP server after updating the plugin to expose the new tools.
+session preferences are preserved; a new repository joins polling with manual
+sessions and Crew's own tool approvals, which you can change under
+**Repositories**. Reload the app's MCP server after updating the plugin to expose the new tools.
 No new CLI capability or binary upgrade is required: these tools live entirely
 in the Crew app. The adapter forwards the existing read-only protocol traffic
 to the portable MCP server and handles Crew setup calls itself.
