@@ -515,6 +515,10 @@ func TestOwnPRIgnoresYourOwnActivity(t *testing.T) {
 		{name: "someone else commented", reason: "author", activity: []map[string]any{act(1, "2026-01-03", "bob", "")}, want: 1},
 		{name: "CI result", reason: "ci_activity", want: 1},
 		{name: "turned off", config: "triggers: {own_prs: {ignore_own_activity: false}}", reason: "author", want: 1},
+		// NewerThan caps a never-judged PR at ten items, which must not hide
+		// the one comment that came from someone else.
+		{name: "someone else behind ten comments of mine", reason: "author", want: 1, activity: append(
+			[]map[string]any{act(1, "2026-01-01", "bob", "please fix")}, mineTimes(10)...)},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			h := newHub(t)
@@ -525,8 +529,21 @@ func TestOwnPRIgnoresYourOwnActivity(t *testing.T) {
 			h.poll(h.poller(tc.config), s)
 			require.Len(t, h.launches, tc.want)
 			require.Equal(t, map[string]string{"n1": "t1"}, s.Seen)
+			if tc.want == 0 {
+				// A comment arriving while the poll ran must still be judged.
+				require.Empty(t, s.Handled)
+			}
 		})
 	}
+}
+
+// mineTimes is n of my own comments, newest last.
+func mineTimes(n int) []map[string]any {
+	var out []map[string]any
+	for i := range n {
+		out = append(out, act(100+i, fmt.Sprintf("2026-02-%02d", i+1), "me", "wip"))
+	}
+	return out
 }
 
 // The gate must not see activity the filter already fetched as unchanged.

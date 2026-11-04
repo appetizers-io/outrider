@@ -193,25 +193,34 @@ func (p *Poller) Poll(ctx context.Context, s *State) error {
 		}
 
 		t := s.Handled[k]
-		mine := own.Triggers.OwnPRs.IgnoreOwnActivity
+		// A CI result is not your activity: it reports a run, not something
+		// you wrote, so ignore_own_activity never suppresses one, and a CI
+		// notification needs no activity at all to be judged.
+		suppress := own.Triggers.OwnPRs.IgnoreOwnActivity && x.Reason != "ci_activity"
 		var newer []github.Activity
 		fetched := false
-		if len(ignore) > 0 || mine {
+		if len(ignore) > 0 || suppress {
 			items, err := p.GH.Activity(ctx, repo, n)
 			if err != nil {
 				continue
 			}
 			newer, fetched = NewerThan(items, t), true
+			// Never judged: NewerThan keeps the last ten items only, which can
+			// hide someone else's older comment behind ten newer ones of mine.
+			decide := newer
+			if t == "" {
+				decide = items
+			}
 			// Without ignore_own_activity only a non-empty batch can be noise.
 			// With it, a notification needs something from someone else, and
-			// opening a PR or pushing to it brings no activity at all. A CI
-			// result is not yours: it reports a run, not something you wrote.
-			quiet := (len(newer) > 0 || mine) && OnlyNoise(newer, p.Login, ignore, mine)
-			if quiet && x.Reason != "ci_activity" {
+			// opening a PR or pushing to it brings no activity at all.
+			if OnlyNoise(decide, p.Login, ignore, suppress) && (len(decide) > 0 || suppress) {
 				p.Log.Info(k + ": nothing new from others; not launching")
 				if !p.DryRun {
+					// The handled cursor stays where it is: activity arriving
+					// while this ran would fall at or before a cursor taken
+					// now, and never be judged.
 					s.Seen[nid] = updated
-					s.Handled[k] = iso(p.Now())
 				}
 				continue
 			}
