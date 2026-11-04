@@ -84,8 +84,9 @@ type Repos struct {
 
 // OwnPRs are notifications on PRs you authored.
 type OwnPRs struct {
-	Enabled bool `yaml:"enabled" jsonschema:"default=true"`
-	Check   bool `yaml:"check" jsonschema:"default=true" jsonschema_description:"Run the launch_check classifier before starting an agent (only when one is configured and available)."`
+	Enabled           bool `yaml:"enabled" jsonschema:"default=true"`
+	Check             bool `yaml:"check" jsonschema:"default=true" jsonschema_description:"Run the launch_check classifier before starting an agent (only when one is configured and available)."`
+	IgnoreOwnActivity bool `yaml:"ignore_own_activity" jsonschema:"default=true" jsonschema_description:"A notification that brings nothing from anyone else never launches, so opening the PR and your own pushes and comments stay quiet. CI results still launch."`
 }
 
 // OnChange relaunches when reviews or comments on an opted-in PR change.
@@ -184,7 +185,7 @@ func Default() Config {
 			Isolation:     Isolation{ReadOnly: []string{}},
 			IgnoreAuthors: []string{},
 			Triggers: Triggers{
-				OwnPRs: OwnPRs{Enabled: true, Check: true},
+				OwnPRs: OwnPRs{Enabled: true, Check: true, IgnoreOwnActivity: true},
 				OptIn: OptIn{
 					Enabled:  true,
 					Reaction: "eyes",

@@ -193,13 +193,22 @@ func (p *Poller) Poll(ctx context.Context, s *State) error {
 		}
 
 		t := s.Handled[k]
-		if len(ignore) > 0 {
+		mine := own.Triggers.OwnPRs.IgnoreOwnActivity
+		var newer []github.Activity
+		fetched := false
+		if len(ignore) > 0 || mine {
 			items, err := p.GH.Activity(ctx, repo, n)
 			if err != nil {
 				continue
 			}
-			if items = NewerThan(items, t); len(items) > 0 && OnlyNoise(items, p.Login, ignore, false) {
-				p.Log.Info(k + ": only ignored authors; not launching")
+			newer, fetched = NewerThan(items, t), true
+			// Without ignore_own_activity only a non-empty batch can be noise.
+			// With it, a notification needs something from someone else, and
+			// opening a PR or pushing to it brings no activity at all. A CI
+			// result is not yours: it reports a run, not something you wrote.
+			quiet := (len(newer) > 0 || mine) && OnlyNoise(newer, p.Login, ignore, mine)
+			if quiet && x.Reason != "ci_activity" {
+				p.Log.Info(k + ": nothing new from others; not launching")
 				if !p.DryRun {
 					s.Seen[nid] = updated
 					s.Handled[k] = iso(p.Now())
@@ -210,6 +219,9 @@ func (p *Poller) Poll(ctx context.Context, s *State) error {
 		var gate func(context.Context) ([]github.Activity, error)
 		if own.Triggers.OwnPRs.Check {
 			gate = func(ctx context.Context) ([]github.Activity, error) {
+				if fetched {
+					return newer, nil
+				}
 				items, err := p.GH.Activity(ctx, repo, n)
 				if err != nil {
 					return nil, fmt.Errorf("activity of %s: %w", k, err)

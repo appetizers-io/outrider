@@ -96,6 +96,9 @@ triggers:
   own_prs:
     enabled: true
     check: true               # run launch_check first (when available)
+    # Opening the PR and your own pushes and comments stay quiet; a
+    # notification needs something from someone else. CI results still launch.
+    ignore_own_activity: true
   # Your reaction on someone else's PR opts it in; sessions cover the whole PR.
   opt_in:
     enabled: true

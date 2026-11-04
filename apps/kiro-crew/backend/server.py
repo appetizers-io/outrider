@@ -1393,7 +1393,7 @@ SETUP_SCHEMA = """Supported fields (all optional):
 # Optional ownership overrides use the same fields below, with match: [{prs: own}] or [{prs: others}].
 # Preserve existing ownership overrides; never flatten them into base settings.
 triggers:
-  own_prs: {enabled: true, check: true}
+  own_prs: {enabled: true, check: true, ignore_own_activity: true}
   opt_in: {enabled: true, reaction: eyes, where: [description, comment, review, review_comment], on_change: {check: true, ignore_own_activity: true}}
   review_replies: {enabled: true, check: true, scope: thread, fresh_within_hours: null}
   mentions: {enabled: true, check: true, scope: comment, fresh_within_hours: null}

@@ -36,6 +36,9 @@ func fixture(t *testing.T, diff string, moved bool) *Scanner {
 			return proc.Result{Stdout: `{"headRefOid":"abc","state":"OPEN","title":"test","statusCheckRollup":[]}`}, nil
 		case strings.Contains(args, "pr diff"):
 			return proc.Result{Stdout: diff}, nil
+		case strings.Contains(args, "/reviews?"):
+			// Activity from someone else: own_prs ignores your own by default.
+			return proc.Result{Stdout: `[[{"id":7,"state":"COMMENTED","submitted_at":"2026-01-01T00:00:00Z","user":{"login":"bob"},"body":"take a look"}]]`}, nil
 		case strings.Contains(args, "/comments?"):
 			return proc.Result{Stdout: `[[]]`}, nil
 		default:
