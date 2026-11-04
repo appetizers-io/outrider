@@ -344,6 +344,24 @@ class Inbox:
                 return True
         return False
 
+    def continued_session(self, item, folder, trust, reviewer):
+        """The chat an earlier snapshot of this PR already uses, when
+        continuing it decides nothing differently from a new chat: same Crew
+        folder, same session trust, same reviewer, and the chat still exists.
+        A PR that moves on belongs in one session, not in one per snapshot."""
+        for record in reversed(list(self.validations.values())):
+            if record.get('repo') != item['repo'] or record.get('pr') != item['pr'] or not record.get('slot'):
+                continue
+            # Only the most recent session of this PR is a candidate: an older
+            # one has already been superseded by it.
+            if record.get('session_missing') or record.get('folder_id') != folder:
+                return None
+            # Never inherit a raised trust level a new chat would not have set.
+            if record.get('trust', 'inherit') != trust or record.get('reviewer', '') != reviewer:
+                return None
+            return record
+        return None
+
     def save_runs(self):
         atomic_json(self.data / "runs.json", self.runs)
 
@@ -810,18 +828,43 @@ class Inbox:
                         self.git(root, 'update-ref', '-d', leftover)
                     except ValueError:
                         pass
-            # Persist ambiguity BEFORE any chat creation/send; never replay on restart.
-            save(status='dispatching')
-            creation = {'name': 'outrider-local-' + suffix, 'folder_id': folder, 'title': (item['repo'].split('/')[-1] + '#' + str(item['pr']) + ' · ' + item.get('title', 'PR review'))[:200]}
             reviewer = self.config.get('reviewers', {}).get(item['repo'], self.config.get('reviewer_default', ''))
-            if reviewer:
-                creation.update(agent=reviewer, agent_kind='member')
-            slot = self.gateway.call('/api/chat/slots', creation)
-            key = slot.get('key')
-            if not isinstance(key, str) or not key:
-                raise ValueError('Crew did not return a chat key')
-            save(slot=key)
-            self.gateway.call('/api/chat/slots/' + quote(key, safe='') + '/project', {'project': str(worktree)})
+            with self.lock:
+                continued = self.continued_session(item, folder, trust, reviewer)
+            # Persist ambiguity BEFORE any chat creation/send; never replay on restart.
+            save(status='dispatching', folder_id=folder, trust=trust, reviewer=reviewer)
+            key = ''
+            def project(slot):
+                self.gateway.call('/api/chat/slots/' + quote(slot, safe='') + '/project', {'project': str(worktree)})
+            if continued:
+                # Retargeting the chat is also the probe for a chat someone
+                # closed after its review finished: then start a new one.
+                try:
+                    project(continued['slot'])
+                except GatewayRejected as error:
+                    if error.status not in {404, 410}:
+                        raise
+                    with self.lock:
+                        continued['session_missing'] = True
+                        atomic_json(self.data / 'validations.json', self.validations)
+                    self.log_event(f"{item['repo']}#{item['pr']}: the earlier Crew session is gone; starting a new one", 'warning')
+                    continued = None
+            if continued:
+                key = continued['slot']
+                save(slot=key, continued_from=continued.get('worktree', ''))
+                prompt += (f"You already reviewed an earlier state of this pull request in this chat. It has moved on: the head is now {item['head']}, "
+                           f"and this chat's project directory is the worktree above. The worktree of your previous review, {continued.get('worktree', 'none')}, "
+                           'is kept as it is. Review the current state and say what changed since your last report here.\n')
+            else:
+                creation = {'name': 'outrider-local-' + suffix, 'folder_id': folder, 'title': (item['repo'].split('/')[-1] + '#' + str(item['pr']) + ' · ' + item.get('title', 'PR review'))[:200]}
+                if reviewer:
+                    creation.update(agent=reviewer, agent_kind='member')
+                slot = self.gateway.call('/api/chat/slots', creation)
+                key = slot.get('key')
+                if not isinstance(key, str) or not key:
+                    raise ValueError('Crew did not return a chat key')
+                save(slot=key)
+                project(key)
             if trust != 'inherit':
                 try:
                     self.gateway.call('/api/chat/mode', {'slot': key, 'mode': trust})
@@ -831,8 +874,12 @@ class Inbox:
             if not response.get('ok'):
                 raise ValueError('Crew did not acknowledge the validation turn')
             save(status='started', started_at=time.time())
-            self.log_event(f"Session started: {item['repo']}#{item['pr']} in {key}")
-            self.notify(item, 'Outrider session started', f"{item['repo']}#{item['pr']} — open its Crew folder to follow progress.")
+            if continued:
+                self.log_event(f"Session continued: {item['repo']}#{item['pr']} in {key}")
+                self.notify(item, 'Outrider session continued', f"{item['repo']}#{item['pr']} — its existing Crew chat is reviewing the new state.")
+            else:
+                self.log_event(f"Session started: {item['repo']}#{item['pr']} in {key}")
+                self.notify(item, 'Outrider session started', f"{item['repo']}#{item['pr']} — open its Crew folder to follow progress.")
         except Exception as error:
             save(status='uncertain' if record['status'] == 'dispatching' else 'failed', error=str(error))
             self.log_event(f"Session {record['status']}: {item['repo']}#{item['pr']} — {error}", 'error')
