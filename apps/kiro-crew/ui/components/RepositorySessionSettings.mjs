@@ -135,7 +135,7 @@ export function RepositorySessionSettings({
     h(
       "p",
       null,
-      "Session trust applies only to pull requests you wrote whose branch is in this repository. On anyone else’s PR, and on any fork branch, the session keeps Crew’s own tool approvals, and agent configuration the PR changes (instructions, MCP servers, hooks, subagents) is held back from the worktree. A session runs the PR’s checks as you, so pick a reviewer member whose approvals you want for that.",
+      "Session trust applies only to pull requests you wrote, from this repository or from your own fork. On anyone else’s PR, and on any branch in a fork you do not own, the session keeps Crew’s own tool approvals, and agent configuration the PR changes (instructions, MCP servers, hooks, subagents) is held back from the worktree. A session runs the PR’s checks as you, so pick a reviewer member whose approvals you want for that.",
     ),
     h("h3", null, "Local validation"),
     h(

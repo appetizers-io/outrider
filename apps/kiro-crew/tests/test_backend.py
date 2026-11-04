@@ -769,7 +769,7 @@ class LocalValidationTest(unittest.TestCase):
         self.inbox = backend.Inbox(self.root / 'data', self.gateway)
         self.item = {'id': 'a' * 64, 'repo': 'o/r', 'head': 'b' * 40, 'pr': 2, 'url': 'https://github.com/o/r/pull/2', 'workflow': 'test', 'scope': None}
         self.inbox.validations[self.item['id']] = {'status': 'preparing'}
-        self.task = {'prompt': 'Shared task. Run focused tests', 'own': True, 'fork': False, 'author': 'me', 'base_ref': 'main'}
+        self.task = {'prompt': 'Shared task. Run focused tests', 'own': True, 'fork': False, 'head_mine': False, 'author': 'me', 'base_ref': 'main'}
         self.prompt_patch = patch.object(self.inbox, 'session_prompt', side_effect=lambda *a, **kw: dict(self.task))
         self.prompt_mock = self.prompt_patch.start()
         self.addCleanup(self.prompt_patch.stop)
@@ -826,11 +826,13 @@ class LocalValidationTest(unittest.TestCase):
     def test_session_trust_never_applies_to_other_peoples_pull_requests(self):
         self.inbox.config.update(session_trust_default='trust', session_trust={'o/r': 'trust'})
         self.item['workflow'] = ''
-        for own, fork, reason in [(False, False, 'written by someone'), (False, True, 'written by someone'), (True, True, 'head is in another repository')]:
-            with self.subTest(own=own, fork=fork):
+        # Someone else's PR, and a fork that is not this user's, whoever wrote it.
+        for own, fork, mine, reason in [(False, False, False, 'written by someone'), (False, True, False, 'written by someone'),
+                                        (False, True, True, 'written by someone'), (True, True, False, 'repository you do not own')]:
+            with self.subTest(own=own, fork=fork, head_mine=mine):
                 self.calls.clear()
                 self.inbox.validations[self.item['id']] = {'status': 'preparing'}
-                self.task.update(own=own, fork=fork, author='someone')
+                self.task.update(own=own, fork=fork, head_mine=mine, author='someone')
                 self.inbox.validate_local(self.item, 'child', 'upstream', {})
                 self.assertEqual(self.inbox.validations[self.item['id']]['status'], 'started')
                 self.assertFalse(any(path == '/api/chat/mode' for path, _ in self.calls))
@@ -842,13 +844,21 @@ class LocalValidationTest(unittest.TestCase):
     def test_own_pull_request_keeps_its_trust_and_repository_instructions(self):
         self.inbox.config.update(session_trust={'o/r': 'trust'})
         self.item['workflow'] = ''
-        self.inbox.validate_local(self.item, 'child', 'upstream', {})
-        mode = next(payload for path, payload in self.calls if path == '/api/chat/mode')
-        self.assertEqual(mode['mode'], 'trust')
-        message = next(payload for path, payload in self.calls if path == '/api/chat?ws=1')['message']
-        self.assertIn("Follow this repository's instructions", message)
-        # No base branch is fetched, and no agent configuration is withheld.
-        self.assertFalse(any(c.args[1] == 'fetch' and 'refs/heads/main:refs/outrider/' in ' '.join(c.args) for c in self.git.call_args_list))
+        # Your own branch in the repository, and your own work pushed to your
+        # own fork, which is what a fork workflow produces.
+        for fork, mine in [(False, False), (True, True)]:
+            with self.subTest(fork=fork, head_mine=mine):
+                self.calls.clear()
+                self.git.reset_mock()
+                self.inbox.validations[self.item['id']] = {'status': 'preparing'}
+                self.task.update(own=True, fork=fork, head_mine=mine, author='me')
+                self.inbox.validate_local(self.item, 'child', 'upstream', {})
+                mode = next(payload for path, payload in self.calls if path == '/api/chat/mode')
+                self.assertEqual(mode['mode'], 'trust')
+                message = next(payload for path, payload in self.calls if path == '/api/chat?ws=1')['message']
+                self.assertIn("Follow this repository's instructions", message)
+                # No base branch is fetched, and no agent configuration is withheld.
+                self.assertFalse(any(c.args[1] == 'fetch' and 'refs/heads/main:refs/outrider/' in ' '.join(c.args) for c in self.git.call_args_list))
 
     def test_fetch_refs_are_removed_once_the_review_branch_exists(self):
         self.item['workflow'] = ''

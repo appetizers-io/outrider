@@ -21,9 +21,9 @@ import (
 func crewPromptCmd(d watch.Deps) *cobra.Command {
 	return &cobra.Command{Use: "session-prompt", Short: "Render a Crew task using current PR metadata and explicit settings",
 		Long: "Render a Crew task using current PR metadata and explicit settings.\n\n" +
-			"Prints {\"prompt\", \"own\", \"author\", \"fork\", \"base_ref\"}: the task, and the\n" +
-			"PR ownership the caller needs to decide session trust and whether the PR's\n" +
-			"own agent configuration may be loaded.",
+			"Prints {\"prompt\", \"own\", \"author\", \"fork\", \"head_mine\", \"base_ref\"}: the\n" +
+			"task, and the PR ownership the caller needs to decide session trust and\n" +
+			"whether the PR's own agent configuration may be loaded.",
 		Args: cobra.NoArgs, RunE: func(cmd *cobra.Command, _ []string) error {
 			var input struct {
 				Item     crew.Item       `json:"item"`
@@ -101,11 +101,12 @@ func crewPromptCmd(d watch.Deps) *cobra.Command {
 				return err
 			}
 			return json.NewEncoder(cmd.OutOrStdout()).Encode(map[string]any{
-				"prompt":   prompt,
-				"own":      own,
-				"author":   pr.AuthorLogin(),
-				"fork":     forkHead(input.Item.Repo, pr),
-				"base_ref": pr.BaseRefName,
+				"prompt":    prompt,
+				"own":       own,
+				"author":    pr.AuthorLogin(),
+				"fork":      forkHead(input.Item.Repo, pr),
+				"head_mine": headMine(user.Login, pr),
+				"base_ref":  pr.BaseRefName,
 			})
 		}}
 }
@@ -121,4 +122,14 @@ func forkHead(repo string, pr github.PR) bool {
 		return true
 	}
 	return !strings.EqualFold(owner, pr.HeadRepositoryOwner.Login) || !strings.EqualFold(name, pr.HeadRepository.Name)
+}
+
+// headMine tells whether the PR's head lives in this user's own repository,
+// which is where a fork workflow puts their own branches. Together with the
+// author it separates "my work, pushed to my fork" from a stranger's fork.
+func headMine(login string, pr github.PR) bool {
+	if login == "" || pr.HeadRepositoryOwner == nil || pr.HeadRepositoryOwner.Login == "" {
+		return false
+	}
+	return strings.EqualFold(login, pr.HeadRepositoryOwner.Login)
 }
