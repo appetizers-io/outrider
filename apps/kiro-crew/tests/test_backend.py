@@ -943,6 +943,20 @@ class LocalValidationTest(unittest.TestCase):
                 self.assertTrue(any(path == '/api/chat/slots' for path, _ in self.calls))
                 del self.inbox.validations[item['id']]
 
+    def test_a_session_from_before_this_change_is_never_continued(self):
+        """Its record cannot prove the trust mode its chat was created with."""
+        self.item['workflow'] = ''
+        self.inbox.validate_local(self.item, 'child', 'upstream', {})
+        for key in ['trust', 'reviewer']:
+            with self.subTest(missing=key):
+                old = self.inbox.validations[self.item['id']].pop(key)
+                item = self.later_snapshot()
+                self.calls.clear()
+                self.inbox.validate_local(item, 'child', 'upstream', {})
+                self.assertTrue(any(path == '/api/chat/slots' for path, _ in self.calls))
+                self.inbox.validations[self.item['id']][key] = old
+                del self.inbox.validations[item['id']]
+
     def test_another_pr_never_continues_this_session(self):
         self.item['workflow'] = ''
         self.inbox.validate_local(self.item, 'child', 'upstream', {})

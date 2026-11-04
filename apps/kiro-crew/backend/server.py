@@ -357,7 +357,11 @@ class Inbox:
             if record.get('session_missing') or record.get('folder_id') != folder:
                 return None
             # Never inherit a raised trust level a new chat would not have set.
-            if record.get('trust', 'inherit') != trust or record.get('reviewer', '') != reviewer:
+            # A record from before these were saved cannot prove what its chat
+            # runs under, so it is not a candidate either.
+            if 'trust' not in record or 'reviewer' not in record:
+                return None
+            if record['trust'] != trust or record['reviewer'] != reviewer:
                 return None
             return record
         return None
