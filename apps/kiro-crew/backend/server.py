@@ -769,6 +769,12 @@ class Inbox:
             # configuration: a PR they wrote, on a branch in the watched
             # repository or in their own fork, which is where a fork workflow
             # puts it. A fork belonging to anyone else stays untrusted.
+            # The test is who may push to that branch, not who typed each
+            # commit: a collaborator can push to a branch in the watched
+            # repository, and with maintainer edits an upstream maintainer can
+            # push to the user's fork branch. Both already write to the
+            # repository under review, so both are treated the same; Inherit
+            # Crew is the setting for anyone who wants the stricter rule.
             authored = task['own'] and (not task['fork'] or task['head_mine'])
             trust = self.session_trust(item['repo'])
             if trust != 'inherit' and not authored:
