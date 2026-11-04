@@ -132,10 +132,11 @@ part of the prompt; they do not install the CLI's tool guards or native dialogs.
 A local session runs the PR's code and checks as you, and a worktree is not a
 sandbox. Two limits therefore do not depend on the task text:
 
-- **Session trust applies only to PRs you wrote** whose branch is in the watched
-  repository. On anyone else's PR, and on any fork branch, the session keeps
-  Crew's own tool approvals however trust is configured. The activity log says
-  when that happened.
+- **Session trust applies only to PRs you wrote**, from the watched repository
+  or from your own fork, which is where a fork workflow puts your branches. On
+  anyone else's PR, and on any branch in a fork you do not own, the session
+  keeps Crew's own tool approvals however trust is configured. The activity log
+  says when that happened.
 - **Agent configuration the PR changes is withheld from the worktree.**
   Instructions, MCP servers, hooks and subagents (`.kiro/`, `.claude/`,
   `AGENTS.md`, `CLAUDE.md`, `.mcp.json` and the like) are kept at the base

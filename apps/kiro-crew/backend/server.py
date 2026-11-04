@@ -638,6 +638,8 @@ class Inbox:
         # Session trust and the agent configuration policy below depend on these.
         if not isinstance(task.get('prompt'), str) or type(task.get('own')) is not bool or type(task.get('fork')) is not bool:
             raise ValueError('This Outrider runtime does not report PR ownership. Update the runtime in Outrider → Doctor before starting local sessions.')
+        # A runtime that does not report it leaves every fork head untrusted.
+        task['head_mine'] = task.get('head_mine') is True
         if not isinstance(task.get('base_ref'), str) or not BRANCH.fullmatch(task['base_ref']) or '..' in task['base_ref']:
             raise ValueError('GitHub reported no usable base branch for this PR')
         return task
@@ -763,12 +765,14 @@ class Inbox:
             branch = 'review/outrider-' + suffix
             origin = next((r['repo'] for r in context['remotes'] if r['name'] == 'origin'), '')
             task = self.session_prompt(item, options, remote, origin, branch)
-            # Only a PR this user wrote, from a branch in the watched
-            # repository, may raise session trust or supply agent configuration.
-            authored = task['own'] and not task['fork']
+            # Only this user's own work may raise session trust or supply agent
+            # configuration: a PR they wrote, on a branch in the watched
+            # repository or in their own fork, which is where a fork workflow
+            # puts it. A fork belonging to anyone else stays untrusted.
+            authored = task['own'] and (not task['fork'] or task['head_mine'])
             trust = self.session_trust(item['repo'])
             if trust != 'inherit' and not authored:
-                reason = 'its head is in another repository' if task['own'] else 'it was written by ' + (task['author'] or 'someone else')
+                reason = 'its head is in a repository you do not own' if task['own'] else 'it was written by ' + (task['author'] or 'someone else')
                 self.log_event(f"{item['repo']}#{item['pr']}: session trust stays at Crew's own setting because {reason}", 'warning')
                 trust = 'inherit'
             base = ''

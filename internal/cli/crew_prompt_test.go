@@ -46,11 +46,12 @@ func TestCrewSessionPromptUsesExplicitConfigAndVerifiedFork(t *testing.T) {
 			cmd.SetIn(bytes.NewReader(encoded))
 			require.NoError(t, cmd.Execute())
 			var result struct {
-				Prompt  string `json:"prompt"`
-				Own     bool   `json:"own"`
-				Author  string `json:"author"`
-				Fork    bool   `json:"fork"`
-				BaseRef string `json:"base_ref"`
+				Prompt   string `json:"prompt"`
+				Own      bool   `json:"own"`
+				Author   string `json:"author"`
+				Fork     bool   `json:"fork"`
+				HeadMine bool   `json:"head_mine"`
+				BaseRef  string `json:"base_ref"`
 			}
 			require.NoError(t, json.Unmarshal(out.Bytes(), &result))
 			p := result.Prompt
@@ -58,6 +59,7 @@ func TestCrewSessionPromptUsesExplicitConfigAndVerifiedFork(t *testing.T) {
 			require.Equal(t, author == "me", result.Own)
 			require.Equal(t, author, result.Author)
 			require.False(t, result.Fork)
+			require.False(t, result.HeadMine) // the head is in o/r, not in me/…
 			require.Equal(t, "main", result.BaseRef)
 			require.Contains(t, p, "Repair API")
 			require.Contains(t, p, "issuecomment-2")
@@ -105,6 +107,15 @@ func TestForkHeadIsConservative(t *testing.T) {
 			require.Equal(t, tc.fork, forkHead(tc.repo, tc.pr))
 		})
 	}
+}
+
+func TestHeadMineSeparatesMyForkFromAnothers(t *testing.T) {
+	owner := func(login string) github.PR { return github.PR{HeadRepositoryOwner: &github.User{Login: login}} }
+	require.True(t, headMine("me", owner("Me")))
+	require.False(t, headMine("me", owner("someone")))
+	require.False(t, headMine("me", github.PR{}))
+	require.False(t, headMine("me", owner("")))
+	require.False(t, headMine("", owner("")))
 }
 
 func TestCrewImportPreservesPollingAndTaskPolicies(t *testing.T) {
