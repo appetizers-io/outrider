@@ -224,6 +224,7 @@ func TestProcessExistingLaunchesOnTheFirstRun(t *testing.T) {
 	h := newHub(t)
 	h.pr(1, "me")
 	h.notify("n1", 1, "t1")
+	h.activity["o/r#1"] = []map[string]any{act(1, "2026-01-03", "bob", "")}
 	p := h.poller("")
 	p.ProcessExisting = true
 	h.poll(p, emptyState(t))
@@ -255,6 +256,7 @@ func TestFailedLaunchKeepsNotificationPending(t *testing.T) {
 	h := newHub(t)
 	h.pr(1, "me")
 	h.notify("n1", 1, "t1")
+	h.activity["o/r#1"] = []map[string]any{act(1, "2026-01-03", "bob", "")}
 	h.launchOK = false
 	s := liveState(t)
 	p := h.poller("")
@@ -441,6 +443,7 @@ func TestDryRunChangesNothing(t *testing.T) {
 	h := newHub(t)
 	h.pr(1, "me")
 	h.notify("n1", 1, "t1")
+	h.activity["o/r#1"] = []map[string]any{act(1, "2026-01-03", "bob", "")}
 	s := liveState(t)
 	p := h.poller("")
 	p.DryRun = true
@@ -493,9 +496,95 @@ func TestNoCheckLaunchesWithoutGate(t *testing.T) {
 	h := newHub(t)
 	h.pr(1, "me")
 	h.notify("n1", 1, "t1")
+	h.activity["o/r#1"] = []map[string]any{act(1, "2026-01-03", "bob", "")}
 	h.poll(h.poller("triggers: {own_prs: {check: false}}"), liveState(t))
 	require.Len(t, h.launches, 1)
 	require.False(t, h.launches[0].hasGate)
+}
+
+// Opening a PR and pushing to it produce a notification but no review or
+// comment activity: ignore_own_activity is what keeps those quiet.
+func TestOwnPRIgnoresYourOwnActivity(t *testing.T) {
+	for _, tc := range []struct {
+		name, config, reason string
+		activity             []map[string]any
+		want                 int
+	}{
+		{name: "opened or pushed, nothing from anyone else", reason: "author"},
+		{name: "only my own comment", reason: "author", activity: []map[string]any{act(1, "2026-01-03", "ME", "")}},
+		{name: "someone else commented", reason: "author", activity: []map[string]any{act(1, "2026-01-03", "bob", "")}, want: 1},
+		{name: "CI result", reason: "ci_activity", want: 1},
+		{name: "turned off", config: "triggers: {own_prs: {ignore_own_activity: false}}", reason: "author", want: 1},
+		// NewerThan caps a never-judged PR at ten items, which must not hide
+		// the one comment that came from someone else.
+		{name: "someone else behind ten comments of mine", reason: "author", want: 1, activity: append(
+			[]map[string]any{act(1, "2026-01-01", "bob", "please fix")}, mineTimes(10)...)},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			h := newHub(t)
+			h.pr(1, "me")
+			h.notify("n1", 1, "t1", tc.reason)
+			h.activity["o/r#1"] = tc.activity
+			s := liveState(t)
+			h.poll(h.poller(tc.config), s)
+			require.Len(t, h.launches, tc.want)
+			require.Equal(t, map[string]string{"n1": "t1"}, s.Seen)
+			if tc.want == 0 {
+				// A comment arriving while the poll ran must still be judged.
+				require.Empty(t, s.Handled)
+			}
+		})
+	}
+}
+
+// mineTimes is n of my own comments, newest last.
+func mineTimes(n int) []map[string]any {
+	var out []map[string]any
+	for i := range n {
+		out = append(out, act(100+i, fmt.Sprintf("2026-02-%02d", i+1), "me", "wip"))
+	}
+	return out
+}
+
+// The launch check decides whether this notification is worth a session, and
+// a skip is recorded as handled. It must see the comment that made the
+// notification eligible, not only the ten newest items.
+func TestOwnPRGateSeesWhatMadeTheNotificationEligible(t *testing.T) {
+	h := newHub(t)
+	h.pr(1, "me")
+	h.notify("n1", 1, "t1")
+	h.activity["o/r#1"] = append([]map[string]any{act(1, "2026-01-01", "bob", "please fix")}, mineTimes(10)...)
+	h.poll(h.poller(""), liveState(t))
+	require.Len(t, h.launches, 1)
+	require.Contains(t, ids(h.launches[0].gated), int64(1))
+}
+
+// GitHub groups activity by kind, and the launch check reads its batch oldest
+// first, trimming the front away to fit its budget. An unsorted batch would
+// drop the newest review rather than the oldest comment.
+func TestOwnPRGateGetsChronologicalActivity(t *testing.T) {
+	h := newHub(t)
+	h.pr(1, "me")
+	h.notify("n1", 1, "t1")
+	// Fetched first, but newer than the conversation comment below.
+	h.reviewComments["o/r#1"] = []map[string]any{act(2, "2026-01-05", "bob", "inline")}
+	h.activity["o/r#1"] = []map[string]any{act(1, "2026-01-01", "bob", "comment")}
+	h.poll(h.poller(""), liveState(t))
+	require.Len(t, h.launches, 1)
+	require.Equal(t, []int64{1, 2}, ids(h.launches[0].gated))
+}
+
+// The gate must not see activity the filter already fetched as unchanged.
+func TestOwnPRGateReusesTheFetchedActivity(t *testing.T) {
+	h := newHub(t)
+	h.pr(1, "me")
+	h.notify("n1", 1, "t1")
+	h.activity["o/r#1"] = []map[string]any{act(1, "2026-01-01", "bob", ""), act(2, "2026-01-03", "bob", "")}
+	s := liveState(t)
+	s.Handled["o/r#1"] = "2026-01-02"
+	h.poll(h.poller(""), s)
+	require.Len(t, h.launches, 1)
+	require.Equal(t, []int64{2}, ids(h.launches[0].gated))
 }
 
 func TestIgnoreAuthorsOnOwnPR(t *testing.T) {

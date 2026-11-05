@@ -20,11 +20,17 @@ Any notification on a PR you authored: a review, a comment, a CI result. The
 launch check sees the activity since the last session on that PR and skips
 the ones with nothing to do.
 
+With `ignore_own_activity` a notification has to bring something from someone
+else. Opening a PR and pushing to it produce a notification but no review or
+comment activity at all, so neither starts a session, and neither do your own
+comments. A CI result still does: it reports a run, not something you wrote.
+
 ```yaml
 triggers:
   own_prs:
     enabled: true
-    check: true        # run the launch check first
+    check: true                # run the launch check first
+    ignore_own_activity: true  # your own pushes and comments stay quiet
 ```
 
 On the first live run, existing notifications on your own PRs are only

@@ -193,16 +193,37 @@ func (p *Poller) Poll(ctx context.Context, s *State) error {
 		}
 
 		t := s.Handled[k]
-		if len(ignore) > 0 {
+		// A CI result is not your activity: it reports a run, not something
+		// you wrote, so ignore_own_activity never suppresses one, and a CI
+		// notification needs no activity at all to be judged.
+		suppress := own.Triggers.OwnPRs.IgnoreOwnActivity && x.Reason != "ci_activity"
+		var newer []github.Activity
+		fetched := false
+		if len(ignore) > 0 || suppress {
 			items, err := p.GH.Activity(ctx, repo, n)
 			if err != nil {
 				continue
 			}
-			if items = NewerThan(items, t); len(items) > 0 && OnlyNoise(items, p.Login, ignore, false) {
-				p.Log.Info(k + ": only ignored authors; not launching")
+			newer, fetched = NewerThan(items, t), true
+			if t == "" {
+				// Never judged: NewerThan keeps the last ten items only, which
+				// can hide someone else's older comment behind ten newer ones
+				// of mine — from the decision below, and from the launch check
+				// that then has to weigh it. The classifier bounds its own
+				// request, so the whole unhandled history is safe to pass on,
+				// as long as it arrives oldest first like every other batch.
+				newer = ByTime(items)
+			}
+			// Without ignore_own_activity only a non-empty batch can be noise.
+			// With it, a notification needs something from someone else, and
+			// opening a PR or pushing to it brings no activity at all.
+			if OnlyNoise(newer, p.Login, ignore, suppress) && (len(newer) > 0 || suppress) {
+				p.Log.Info(k + ": nothing new from others; not launching")
 				if !p.DryRun {
+					// The handled cursor stays where it is: activity arriving
+					// while this ran would fall at or before a cursor taken
+					// now, and never be judged.
 					s.Seen[nid] = updated
-					s.Handled[k] = iso(p.Now())
 				}
 				continue
 			}
@@ -210,6 +231,9 @@ func (p *Poller) Poll(ctx context.Context, s *State) error {
 		var gate func(context.Context) ([]github.Activity, error)
 		if own.Triggers.OwnPRs.Check {
 			gate = func(ctx context.Context) ([]github.Activity, error) {
+				if fetched {
+					return newer, nil
+				}
 				items, err := p.GH.Activity(ctx, repo, n)
 				if err != nil {
 					return nil, fmt.Errorf("activity of %s: %w", k, err)

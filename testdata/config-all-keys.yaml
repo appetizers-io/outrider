@@ -33,6 +33,7 @@ triggers:
   own_prs:
     enabled: true
     check: true               # run launch_check first
+    ignore_own_activity: false
   opt_in:
     enabled: true
     reaction: eyes

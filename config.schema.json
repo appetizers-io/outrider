@@ -474,6 +474,11 @@
           "type": "boolean",
           "description": "Run the launch_check classifier before starting an agent (only when one is configured and available).",
           "default": true
+        },
+        "ignore_own_activity": {
+          "type": "boolean",
+          "description": "A notification that brings nothing from anyone else never launches, so opening the PR and your own pushes and comments stay quiet. CI results still launch.",
+          "default": true
         }
       },
       "additionalProperties": false,
