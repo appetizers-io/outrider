@@ -768,7 +768,8 @@ class LocalValidationTest(unittest.TestCase):
         self.gateway = FakeGateway()
         self.inbox = backend.Inbox(self.root / 'data', self.gateway)
         self.item = {'id': 'a' * 64, 'repo': 'o/r', 'head': 'b' * 40, 'pr': 2, 'url': 'https://github.com/o/r/pull/2', 'workflow': 'test', 'scope': None}
-        self.inbox.validations[self.item['id']] = {'status': 'preparing'}
+        # request_validation records the PR identity before dispatching.
+        self.inbox.validations[self.item['id']] = {'status': 'preparing', 'repo': 'o/r', 'pr': 2}
         self.task = {'prompt': 'Shared task. Run focused tests', 'own': True, 'fork': False, 'head_mine': False, 'author': 'me', 'base_ref': 'main'}
         self.prompt_patch = patch.object(self.inbox, 'session_prompt', side_effect=lambda *a, **kw: dict(self.task))
         self.prompt_mock = self.prompt_patch.start()
@@ -876,6 +877,94 @@ class LocalValidationTest(unittest.TestCase):
         self.assertTrue(record['worktree'].endswith('-retry-2'))
         create = next(payload for path, payload in self.calls if path == '/api/chat/slots')
         self.assertTrue(create['name'].endswith('-retry-2'))
+
+    def later_snapshot(self, head='c' * 40):
+        """The next snapshot of the same PR: a new item, a new head."""
+        item = dict(self.item, id='d' * 64, head=head)
+        self.inbox.validations[item['id']] = {'status': 'preparing', 'repo': item['repo'], 'pr': item['pr']}
+        original = self.git.side_effect
+        self.git.side_effect = lambda cwd, *a, **kw: head if a == ('rev-parse', 'refs/outrider/' + item['id']) else original(cwd, *a, **kw)
+        return item
+
+    def test_a_later_snapshot_of_a_pr_continues_its_session(self):
+        self.item['workflow'] = ''
+        self.inbox.validate_local(self.item, 'child', 'upstream', {})
+        self.calls.clear()
+        item = self.later_snapshot()
+        self.inbox.validate_local(item, 'child', 'upstream', {})
+        record = self.inbox.validations[item['id']]
+        self.assertEqual(record['status'], 'started')
+        # One chat for the PR, retargeted to the new snapshot's own worktree.
+        self.assertFalse(any(path == '/api/chat/slots' for path, _ in self.calls))
+        self.assertEqual(record['slot'], 'outrider-local-test')
+        self.assertNotEqual(record['worktree'], self.inbox.validations[self.item['id']]['worktree'])
+        project = next(payload for path, payload in self.calls if path.endswith('/project'))
+        self.assertEqual(project, {'project': record['worktree']})
+        message = next(payload for path, payload in self.calls if path == '/api/chat?ws=1')
+        self.assertEqual(message['slot'], 'outrider-local-test')
+        self.assertIn('already reviewed an earlier state', message['message'])
+        self.assertIn(item['head'], message['message'])
+        self.assertIn(self.inbox.validations[self.item['id']]['worktree'], message['message'])
+        self.assertTrue(any('Session continued' in event['message'] for event in self.inbox.events))
+
+    def test_a_closed_chat_is_replaced_instead_of_continued(self):
+        self.item['workflow'] = ''
+        self.inbox.validate_local(self.item, 'child', 'upstream', {})
+        item = self.later_snapshot()
+        gateway = self.gateway.call
+        def closed(path, payload=None):
+            if path.endswith('/project') and 'outrider-local-test' in path and not self.inbox.validations[item['id']].get('slot'):
+                self.calls.append((path, payload))
+                raise backend.GatewayRejected(404, path)
+            return gateway(path, payload)
+        self.gateway.call = closed
+        self.calls.clear()
+        self.inbox.validate_local(item, 'child', 'upstream', {})
+        self.assertEqual(self.inbox.validations[item['id']]['status'], 'started')
+        self.assertTrue(any(path == '/api/chat/slots' for path, _ in self.calls))
+        self.assertTrue(self.inbox.validations[self.item['id']]['session_missing'])
+        message = next(payload for path, payload in self.calls if path == '/api/chat?ws=1')
+        self.assertNotIn('already reviewed an earlier state', message['message'])
+
+    def test_a_session_is_never_continued_under_different_settings(self):
+        self.item['workflow'] = ''
+        self.inbox.config.update(session_trust={'o/r': 'trust'})
+        self.inbox.validate_local(self.item, 'child', 'upstream', {})
+        self.assertEqual(self.inbox.validations[self.item['id']]['trust'], 'trust')
+        for change in [lambda: self.inbox.config.update(session_trust={}),
+                       lambda: self.inbox.config.update(reviewers={'o/r': 'reviewer'})]:
+            with self.subTest(change=change):
+                self.inbox.config.update(session_trust={'o/r': 'trust'}, reviewers={})
+                change()
+                item = self.later_snapshot()
+                self.calls.clear()
+                self.inbox.validate_local(item, 'child', 'upstream', {})
+                self.assertEqual(self.inbox.validations[item['id']]['status'], 'started')
+                self.assertTrue(any(path == '/api/chat/slots' for path, _ in self.calls))
+                del self.inbox.validations[item['id']]
+
+    def test_a_session_from_before_this_change_is_never_continued(self):
+        """Its record cannot prove the trust mode its chat was created with."""
+        self.item['workflow'] = ''
+        self.inbox.validate_local(self.item, 'child', 'upstream', {})
+        for key in ['trust', 'reviewer']:
+            with self.subTest(missing=key):
+                old = self.inbox.validations[self.item['id']].pop(key)
+                item = self.later_snapshot()
+                self.calls.clear()
+                self.inbox.validate_local(item, 'child', 'upstream', {})
+                self.assertTrue(any(path == '/api/chat/slots' for path, _ in self.calls))
+                self.inbox.validations[self.item['id']][key] = old
+                del self.inbox.validations[item['id']]
+
+    def test_another_pr_never_continues_this_session(self):
+        self.item['workflow'] = ''
+        self.inbox.validate_local(self.item, 'child', 'upstream', {})
+        item = self.later_snapshot()
+        item['pr'] = 3
+        self.calls.clear()
+        self.inbox.validate_local(item, 'child', 'upstream', {})
+        self.assertTrue(any(path == '/api/chat/slots' for path, _ in self.calls))
 
     def test_wrong_remote_never_creates_worktree_or_chat(self):
         self.inbox.validate_local(self.item, 'child', 'origin', {})

@@ -84,6 +84,12 @@ sessions are off. Manual requests use matching `opt_in` workflows without adding
 a GitHub reaction or changing your subscriptions. The usual ownership rules,
 reviewer, trust, and session limit apply.
 
+A pull request keeps one chat. When it moves on and a later snapshot starts a
+review, that chat is retargeted to the new snapshot's worktree and continues
+there, so the earlier review stays in context and the worktree of each review is
+kept for inspection. A new chat is created instead when the old one was closed,
+or when the Crew folder, reviewer or session trust for the repository changed.
+
 An active session for the PR prevents a duplicate. Repeating an unchanged manual
 capture reuses its queue item; completed or failed work remains linked for explicit
 inspection/retry. If the session limit is reached, the item stays queued; start it
