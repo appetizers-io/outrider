@@ -1,8 +1,8 @@
 {
   "name": "outrider",
-  "version": "0.2.1",
+  "version": "0.2.2",
   "displayName": "Outrider",
-  "description": "Outrider watches GitHub and starts PR review sessions in Kiro Crew. It picks up the activity that needs you — your own PRs, mentions, review replies and PRs you opt into with a reaction — and brings each one into the Crew folder you already review in.",
+  "description": "Outrider watches GitHub and starts PR review sessions in Kiro Crew. It picks up the activity that needs you \u2014 your own PRs, mentions, review replies and PRs you opt into with a reaction \u2014 and brings each one into the Crew folder you already review in.",
   "author": "appetizers-io",
   "agents": [
     "agents/reviewer.json",
