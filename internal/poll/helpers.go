@@ -33,11 +33,18 @@ func OnlyNoise(items []github.Activity, login string, ignore config.Globs, mineT
 	return true
 }
 
+// ByTime is items oldest first, leaving the input untouched. GitHub returns
+// activity grouped by kind: reviews, then inline comments, then conversation.
+func ByTime(items []github.Activity) []github.Activity {
+	ordered := slices.Clone(items)
+	slices.SortStableFunc(ordered, func(a, b github.Activity) int { return cmp.Compare(a.At, b.At) })
+	return ordered
+}
+
 // NewerThan is the activity newer than t, oldest first (all of it, capped to
 // the last ten, when never judged).
 func NewerThan(items []github.Activity, t string) []github.Activity {
-	ordered := slices.Clone(items)
-	slices.SortStableFunc(ordered, func(a, b github.Activity) int { return cmp.Compare(a.At, b.At) })
+	ordered := ByTime(items)
 	if t == "" {
 		return ordered[max(0, len(ordered)-10):]
 	}

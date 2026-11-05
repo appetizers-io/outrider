@@ -559,6 +559,21 @@ func TestOwnPRGateSeesWhatMadeTheNotificationEligible(t *testing.T) {
 	require.Contains(t, ids(h.launches[0].gated), int64(1))
 }
 
+// GitHub groups activity by kind, and the launch check reads its batch oldest
+// first, trimming the front away to fit its budget. An unsorted batch would
+// drop the newest review rather than the oldest comment.
+func TestOwnPRGateGetsChronologicalActivity(t *testing.T) {
+	h := newHub(t)
+	h.pr(1, "me")
+	h.notify("n1", 1, "t1")
+	// Fetched first, but newer than the conversation comment below.
+	h.reviewComments["o/r#1"] = []map[string]any{act(2, "2026-01-05", "bob", "inline")}
+	h.activity["o/r#1"] = []map[string]any{act(1, "2026-01-01", "bob", "comment")}
+	h.poll(h.poller(""), liveState(t))
+	require.Len(t, h.launches, 1)
+	require.Equal(t, []int64{1, 2}, ids(h.launches[0].gated))
+}
+
 // The gate must not see activity the filter already fetched as unchanged.
 func TestOwnPRGateReusesTheFetchedActivity(t *testing.T) {
 	h := newHub(t)

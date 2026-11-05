@@ -210,8 +210,9 @@ func (p *Poller) Poll(ctx context.Context, s *State) error {
 				// can hide someone else's older comment behind ten newer ones
 				// of mine — from the decision below, and from the launch check
 				// that then has to weigh it. The classifier bounds its own
-				// request, so the whole unhandled history is safe to pass on.
-				newer = items
+				// request, so the whole unhandled history is safe to pass on,
+				// as long as it arrives oldest first like every other batch.
+				newer = ByTime(items)
 			}
 			// Without ignore_own_activity only a non-empty batch can be noise.
 			// With it, a notification needs something from someone else, and
