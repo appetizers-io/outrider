@@ -205,16 +205,18 @@ func (p *Poller) Poll(ctx context.Context, s *State) error {
 				continue
 			}
 			newer, fetched = NewerThan(items, t), true
-			// Never judged: NewerThan keeps the last ten items only, which can
-			// hide someone else's older comment behind ten newer ones of mine.
-			decide := newer
 			if t == "" {
-				decide = items
+				// Never judged: NewerThan keeps the last ten items only, which
+				// can hide someone else's older comment behind ten newer ones
+				// of mine — from the decision below, and from the launch check
+				// that then has to weigh it. The classifier bounds its own
+				// request, so the whole unhandled history is safe to pass on.
+				newer = items
 			}
 			// Without ignore_own_activity only a non-empty batch can be noise.
 			// With it, a notification needs something from someone else, and
 			// opening a PR or pushing to it brings no activity at all.
-			if OnlyNoise(decide, p.Login, ignore, suppress) && (len(decide) > 0 || suppress) {
+			if OnlyNoise(newer, p.Login, ignore, suppress) && (len(newer) > 0 || suppress) {
 				p.Log.Info(k + ": nothing new from others; not launching")
 				if !p.DryRun {
 					// The handled cursor stays where it is: activity arriving

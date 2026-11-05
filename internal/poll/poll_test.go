@@ -546,6 +546,19 @@ func mineTimes(n int) []map[string]any {
 	return out
 }
 
+// The launch check decides whether this notification is worth a session, and
+// a skip is recorded as handled. It must see the comment that made the
+// notification eligible, not only the ten newest items.
+func TestOwnPRGateSeesWhatMadeTheNotificationEligible(t *testing.T) {
+	h := newHub(t)
+	h.pr(1, "me")
+	h.notify("n1", 1, "t1")
+	h.activity["o/r#1"] = append([]map[string]any{act(1, "2026-01-01", "bob", "please fix")}, mineTimes(10)...)
+	h.poll(h.poller(""), liveState(t))
+	require.Len(t, h.launches, 1)
+	require.Contains(t, ids(h.launches[0].gated), int64(1))
+}
+
 // The gate must not see activity the filter already fetched as unchanged.
 func TestOwnPRGateReusesTheFetchedActivity(t *testing.T) {
 	h := newHub(t)
