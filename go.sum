@@ -15,6 +15,8 @@ github.com/dlclark/regexp2/v2 v2.9.1 h1:q6bZW/NN9VodqMjYXpuic2lZxdHPfFTzGS+MJxIJ
 github.com/dlclark/regexp2/v2 v2.9.1/go.mod h1:avUrQvPaLz2DrFNHJF0taWAFFX2C1GMSSoeiqFjcBmU=
 github.com/dlclark/regexp2/v2 v2.12.0 h1:GsCgDZZeHluUDHASr2yqQonZk4Tma5LFmLH9CSsFFEE=
 github.com/dlclark/regexp2/v2 v2.12.0/go.mod h1:avUrQvPaLz2DrFNHJF0taWAFFX2C1GMSSoeiqFjcBmU=
+github.com/dlclark/regexp2/v2 v2.13.0 h1:sGPfGE1Bx7H3F9vcCdLrKUFvnau7DGiQZxHPQ6rMMs4=
+github.com/dlclark/regexp2/v2 v2.13.0/go.mod h1:avUrQvPaLz2DrFNHJF0taWAFFX2C1GMSSoeiqFjcBmU=
 github.com/gobwas/glob v1.0.0 h1:p+FKbLEIsK1yZ39/OINwFvqNb5oyPY4H8xcy6uYu8dg=
 github.com/gobwas/glob v1.0.0/go.mod h1:oWCdo522i2P1n/hMXGNWs7yoV4wy/ciZuUIbvKj5rkc=
 github.com/gobwas/glob v1.1.0 h1:CS8tIr7+5fu50N+tKsQy3osOU5jmhjHv0/ildcKAn2Q=
