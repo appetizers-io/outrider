@@ -16,6 +16,7 @@ network access, so gh and git fetch can't reach GitHub; do not try to
 work around it.
 - the PR context was fetched for you into /s/pr-context:
   - pr.json: metadata, description, files, commits, reviews, conversation comments, checks
+  - pr-files.txt: every changed file with its status and line counts, complete where pr.json's list is cut
   - pr.diff: the diff
   - review-comments.json: inline review comments; in_reply_to_id links a reply to its thread
   - failing-checks.json: the failed checks, with links

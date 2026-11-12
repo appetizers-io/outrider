@@ -168,6 +168,13 @@ member whose approval behaviour you want, and leave trust at Inherit Crew.
 cannot inspect the checkout or run tests. Its fixed reviewer policy blocks tools;
 truncated captures are marked. Use local sessions for repository validation.
 
+A capture carries the pull request's complete file list, with status and line
+counts, even for a pull request too large for GitHub to render a diff for — the
+patches then come from the pull request files API. The task has room for a
+bounded slice of them; it is cut between two files, never inside a hunk, and
+marked with how many of the changed files it covers, so a review of a large
+pull request knows what it has not seen.
+
 ## Bring an existing Outrider configuration
 
 In **Repositories → Import CLI configuration**, load the default config, select a

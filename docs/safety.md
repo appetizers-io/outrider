@@ -29,9 +29,17 @@ someone else authored. The default is `off`.
 
 Before the agent starts, outrider fetches the PR context into
 `<session>/pr-context/`: `pr.json` (metadata, reviews, conversation comments,
-checks), `pr.diff`, `review-comments.json` (inline threads) and
-`failing-checks.json`. The prompt points the agent there, since `gh` can't
-reach GitHub from inside the sandbox.
+checks), `pr-files.txt` (every changed file with its status and line counts),
+`pr.diff`, `review-comments.json` (inline threads) and `failing-checks.json`.
+The prompt points the agent there, since `gh` can't reach GitHub from inside
+the sandbox.
+
+GitHub renders no diff for a pull request with more than 300 files, and
+`pr.json` lists at most 100 of them. Above either limit outrider reads the pull
+request files API instead: `pr-files.txt` stays complete, and `pr.diff` is
+rebuilt from the per-file patches, with a note naming the files whose patch
+GitHub leaves out (binary, or individually too large). Each file is capped at
+2 MiB and says so where it was cut.
 
 `read-only` means `push: never` and `github_writes: never`. A config that sets
 either to something else, or `others_prs.allow_push: true` together with a
