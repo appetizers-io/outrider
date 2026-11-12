@@ -150,7 +150,7 @@ func TestAShortFileListLeavesTheDiffItsFullBudget(t *testing.T) {
 	r.Equal("0 changed files, +0 -0\n", part(item.Prompt, "pr-files.txt"))
 }
 
-func TestFitCutsTextWithoutFileSectionsBluntly(t *testing.T) {
+func TestFitSaysHowMuchOfTheDiffSurvived(t *testing.T) {
 	r := require.New(t)
 	text, cut := fit("short", 10)
 	r.Equal("short", text)
@@ -158,11 +158,16 @@ func TestFitCutsTextWithoutFileSectionsBluntly(t *testing.T) {
 	text, cut = fit("0123456789abc", 10)
 	r.Equal("0123456789\n[TRUNCATED]", text)
 	r.True(cut)
-	// One file section can't be cut into, so it is truncated like plain text.
-	one := fileSection[1:] + "a/x b/x\n@@\n" + strings.Repeat("+x\n", 100)
-	text, _ = fit(one, 30)
-	r.Contains(text, "\n[TRUNCATED]")
-	r.NotContains(text, "changed files]")
+	// A single file, or a first file longer than the budget, has no boundary to
+	// cut at, so the marker says the cut landed inside it.
+	one := fileSection[1:] + "a/x b/x\n@@ -1 +1 @@\n" + strings.Repeat("+x\n", 100)
+	text, _ = fit(one, 40)
+	r.Equal(fileSection[1:]+"a/x b/x\n@@ -1 +1 @@\n+x\n+x\n+x\n[TRUNCATED: part of the first of 1 changed files]", text)
+	text, _ = fit(one+one, 40)
+	r.Contains(text, "[TRUNCATED: part of the first of 2 changed files]")
+	// Two files, one of which fits: the cut is a file boundary.
+	text, _ = fit(one+one, 400)
+	r.True(strings.HasSuffix(text, "+x\n[TRUNCATED: the first 1 of 2 changed files]"), text[len(text)-60:])
 }
 
 func TestMovedHeadDoesNotQueue(t *testing.T) {

@@ -171,9 +171,10 @@ truncated captures are marked. Use local sessions for repository validation.
 A capture carries the pull request's complete file list, with status and line
 counts, even for a pull request too large for GitHub to render a diff for — the
 patches then come from the pull request files API. The task has room for a
-bounded slice of them; it is cut between two files, never inside a hunk, and
-marked with how many of the changed files it covers, so a review of a large
-pull request knows what it has not seen.
+bounded slice of them, cut between two files wherever a whole file fits. The
+marker names how many of the changed files the task carries, and says so
+explicitly when even the first file was too long to fit and the cut landed
+inside it, so a review of a large pull request knows what it has not seen.
 
 ## Bring an existing Outrider configuration
 

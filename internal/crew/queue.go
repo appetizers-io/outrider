@@ -247,8 +247,8 @@ func (s *Scanner) Capture(ctx context.Context, r session.Request, cfg config.Con
 const fileSection = "\ndiff --git "
 
 // fit cuts text to limit and tells whether it had to. A diff is cut between
-// two files, never inside a hunk, and says how many of its files survived: a
-// reviewer of a large PR has to know how much of it the snapshot carries.
+// two files wherever a whole file fits, and the marker always says how much of
+// the PR is left: a reviewer of a large PR has to know what it never saw.
 func fit(text string, limit int) (string, bool) {
 	if len(text) <= limit {
 		return text, false
@@ -257,13 +257,18 @@ func fit(text string, limit int) (string, bool) {
 	// A leading newline lets one count catch a first section that starts the
 	// text and one that follows another line.
 	files := strings.Count("\n"+text, fileSection)
-	if cut := strings.LastIndex(head, fileSection); files > 1 && cut > 0 {
-		head = head[:cut] // the newline at cut terminates the last kept line
-		return head + fmt.Sprintf("\n[TRUNCATED: the first %d of %d changed files]", strings.Count("\n"+head, fileSection), files), true
+	cut := strings.LastIndex(head, fileSection)
+	if kept := head[:max(cut, 0)]; cut > 0 && strings.Count("\n"+kept, fileSection) > 0 {
+		// The newline at cut terminates the last kept line.
+		return kept + fmt.Sprintf("\n[TRUNCATED: the first %d of %d changed files]", strings.Count("\n"+kept, fileSection), files), true
 	}
 	// A cut path or JSON key reads like a real one, so keep whole lines.
-	if cut := strings.LastIndexByte(head, '\n'); cut > 0 {
-		head = head[:cut]
+	if end := strings.LastIndexByte(head, '\n'); end > 0 {
+		head = head[:end]
+	}
+	if files > 0 {
+		// Not even the first file fits, so this cut does land inside its hunks.
+		return head + fmt.Sprintf("\n[TRUNCATED: part of the first of %d changed files]", files), true
 	}
 	return head + "\n[TRUNCATED]", true
 }

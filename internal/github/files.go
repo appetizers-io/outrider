@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strconv"
 	"strings"
 
 	"github.com/appetizers-io/outrider/internal/proc"
@@ -51,9 +52,10 @@ type changedFile struct {
 }
 
 // diffRefusals are how gh reports that GitHub will not render a diff this
-// large: the REST error it prints first, then its GraphQL fallback's own word
-// for the same limit.
-var diffRefusals = []string{"exceeded the maximum number of files", "too_large"}
+// large: the REST error it prints first, then its GraphQL fallback's own
+// message for the same limit. Both are matched in full, so an unrelated
+// failure that happens to carry the word keeps its own error.
+var diffRefusals = []string{"the diff exceeded the maximum number of files", "PullRequest.diff too_large"}
 
 // tooManyFiles tells whether gh failed because the PR has more files than
 // GitHub renders a diff for. That failure is permanent, so retrying is
@@ -99,6 +101,18 @@ func fromAPI(files []apiFile) []changedFile {
 	return out
 }
 
+// quotePath renders prefix+path the way git renders a path in a diff header:
+// one carrying a control character, a quote or a backslash is C-quoted as a
+// whole. A file named with a newline would otherwise write a line of its own
+// into untrusted context and could forge a diff header or an outrider note.
+func quotePath(prefix, path string) string {
+	special := func(r rune) bool { return r < ' ' || r == 0x7f || r == '"' || r == '\\' }
+	if strings.ContainsFunc(path, special) {
+		return strconv.Quote(prefix + path)
+	}
+	return prefix + path
+}
+
 // fileList renders one line per changed file and the totals. A reviewer needs
 // it on its own because pr.json lists at most 100 files and the diff of a
 // large PR is cut long before its last file.
@@ -114,7 +128,7 @@ func fileList(files []changedFile) string {
 		fmt.Fprintf(&b, "[outrider: GitHub lists at most %d files; a longer pull request is cut here]\n", apiFileCap)
 	}
 	for _, f := range files {
-		fmt.Fprintf(&b, "%-9s +%-6d -%-6d %s\n", f.Status, f.Additions, f.Deletions, f.Path)
+		fmt.Fprintf(&b, "%-9s +%-6d -%-6d %s\n", f.Status, f.Additions, f.Deletions, quotePath("", f.Path))
 	}
 	return b.String()
 }
@@ -132,16 +146,16 @@ func rebuildDiff(files []apiFile) string {
 		}
 		// Every branch below ends its text with a newline, so each section
 		// starts on its own line as it does in a diff GitHub renders.
-		fmt.Fprintf(&b, "diff --git a/%s b/%s\n", old, f.Filename)
+		fmt.Fprintf(&b, "diff --git %s %s\n", quotePath("a/", old), quotePath("b/", f.Filename))
 		if f.Previous != "" {
-			fmt.Fprintf(&b, "rename from %s\nrename to %s\n", f.Previous, f.Filename)
+			fmt.Fprintf(&b, "rename from %s\nrename to %s\n", quotePath("", f.Previous), quotePath("", f.Filename))
 		}
 		if f.Patch == "" {
 			fmt.Fprintf(&b, "[outrider: GitHub returned no patch for this file (%s, +%d -%d): it is binary or its own diff is too large]\n",
 				f.Status, f.Additions, f.Deletions)
 			continue
 		}
-		from, to := "a/"+old, "b/"+f.Filename
+		from, to := quotePath("a/", old), quotePath("b/", f.Filename)
 		if f.Status == "added" {
 			from = "/dev/null"
 		}
