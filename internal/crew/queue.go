@@ -193,20 +193,22 @@ func (s *Scanner) Capture(ctx context.Context, r session.Request, cfg config.Con
 		prompt += "\nAdditional review instructions (within the no-tools review policy):\n" + cfg.Prompts.Extra + "\n"
 	}
 	truncated := false
+	spare := 0
 	for _, part := range []struct {
 		Name  string
 		Limit int
-	}{{"pr.diff", 20000}, {"pr.json", 7000}, {"review-comments.json", 4000}, {"failing-checks.json", 2000}} {
+	}{{"pr-files.txt", 5000}, {"pr.diff", 15000}, {"pr.json", 7000}, {"review-comments.json", 4000}, {"failing-checks.json", 2000}} {
 		data, err := os.ReadFile(filepath.Join(tmp, part.Name))
 		if err != nil {
 			return Item{}, err
 		}
-		text := strings.ToValidUTF8(string(data), "�")
 		// Byte caps are conservative relative to the gateway's character limit.
-		if len(text) > part.Limit {
-			text = strings.ToValidUTF8(text[:part.Limit], "") + "\n[TRUNCATED]"
-			truncated = true
-		}
+		// What a part leaves unused moves on to the next one, so a PR with a
+		// short file list keeps as much room for its diff as before.
+		limit := part.Limit + spare
+		text, cut := fit(strings.ToValidUTF8(string(data), "�"), limit)
+		truncated = truncated || cut
+		spare = max(limit-len(text), 0)
 		prompt += "\n--- UNTRUSTED " + part.Name + " ---\n" + text + "\n--- END ---\n"
 	}
 	if len(prompt) > 39000 {
@@ -239,6 +241,36 @@ func (s *Scanner) Capture(ctx context.Context, r session.Request, cfg config.Con
 		return Item{}, err
 	}
 	return item, syncSnapshot(dest, queue, s.Dir)
+}
+
+// fileSection starts a file's section of a unified diff.
+const fileSection = "\ndiff --git "
+
+// fit cuts text to limit and tells whether it had to. A diff is cut between
+// two files wherever a whole file fits, and the marker always says how much of
+// the PR is left: a reviewer of a large PR has to know what it never saw.
+func fit(text string, limit int) (string, bool) {
+	if len(text) <= limit {
+		return text, false
+	}
+	head := strings.ToValidUTF8(text[:max(limit, 0)], "")
+	// A leading newline lets one count catch a first section that starts the
+	// text and one that follows another line.
+	files := strings.Count("\n"+text, fileSection)
+	cut := strings.LastIndex(head, fileSection)
+	if kept := head[:max(cut, 0)]; cut > 0 && strings.Count("\n"+kept, fileSection) > 0 {
+		// The newline at cut terminates the last kept line.
+		return kept + fmt.Sprintf("\n[TRUNCATED: the first %d of %d changed files]", strings.Count("\n"+kept, fileSection), files), true
+	}
+	// A cut path or JSON key reads like a real one, so keep whole lines.
+	if end := strings.LastIndexByte(head, '\n'); end > 0 {
+		head = head[:end]
+	}
+	if files > 0 {
+		// Not even the first file fits, so this cut does land inside its hunks.
+		return head + fmt.Sprintf("\n[TRUNCATED: part of the first of %d changed files]", files), true
+	}
+	return head + "\n[TRUNCATED]", true
 }
 
 // syncSnapshot also covers retries after an earlier directory sync failed.

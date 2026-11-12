@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"log/slog"
 	"os"
@@ -69,6 +70,106 @@ func TestSnapshotIsBoundedScopedAndIdempotent(t *testing.T) {
 	require.Equal(t, "https://github.com/o/r/pull/1", item.URL)
 	require.Equal(t, item.ID+".json", filepath.Base(paths[0]))
 }
+
+// A PR above GitHub's 300-file diff limit used to fail every scan.
+func TestSnapshotCapturesAPRGitHubRendersNoDiffFor(t *testing.T) {
+	r := require.New(t)
+	s := fixture(t, "", false)
+	const count = 400
+	api := []map[string]any{}
+	for i := range count {
+		api = append(api, map[string]any{"filename": fmt.Sprintf("dir/file%03d.go", i), "status": "modified",
+			"additions": 2, "deletions": 1,
+			"patch": "@@ -1,2 +1,2 @@\n-" + strings.Repeat("o", 60) + "\n+" + strings.Repeat("n", 60) + "\n"})
+	}
+	page, err := json.Marshal([][]map[string]any{api})
+	r.NoError(err)
+	// gh pr view reports only the first 100 files of such a PR.
+	view, err := json.Marshal(map[string]any{"headRefOid": "abc", "state": "OPEN", "title": "test",
+		"statusCheckRollup": []any{}, "files": make([]map[string]any, 100)})
+	r.NoError(err)
+	inner := s.GH.Run
+	s.GH.Run = func(ctx context.Context, c proc.Cmd) (proc.Result, error) {
+		args := strings.Join(c.Args, " ")
+		switch {
+		case strings.Contains(args, "--json headRefOid"):
+			return proc.Result{Stdout: `{"headRefOid":"abc"}`}, nil
+		case strings.Contains(args, "pr view"):
+			return proc.Result{Stdout: string(view)}, nil
+		case strings.Contains(args, "pr diff"):
+			return proc.Result{Code: 1}, &proc.Error{Args: c.Args, Code: 1, Stderr: "could not find pull request diff: " +
+				"HTTP 406: Sorry, the diff exceeded the maximum number of files (300).\nPullRequest.diff too_large"}
+		case strings.Contains(args, "/files?per_page=100"):
+			return proc.Result{Stdout: string(page)}, nil
+		default:
+			return inner(ctx, c)
+		}
+	}
+	r.NoError(s.Enqueue(t.Context(), request()))
+	paths, err := filepath.Glob(filepath.Join(s.Dir, "queue", "*.json"))
+	r.NoError(err)
+	r.Len(paths, 1)
+	raw, err := os.ReadFile(paths[0])
+	r.NoError(err)
+	var item Item
+	r.NoError(json.Unmarshal(raw, &item))
+	r.True(item.Truncated)
+	r.Less(len(item.Prompt), 39000)
+	// The complete file list is in the prompt, so the reviewer sees the scale.
+	r.Contains(item.Prompt, fmt.Sprintf("%d changed files, +800 -400", count))
+	// The diff is cut between two files, never inside a hunk.
+	diff := part(item.Prompt, "pr.diff")
+	sections := strings.Count("\n"+diff, fileSection)
+	r.Greater(sections, 20)
+	r.Contains(diff, fmt.Sprintf("[TRUNCATED: the first %d of %d changed files]", sections, count))
+	kept, _, _ := strings.Cut(diff, "[TRUNCATED")
+	r.True(strings.HasSuffix(kept, "+"+strings.Repeat("n", 60)+"\n"), "a cut section would leave a half hunk")
+}
+
+// part is the text of one prompt section.
+func part(prompt, name string) string {
+	_, rest, _ := strings.Cut(prompt, "--- UNTRUSTED "+name+" ---\n")
+	text, _, _ := strings.Cut(rest, "\n--- END ---")
+	return text
+}
+
+// 19000 bytes of diff fit only because the short file list passes its unused
+// budget on.
+func TestAShortFileListLeavesTheDiffItsFullBudget(t *testing.T) {
+	r := require.New(t)
+	s := fixture(t, strings.Repeat("x", 19000), false)
+	r.NoError(s.Enqueue(t.Context(), request()))
+	paths, err := filepath.Glob(filepath.Join(s.Dir, "queue", "*.json"))
+	r.NoError(err)
+	raw, err := os.ReadFile(paths[0])
+	r.NoError(err)
+	var item Item
+	r.NoError(json.Unmarshal(raw, &item))
+	r.False(item.Truncated)
+	r.Equal(strings.Repeat("x", 19000), part(item.Prompt, "pr.diff"))
+	r.Equal("0 changed files, +0 -0\n", part(item.Prompt, "pr-files.txt"))
+}
+
+func TestFitSaysHowMuchOfTheDiffSurvived(t *testing.T) {
+	r := require.New(t)
+	text, cut := fit("short", 10)
+	r.Equal("short", text)
+	r.False(cut)
+	text, cut = fit("0123456789abc", 10)
+	r.Equal("0123456789\n[TRUNCATED]", text)
+	r.True(cut)
+	// A single file, or a first file longer than the budget, has no boundary to
+	// cut at, so the marker says the cut landed inside it.
+	one := fileSection[1:] + "a/x b/x\n@@ -1 +1 @@\n" + strings.Repeat("+x\n", 100)
+	text, _ = fit(one, 40)
+	r.Equal(fileSection[1:]+"a/x b/x\n@@ -1 +1 @@\n+x\n+x\n+x\n[TRUNCATED: part of the first of 1 changed files]", text)
+	text, _ = fit(one+one, 40)
+	r.Contains(text, "[TRUNCATED: part of the first of 2 changed files]")
+	// Two files, one of which fits: the cut is a file boundary.
+	text, _ = fit(one+one, 400)
+	r.True(strings.HasSuffix(text, "+x\n[TRUNCATED: the first 1 of 2 changed files]"), text[len(text)-60:])
+}
+
 func TestMovedHeadDoesNotQueue(t *testing.T) {
 	s := fixture(t, "diff", true)
 	require.ErrorContains(t, s.Enqueue(t.Context(), request()), "head changed")
