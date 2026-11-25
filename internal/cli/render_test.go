@@ -119,11 +119,39 @@ func TestRenderRefusesUnknownInput(t *testing.T) {
 		{[]string{"--repo", "other.example/o/r", "--pr", "7"}, "no forge for host other.example"},
 		{[]string{"--repo", "forge.example/o/r", "--pr", "0"}, "--pr must be"},
 		{[]string{"--repo", "forge.example/o/r", "--pr", "7", "--workflow", "nope"}, `no workflow "nope"`},
+		{[]string{"--repo", "forge.example/o/r", "--pr", "7", "--workspace", "writable"}, `--workspace "writable": want readonly or disposable`},
 	} {
 		res := cli(t, d, append([]string{"render", "--config", cfg, "--context-dir", dir}, c.args...)...)
 		require.Equal(t, 1, res.code)
 		require.Contains(t, res.stderr, c.want)
 	}
+}
+
+// --workspace disposable lets the agent edit and test in its working
+// directory; the default is the read-only prompt.
+func TestRenderWorkspace(t *testing.T) {
+	r := require.New(t)
+	d, cfg, _ := renderSetup(t, forgeToken)
+	prompt := func(args ...string) string {
+		res := cli(t, d, append([]string{"render", "--config", cfg, "--repo", "forge.example/o/r", "--pr", "7",
+			"--workflow", "pipeline-review", "--context-dir", t.TempDir(), "--prompt-context-dir", "/agent/ctx"}, args...)...)
+		r.Equal(0, res.code, res.stderr)
+		var got struct {
+			Prompt string `json:"prompt"`
+		}
+		r.NoError(json.Unmarshal([]byte(res.stdout), &got))
+		return got.Prompt
+	}
+	readonly := prompt()
+	r.Equal(readonly, prompt("--workspace", "readonly"))
+	r.Contains(readonly, "READ-ONLY, OFFLINE")
+	r.NotContains(readonly, "DISPOSABLE")
+
+	disposable := prompt("--workspace", "disposable")
+	r.Contains(disposable, "DISPOSABLE WORKSPACE, OFFLINE")
+	r.Contains(disposable, "you may create and edit files and run local tests and scripts in it.")
+	r.Contains(disposable, "FORGEJO: read-only in this session.")
+	r.NotContains(disposable, "READ-ONLY, OFFLINE")
 }
 
 // The prompt cites the agent's path, whatever OS renders it.

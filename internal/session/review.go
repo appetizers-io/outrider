@@ -72,13 +72,20 @@ func (l *Launcher) review(r Request, cfg *config.Config, dir string, readonly bo
 		result.Tests = "off"
 	}
 	if readonly && result.Tests == "local" {
-		result.Notes = append(result.Notes, "offline tests require a warm cache; sandbox writes remain forbidden")
+		if l.disposable {
+			result.Notes = append(result.Notes, "offline tests require a warm cache; write and run them only in the disposable working directory")
+		} else {
+			result.Notes = append(result.Notes, "offline tests require a warm cache; sandbox writes remain forbidden")
+		}
 	}
 	if p.Evidence.Comments == "draft" {
 		result.Comments = "draft"
-		if readonly {
+		switch {
+		case readonly && l.disposable:
+			result.Notes = append(result.Notes, "no outbox: drafts stay in the transcript")
+		case readonly:
 			result.Notes = append(result.Notes, "read-only sandbox: drafts stay in the transcript")
-		} else {
+		default:
 			result.Outbox = filepath.Join(dir, "outbox")
 			if err := os.MkdirAll(result.Outbox, 0o700); err != nil {
 				return nil, err
@@ -170,11 +177,12 @@ func (l *Launcher) reviewContext(ctx context.Context, r Request, cfg *config.Con
 	return l.forge().SaveReviewContext(ctx, r.Repo, r.N, worktree, requested.Issues, requested.Docs, review.Context)
 }
 
-// ReviewFor resolves the review profile of a PR whose session runs read-only
+// ReviewFor resolves the review profile of a PR whose session runs offline
 // outside outrider (`outrider render`): drafts stay in the transcript and
-// e2e tests are off. configSource locates playbooks; login is whose PR
-// review profiles never apply to.
-func ReviewFor(r Request, cfg *config.Config, configSource, login, dir string) (*Review, error) {
-	l := &Launcher{ConfigSource: configSource, Login: login}
+// e2e tests are off. The session is read-only, or with disposable it works in
+// a throwaway copy of the PR head. configSource locates playbooks; login is
+// whose PR review profiles never apply to.
+func ReviewFor(r Request, cfg *config.Config, configSource, login, dir string, disposable bool) (*Review, error) {
+	l := &Launcher{ConfigSource: configSource, Login: login, disposable: disposable}
 	return l.review(r, cfg, dir, true)
 }
