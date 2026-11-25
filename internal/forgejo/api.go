@@ -81,7 +81,7 @@ func (c *API) get(ctx context.Context, path string, query url.Values) ([]byte, h
 		return nil, nil, fmt.Errorf("forge %s: GET %s: response larger than %d bytes", c.Host, path, maxResponse)
 	}
 	if resp.StatusCode/100 != 2 {
-		return nil, nil, &apiError{Status: resp.StatusCode, msg: fmt.Sprintf("forge %s: GET %s: %s%s", c.Host, path, resp.Status, c.redact(serverMessage(body)))}
+		return nil, nil, &apiError{Status: resp.StatusCode, msg: fmt.Sprintf("forge %s: GET %s: %s%s", c.Host, path, resp.Status, serverMessage(body, c.redact))}
 	}
 	return body, resp.Header, nil
 }
@@ -96,8 +96,9 @@ func unwrapURLError(err error) string {
 	return err.Error()
 }
 
-// serverMessage is the message of an error response, short.
-func serverMessage(body []byte) string {
+// serverMessage is the message of an error response, redacted before it
+// is cut short so no part of the token survives the cut.
+func serverMessage(body []byte, redact func(string) string) string {
 	var m struct {
 		Message string `json:"message"`
 	}
@@ -105,8 +106,9 @@ func serverMessage(body []byte) string {
 	if json.Unmarshal(body, &m) == nil && m.Message != "" {
 		msg = m.Message
 	}
+	msg = redact(msg)
 	if len(msg) > 200 {
-		msg = msg[:200] + "…"
+		msg = strings.ToValidUTF8(msg[:200], "") + "…"
 	}
 	if msg == "" {
 		return ""
@@ -126,11 +128,20 @@ func getJSON[T any](ctx context.Context, c *API, path string, query url.Values) 
 	return v, nil
 }
 
-// list fetches every page of a list endpoint. It stops once it has the
-// X-Total-Count items the server reports; without that header, at a short
-// or empty page, or at a page that repeats the one before (an endpoint that
-// ignores paging).
+// list fetches every page of a list endpoint.
 func list[T any](ctx context.Context, c *API, path string, query url.Values) ([]T, error) {
+	return pages(ctx, c, path, query, func(body []byte) ([]T, error) {
+		var items []T
+		err := json.Unmarshal(body, &items)
+		return items, err
+	})
+}
+
+// pages fetches every page of a paged endpoint, decode taking the items out
+// of each. It stops once it has the X-Total-Count items the server reports;
+// without that header, at a short or empty page, or at a page that repeats
+// the one before (an endpoint that ignores paging).
+func pages[T any](ctx context.Context, c *API, path string, query url.Values, decode func([]byte) ([]T, error)) ([]T, error) {
 	out := []T{}
 	var last []byte
 	for page := 1; page <= maxPages; page++ {
@@ -144,8 +155,8 @@ func list[T any](ctx context.Context, c *API, path string, query url.Values) ([]
 		if err != nil {
 			return nil, err
 		}
-		var items []T
-		if err := json.Unmarshal(body, &items); err != nil {
+		items, err := decode(body)
+		if err != nil {
 			return nil, fmt.Errorf("forge %s: GET %s: invalid JSON: %w", c.Host, path, err)
 		}
 		if len(items) == 0 || bytes.Equal(body, last) {
@@ -248,13 +259,17 @@ func (c *API) pull(ctx context.Context, repo string, n int) (apiPR, error) {
 		return apiPR{}, fmt.Errorf("forge %s: %s#%d: the server returned PR #%d", c.Host, repo, n, pr.Number)
 	}
 	if objectID.MatchString(pr.Head.Sha) {
-		combined, err := getJSON[struct {
-			Statuses []apiState `json:"statuses"`
-		}](ctx, c, path+"/commits/"+pr.Head.Sha+"/status", url.Values{"limit": {"100"}})
+		statuses, err := pages(ctx, c, path+"/commits/"+pr.Head.Sha+"/status", nil, func(body []byte) ([]apiState, error) {
+			var combined struct {
+				Statuses []apiState `json:"statuses"`
+			}
+			err := json.Unmarshal(body, &combined)
+			return combined.Statuses, err
+		})
 		if err != nil {
 			return apiPR{}, err
 		}
-		pr.statuses = combined.Statuses
+		pr.statuses = statuses
 	}
 	return pr, nil
 }

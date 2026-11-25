@@ -72,6 +72,8 @@ and `failing-checks.json` into `--context-dir`. When a review profile asks for
 context (`context: {issues: true, docs: [...]}`), it also writes
 `review-context/`: the issues the PR description links on the same forge, and
 the matching docs from the PR's base commit, with a `manifest.json`.
+[Review profiles](configuration.md#review-profiles) apply only to other
+people's PRs, so a PR the logged-in user wrote gets no `review-context/`.
 
 It prints one JSON object:
 
@@ -87,8 +89,9 @@ It prints one JSON object:
 The prompt is the read-only, offline one: the agent reads the prefetched files
 and does not call the forge. A typical pipeline runs `outrider render` on the
 host that holds the token, mounts `--context-dir` read-only into a container
-without network access to the forge at `--prompt-context-dir`, runs the agent
-there with the prompt, and posts the result itself.
+without network access to the forge at `--prompt-context-dir`, checks out the
+PR head as the agent's working directory (the prompt says it is there), runs
+the agent with the prompt, and posts the result itself.
 
 ## What fj gives
 

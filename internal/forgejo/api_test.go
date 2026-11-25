@@ -2,10 +2,15 @@ package forgejo
 
 import (
 	"encoding/json"
+	"fmt"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
+	"unicode/utf8"
 
 	"github.com/stretchr/testify/require"
 
@@ -171,4 +176,74 @@ func TestAPIIssueURLsOnTheConfiguredAddressCount(t *testing.T) {
 	got := linkedIssues("http://forge.lan:3000/a/b/issues/9 https://forge.lan:3000/a/b/issues/10 http://forge.lan:30001/a/b/issues/11",
 		"o/r", []string{"https://forge.example", "http://forge.lan:3000"})
 	require.Equal(t, []issueRef{{"a/b", 9}, {"a/b", 10}}, got)
+}
+
+// fakeForge serves handler under /api/v1/ and opens an API reader on it.
+func fakeForge(t *testing.T, handler http.HandlerFunc) Reader {
+	t.Helper()
+	srv := httptest.NewServer(handler)
+	t.Cleanup(srv.Close)
+	r, err := Open(config.Forge{Kind: "forgejo", Host: "forge.example", URL: &srv.URL, Access: "api", TokenEnv: "T"},
+		Deps{Getenv: func(string) string { return token }})
+	require.NoError(t, err)
+	return r
+}
+
+// A server that echoes the token in a long error message gets none of it
+// back, wherever the 200-byte cut falls.
+func TestAPIErrorsRedactTheTokenBeforeTheCut(t *testing.T) {
+	for _, at := range []int{0, 150, 185, 199, 200, 250} {
+		c := fakeForge(t, func(w http.ResponseWriter, r *http.Request) {
+			w.WriteHeader(http.StatusUnauthorized)
+			_, _ = w.Write([]byte(`{"message":"` + strings.Repeat("x", at) + strings.TrimPrefix(r.Header.Get("Authorization"), "token ") + `"}`))
+		})
+		_, err := c.Me(t.Context())
+		require.Error(t, err)
+		require.NotContains(t, err.Error(), token[:8], "token at byte %d", at)
+	}
+}
+
+// Forgejo caps limit at MAX_RESPONSE_ITEMS (50) for the combined status of
+// a commit, so a head with more statuses needs every page.
+func TestAPIPRViewReadsEveryPageOfStatuses(t *testing.T) {
+	r := require.New(t)
+	sha := strings.Repeat("a", 40)
+	statuses := []map[string]string{}
+	for i := range 60 {
+		state := "success"
+		if i == 55 {
+			state = "failure"
+		}
+		statuses = append(statuses, map[string]string{"context": fmt.Sprintf("ci/%02d", i), "status": state})
+	}
+	c := fakeForge(t, func(w http.ResponseWriter, req *http.Request) {
+		switch req.URL.Path {
+		case "/api/v1/repos/o/r/pulls/7":
+			_ = json.NewEncoder(w).Encode(map[string]any{"number": 7, "state": "open", "user": map[string]string{"login": "alice"}, "head": map[string]string{"sha": sha}})
+		case "/api/v1/repos/o/r/commits/" + sha + "/status":
+			page, _ := strconv.Atoi(req.URL.Query().Get("page"))
+			limit, _ := strconv.Atoi(req.URL.Query().Get("limit"))
+			page, limit = max(page, 1), min(max(limit, 1), 50)
+			start := min((page-1)*limit, len(statuses))
+			w.Header().Set("X-Total-Count", strconv.Itoa(len(statuses)))
+			_ = json.NewEncoder(w).Encode(map[string]any{"state": "failure", "statuses": statuses[start:min(start+limit, len(statuses))]})
+		default:
+			http.NotFound(w, req)
+		}
+	})
+	pr, err := c.PRView(t.Context(), "o/r", 7)
+	r.NoError(err)
+	r.Len(pr.StatusCheckRollup, 60)
+	r.Equal([]string{"ci/55"}, github.FailingChecks(pr))
+}
+
+// The cut never splits a character.
+func TestAPIErrorsCutOnACharacter(t *testing.T) {
+	c := fakeForge(t, func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusBadGateway)
+		_, _ = w.Write([]byte(`{"message":"x` + strings.Repeat("é", 150) + `"}`))
+	})
+	_, err := c.Me(t.Context())
+	require.Error(t, err)
+	require.True(t, utf8.ValidString(err.Error()), err.Error())
 }
