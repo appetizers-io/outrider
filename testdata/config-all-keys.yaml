@@ -26,6 +26,19 @@ repos:
   include: ["my-org/*"]
   exclude: ["my-org/website"]
 
+forges:
+  - kind: forgejo
+    host: forge.example.com
+    url: http://forge.example.com:3000   # when not at https://<host>
+    access: api                          # api | fj
+    token_env: FORGEJO_TOKEN             # the token stays out of this file
+  - kind: forgejo
+    host: codeberg.org
+    access: fj                           # fj's own login
+  - kind: forgejo
+    host: git.example.org
+    token_file: ~/.config/outrider/forgejo-token
+
 # activity only by these never starts a session
 ignore_authors: ["netlify[bot]", "github-actions[bot]"]
 

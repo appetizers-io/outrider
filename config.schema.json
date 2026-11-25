@@ -65,6 +65,59 @@
         "kind"
       ]
     },
+    "Forge": {
+      "properties": {
+        "kind": {
+          "type": "string",
+          "enum": [
+            "forgejo"
+          ],
+          "description": "forgejo: a Forgejo (or Gitea) instance."
+        },
+        "host": {
+          "type": "string",
+          "pattern": "^[A-Za-z0-9]([A-Za-z0-9.-]*[A-Za-z0-9])?(:[0-9]+)?$",
+          "description": "Host name, with a port when it has one. Repos on this forge are written host/owner/repo."
+        },
+        "url": {
+          "oneOf": [
+            {
+              "type": "string",
+              "pattern": "^https?://[^/?#]+(/[^?#]*)?$",
+              "description": "Base URL when the forge is not at https://\u003chost\u003e, e.g. http://forge.lan:3000. The API is at \u003curl\u003e/api/v1."
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "access": {
+          "type": "string",
+          "enum": [
+            "api",
+            "fj"
+          ],
+          "description": "api: the REST API with a token from token_env or token_file. fj: the fj CLI (forgejo-cli) with its own login; outrider never sees a token.",
+          "default": "api"
+        },
+        "token_env": {
+          "type": "string",
+          "pattern": "^[A-Za-z_][A-Za-z0-9_]*$",
+          "description": "access: api. Environment variable that holds the token. The token itself never goes into this file."
+        },
+        "token_file": {
+          "type": "string",
+          "minLength": 1,
+          "description": "access: api. File that holds the token; ~/ is your home directory."
+        }
+      },
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "kind",
+        "host"
+      ]
+    },
     "Identity": {
       "properties": {
         "repo": {
@@ -502,7 +555,7 @@
             "minLength": 1
           },
           "type": "array",
-          "description": "owner/repo globs (*, ?, [abc], [!abc], {a,b}) or GitHub URLs. Empty: the checkout you run in, else every repo."
+          "description": "owner/repo globs (*, ?, [abc], [!abc], {a,b}) or GitHub URLs; host/owner/repo for a repo on one of forges. Empty: the checkout you run in, else every repo."
         },
         "exclude": {
           "items": {
@@ -1087,6 +1140,13 @@
     },
     "repos": {
       "$ref": "#/$defs/Repos"
+    },
+    "forges": {
+      "items": {
+        "$ref": "#/$defs/Forge"
+      },
+      "type": "array",
+      "description": "Forges besides GitHub. Their repos are written host/owner/repo. Used by outrider render and outrider doctor; outrider does not watch them."
     },
     "classifiers": {
       "$ref": "#/$defs/Classifiers",

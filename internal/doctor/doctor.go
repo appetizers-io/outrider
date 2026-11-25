@@ -12,6 +12,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"net/http"
 	"os"
 	"path/filepath"
 	"slices"
@@ -21,6 +22,7 @@ import (
 	"github.com/appetizers-io/outrider/internal/approve"
 	"github.com/appetizers-io/outrider/internal/classifier"
 	"github.com/appetizers-io/outrider/internal/config"
+	"github.com/appetizers-io/outrider/internal/forgejo"
 	"github.com/appetizers-io/outrider/internal/github"
 	"github.com/appetizers-io/outrider/internal/migrate"
 	"github.com/appetizers-io/outrider/internal/poll"
@@ -54,6 +56,7 @@ type Input struct {
 	ConfigErr error          // why the config could not be loaded
 	Deps      watch.Deps
 	Dialogs   approve.Platform
+	HTTP      *http.Client // reaches the configured forges; nil: a default client
 
 	forks watch.ReviewForks // resolved by Run
 }
@@ -74,7 +77,7 @@ func Run(ctx context.Context, in Input) []Result {
 	for _, check := range checks {
 		out = append(out, check(ctx, &in))
 	}
-	return out
+	return append(out, checkForges(ctx, &in)...)
 }
 
 // Failed tells whether any check failed.
@@ -523,4 +526,63 @@ func checkReview(_ context.Context, in *Input) Result {
 		status, fix = Warn, "Deep reviews occupy the only slot; set max_agents above 1 or use a shorter max_minutes."
 	}
 	return Result{Name: "review profiles", Status: status, Detail: detail, Fix: fix}
+}
+
+// checkForges reports each configured forge: whether it answers, whether
+// outrider (access: api) or fj (access: fj) is logged in, and as whom.
+func checkForges(ctx context.Context, in *Input) []Result {
+	var out []Result
+	for _, f := range in.Settings.Cfg.Forges {
+		out = append(out, checkForge(ctx, in, f))
+	}
+	return out
+}
+
+func checkForge(ctx context.Context, in *Input, f config.Forge) Result {
+	d := in.Deps
+	r := Result{Name: "forge " + f.Host, Status: Fail}
+	base := f.BaseURL()
+	version, err := forgejo.Ping(ctx, in.HTTP, base)
+	if err != nil {
+		r.Detail = fmt.Sprintf("%s does not answer: %v", base, err)
+		r.Fix = "check the host and url in forges and your network"
+		return r
+	}
+	access := f.AccessMode()
+	how := "fj's login"
+	switch {
+	case access == "fj":
+		if _, err := d.LookPath("fj"); err != nil {
+			r.Detail, r.Fix = base+" answers, but fj is not on PATH", "install forgejo-cli (fj): https://codeberg.org/forgejo-contrib/forgejo-cli"
+			return r
+		}
+	case f.TokenEnv != "":
+		how = "a token from $" + f.TokenEnv
+	default:
+		how = "a token from " + f.TokenFile
+	}
+	reader, err := forgejo.Open(f, forgejo.Deps{Run: d.Run, Getenv: d.Getenv, Home: d.Home, HTTP: in.HTTP})
+	if err != nil {
+		r.Detail = base + " answers; " + err.Error()
+		r.Fix = "put an access token (read access to repositories, issues and users) in " + strings.TrimPrefix(how, "a token from ")
+		return r
+	}
+	user, err := reader.Me(ctx)
+	if err != nil {
+		r.Detail = base + " answers, but the login fails: " + err.Error()
+		r.Fix = "check the token"
+		if access == "fj" {
+			r.Fix = "fj --host " + base + " auth login (or auth add-token)"
+		}
+		return r
+	}
+	if api, ok := reader.(*forgejo.API); ok && version == "" {
+		version, _ = api.Version(ctx)
+	}
+	if version != "" {
+		version = ", Forgejo " + version
+	}
+	r.Status = OK
+	r.Detail = fmt.Sprintf("%s (access %s%s) as %s, with %s", base, access, version, user.Login, how)
+	return r
 }

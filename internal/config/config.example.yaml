@@ -87,6 +87,18 @@ repos:
   # owner/repo globs or GitHub URLs that never trigger.
   exclude: []
 
+# Forges besides GitHub (Forgejo or Gitea). outrider render reads pull
+# requests there for a runner that starts the agent itself; outrider doctor
+# checks them. They are not watched. Their repos are host/owner/repo.
+# access: api uses the REST API with a token from token_env or token_file
+# (never written here); access: fj uses the fj CLI and its own login.
+# forges:
+#   - kind: forgejo
+#     host: forge.example.com
+#     url: https://forge.example.com  # when the forge is not at https://<host>
+#     access: api                     # api | fj
+#     token_env: FORGEJO_TOKEN        # or token_file: ~/.config/outrider/forgejo-token
+
 # Login globs (* and ?) whose activity alone never triggers a session,
 # e.g. ["netlify[bot]", "*[bot]"].
 ignore_authors: []

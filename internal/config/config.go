@@ -46,6 +46,7 @@ type Config struct {
 	CandidateLimit  int         `yaml:"candidate_limit" jsonschema:"minimum=1,default=50" jsonschema_description:"Most recently seen non-owned PRs checked for the opt-in reaction per poll."`
 	StaleLockHours  float64     `yaml:"stale_lock_hours" jsonschema:"exclusiveMinimum=0,default=12" jsonschema_description:"A session lock older than this is dead."`
 	Repos           Repos       `yaml:"repos"`
+	Forges          []Forge     `yaml:"forges,omitempty" jsonschema_description:"Forges besides GitHub. Their repos are written host/owner/repo. Used by outrider render and outrider doctor; outrider does not watch them."`
 	Classifiers     Classifiers `yaml:"classifiers" jsonschema_description:"Named decision backends. 'jev' is always defined; add kind: command entries for local classifiers."`
 	Overrides       []Override  `yaml:"overrides,omitempty" jsonschema_description:"Layers over the keys above for some PRs: every entry whose match selects a PR applies, in file order, later entries win. Only per-PR keys."`
 }
@@ -78,7 +79,7 @@ type Isolation struct {
 
 // Repos limits which repositories are watched.
 type Repos struct {
-	Include []string `yaml:"include" jsonschema:"minLength=1" jsonschema_description:"owner/repo globs (*, ?, [abc], [!abc], {a,b}) or GitHub URLs. Empty: the checkout you run in, else every repo."`
+	Include []string `yaml:"include" jsonschema:"minLength=1" jsonschema_description:"owner/repo globs (*, ?, [abc], [!abc], {a,b}) or GitHub URLs; host/owner/repo for a repo on one of forges. Empty: the checkout you run in, else every repo."`
 	Exclude []string `yaml:"exclude" jsonschema:"minLength=1" jsonschema_description:"owner/repo globs or GitHub URLs that never trigger."`
 }
 
@@ -318,7 +319,7 @@ func JevBackendConfigured() bool {
 
 // crossCheck validates what spans several keys, which the schema can't.
 func (c *Config) crossCheck() []string {
-	errs := append(c.checkWorkflows(), c.checkReview()...)
+	errs := append(append(c.checkWorkflows(), c.checkReview()...), c.checkForges()...)
 	if c.ToolGate.IncludeProfile {
 		errs = append(errs, "tool_gate.include_profile must be false: playbooks cannot change gate policy")
 	}
