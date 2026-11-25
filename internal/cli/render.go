@@ -26,6 +26,16 @@ func splitForgeRepo(s string) (host, repo string, err error) {
 	return host, repo, nil
 }
 
+// agentPath joins name onto dir, a path where the agent runs rather than on
+// this machine, so it keeps dir's separator instead of the host's.
+func agentPath(dir, name string) string {
+	sep := "/"
+	if strings.Contains(dir, `\`) && !strings.Contains(dir, "/") {
+		sep = `\`
+	}
+	return strings.TrimRight(dir, `/\`) + sep + name
+}
+
 // renderCmd renders the read-only prompt of one PR on a configured forge and
 // writes its offline context, for a runner that starts the agent itself.
 func renderCmd(d watch.Deps) *cobra.Command {
@@ -126,7 +136,7 @@ func renderCmd(d watch.Deps) *cobra.Command {
 				if err := reader.SaveReviewContext(ctx, repo, number, "", requested.Issues, requested.Docs, reviewDir); err != nil {
 					return err
 				}
-				review.Context = filepath.Join(promptDir, "review-context")
+				review.Context = agentPath(promptDir, "review-context")
 				files = append(files, "review-context/")
 			}
 			prompt, err := session.Prompt(session.PromptInput{

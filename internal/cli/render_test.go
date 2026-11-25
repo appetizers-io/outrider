@@ -126,6 +126,20 @@ func TestRenderRefusesUnknownInput(t *testing.T) {
 	}
 }
 
+// The prompt cites the agent's path, whatever OS renders it.
+func TestAgentPathKeepsTheAgentsSeparator(t *testing.T) {
+	for _, c := range []struct{ dir, want string }{
+		{"/agent/ctx", "/agent/ctx/review-context"},
+		{"/agent/ctx/", "/agent/ctx/review-context"},
+		{"/", "/review-context"},
+		{`C:\agent\ctx`, `C:\agent\ctx\review-context`},
+		{`C:\agent\ctx\`, `C:\agent\ctx\review-context`},
+		{"C:/agent/ctx", "C:/agent/ctx/review-context"},
+	} {
+		require.Equal(t, c.want, agentPath(c.dir, "review-context"), c.dir)
+	}
+}
+
 // The token reaches the forge in the Authorization header and nothing
 // else: not the output, the logs, the prompt, the context files or an error.
 func TestRenderNeverShowsTheToken(t *testing.T) {
