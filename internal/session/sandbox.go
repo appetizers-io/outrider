@@ -12,7 +12,6 @@ import (
 
 	"golang.org/x/mod/semver"
 
-	"github.com/appetizers-io/outrider/internal/github"
 	"github.com/appetizers-io/outrider/internal/proc"
 )
 
@@ -85,7 +84,7 @@ func (l *Launcher) prepareSandbox(ctx context.Context, r Request, worktree strin
 	if err := os.RemoveAll(sb.ContextDir); err != nil {
 		return nil, fmt.Errorf("pr context: %w", err)
 	}
-	if err := (&github.Client{Run: l.Run}).SaveContext(ctx, r.Repo, r.N, sb.ContextDir); err != nil {
+	if err := l.forge().SaveContext(ctx, r.Repo, r.N, sb.ContextDir); err != nil {
 		return nil, err //nolint:wrapcheck // names the gh command already
 	}
 	res, err := l.Run(ctx, proc.Cmd{Args: []string{"git", "rev-parse", "--path-format=absolute", "--git-common-dir"}, Dir: worktree})

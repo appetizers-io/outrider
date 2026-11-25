@@ -19,6 +19,7 @@ import (
 
 	"github.com/appetizers-io/outrider/internal/classifier"
 	"github.com/appetizers-io/outrider/internal/config"
+	"github.com/appetizers-io/outrider/internal/forge"
 	"github.com/appetizers-io/outrider/internal/github"
 	"github.com/appetizers-io/outrider/internal/guard"
 	"github.com/appetizers-io/outrider/internal/proc"
@@ -49,8 +50,17 @@ type Launcher struct {
 	CodexHome    string           // the user's CODEX_HOME
 	GOOS         string
 	Run          proc.Runner
+	Forge        forge.Reader // where the PR context comes from; nil: GitHub through gh with Run
 	LookPath     func(string) (string, error)
 	Log          *slog.Logger
+}
+
+// forge is what sessions read their PR context through.
+func (l *Launcher) forge() forge.Reader {
+	if l.Forge != nil {
+		return l.Forge
+	}
+	return &github.Client{Run: l.Run}
 }
 
 // Request is an event that may start a session.

@@ -16,6 +16,7 @@ import (
 
 	"github.com/appetizers-io/outrider/internal/classifier"
 	"github.com/appetizers-io/outrider/internal/config"
+	"github.com/appetizers-io/outrider/internal/forge"
 	"github.com/appetizers-io/outrider/internal/github"
 	"github.com/appetizers-io/outrider/internal/poll"
 	"github.com/appetizers-io/outrider/internal/session"
@@ -42,10 +43,19 @@ type Item struct {
 type Scanner struct {
 	Dir             string
 	Config          config.Config
-	GH              *github.Client
+	GH              *github.Client // gh: the head check and the launch check
+	Forge           forge.Watcher  // what the scan reads; nil: GH
 	LookPath        classifier.LookPath
 	Log             *slog.Logger
 	ProcessExisting bool
+}
+
+// forge is what the scan reads PRs, activity and context through.
+func (s *Scanner) forge() forge.Watcher {
+	if s.Forge != nil {
+		return s.Forge
+	}
+	return s.GH
 }
 
 // ErrScanBudget means the time budget expired after poll progress was saved.
@@ -77,12 +87,12 @@ func (s *Scanner) Scan(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
-	user, err := s.GH.Me(ctx)
+	user, err := s.forge().Me(ctx)
 	if err != nil {
 		return err
 	}
 	var queueErr error
-	p := poll.Poller{GH: s.GH, Cfg: &s.Config, Login: user.Login, Include: include, Exclude: exclude,
+	p := poll.Poller{GH: s.GH, Forge: s.Forge, Cfg: &s.Config, Login: user.Login, Include: include, Exclude: exclude,
 		ProcessExisting: s.ProcessExisting, OptInFirst: true, StatePath: statePath, Log: s.Log, Now: time.Now,
 		Launch: func(ctx context.Context, r session.Request) bool {
 			own := strings.EqualFold(r.PR.AuthorLogin(), user.Login)
@@ -149,7 +159,7 @@ func (s *Scanner) Capture(ctx context.Context, r session.Request, cfg config.Con
 		return Item{}, err
 	}
 	defer func() { _ = os.RemoveAll(tmp) }()
-	if err := s.GH.SaveContext(ctx, r.Repo, r.N, tmp); err != nil {
+	if err := s.forge().SaveContext(ctx, r.Repo, r.N, tmp); err != nil {
 		return Item{}, err
 	}
 	raw, err := os.ReadFile(filepath.Join(tmp, "pr.json"))

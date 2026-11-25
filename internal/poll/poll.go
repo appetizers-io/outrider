@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"github.com/appetizers-io/outrider/internal/config"
+	"github.com/appetizers-io/outrider/internal/forge"
 	"github.com/appetizers-io/outrider/internal/github"
 	"github.com/appetizers-io/outrider/internal/session"
 )
@@ -22,6 +23,7 @@ import (
 // Poller decides which GitHub events start a session.
 type Poller struct {
 	GH              *github.Client
+	Forge           forge.Watcher // what the pass reads; nil: GH
 	Cfg             *config.Config
 	Login           string
 	Include         config.Globs // owner/repo globs; empty: every repo
@@ -35,6 +37,14 @@ type Poller struct {
 	Now             func() time.Time
 
 	mentioned func(text string) bool // compiled once for Login
+}
+
+// forge is what the pass reads PRs and activity through.
+func (p *Poller) forge() forge.Watcher {
+	if p.Forge != nil {
+		return p.Forge
+	}
+	return p.GH
 }
 
 // scoped is the config of a PR in repo, yours (own) or someone else's, and
@@ -120,7 +130,7 @@ func (p *Poller) Poll(ctx context.Context, s *State) error {
 		ps.optIn(ctx)
 	}
 
-	ns, err := p.GH.Notifications(ctx, windowStart)
+	ns, err := p.forge().Notifications(ctx, windowStart)
 	if err != nil {
 		return err
 	}
@@ -161,7 +171,7 @@ func (p *Poller) Poll(ctx context.Context, s *State) error {
 			continue // already handled; skip the PR lookup
 		}
 
-		pr, err := p.GH.PRView(ctx, repo, n)
+		pr, err := p.forge().PRView(ctx, repo, n)
 		if err != nil {
 			continue
 		}
@@ -200,7 +210,7 @@ func (p *Poller) Poll(ctx context.Context, s *State) error {
 		var newer []github.Activity
 		fetched := false
 		if len(ignore) > 0 || suppress {
-			items, err := p.GH.Activity(ctx, repo, n)
+			items, err := p.forge().Activity(ctx, repo, n)
 			if err != nil {
 				continue
 			}
@@ -234,7 +244,7 @@ func (p *Poller) Poll(ctx context.Context, s *State) error {
 				if fetched {
 					return newer, nil
 				}
-				items, err := p.GH.Activity(ctx, repo, n)
+				items, err := p.forge().Activity(ctx, repo, n)
 				if err != nil {
 					return nil, fmt.Errorf("activity of %s: %w", k, err)
 				}
@@ -282,7 +292,7 @@ func (ps *pass) eyes(ctx context.Context, refs []github.Ref, optIn map[string]*c
 	out := map[string]*string{}
 	for _, r := range order {
 		o := optIn[groups[r][0].Key()]
-		maps.Copy(out, ps.GH.MyEyes(ctx, groups[r], o.Reaction, o.Where))
+		maps.Copy(out, ps.forge().MyEyes(ctx, groups[r], o.Reaction, o.Where))
 	}
 	return out
 }
@@ -307,7 +317,7 @@ func (ps *pass) optIn(ctx context.Context) {
 
 	// 2) Non-owned PRs I'm involved in, even without a recent notification,
 	//    so the opt-in reaction on an older PR still counts.
-	involved, err := ps.GH.InvolvedPRs(ctx, ps.Login)
+	involved, err := ps.forge().InvolvedPRs(ctx, ps.Login)
 	if err != nil {
 		ps.Log.Warn("PR search failed; using notification candidates only: " + err.Error())
 		involved = nil
@@ -336,7 +346,7 @@ func (ps *pass) optIn(ctx context.Context) {
 		if where == nil {
 			continue // no reaction, or lookup failed
 		}
-		pr, err := ps.GH.PRView(ctx, ref.Repo, ref.N)
+		pr, err := ps.forge().PRView(ctx, ref.Repo, ref.N)
 		if err != nil {
 			continue
 		}
@@ -350,7 +360,7 @@ func (ps *pass) optIn(ctx context.Context) {
 		trigger := fmt.Sprintf("%s opt-in (on %s)", emoji, *where)
 		if ps.Launch(ctx, session.Request{Repo: ref.Repo, N: ref.N, PR: pr, Event: "opt_in", Trigger: trigger}) && !ps.DryRun {
 			var fp *string
-			if items, err := ps.GH.Activity(ctx, ref.Repo, ref.N); err == nil {
+			if items, err := ps.forge().Activity(ctx, ref.Repo, ref.N); err == nil {
 				fp = new(Fingerprint(items))
 			} // else: the next watch pass relaunches on change
 			s.Handled[k] = iso(ps.Now())
@@ -380,7 +390,7 @@ func (ps *pass) optIn(ctx context.Context) {
 			}
 			continue
 		}
-		pr, err := ps.GH.PRView(ctx, ref.Repo, ref.N)
+		pr, err := ps.forge().PRView(ctx, ref.Repo, ref.N)
 		if err != nil {
 			continue
 		}
@@ -390,7 +400,7 @@ func (ps *pass) optIn(ctx context.Context) {
 			}
 			continue
 		}
-		items, err := ps.GH.Activity(ctx, ref.Repo, ref.N)
+		items, err := ps.forge().Activity(ctx, ref.Repo, ref.N)
 		if err != nil {
 			continue
 		}
@@ -482,7 +492,7 @@ func (ps *pass) replies(ctx context.Context, repo string, n int, pr *github.PR) 
 	after := ps.after(rules.FreshWithinHours)
 	k := key(repo, n)
 	done := ps.s.Replies[k]
-	pending, err := ps.GH.PendingReplies(ctx, repo, n, ps.Login)
+	pending, err := ps.forge().PendingReplies(ctx, repo, n, ps.Login)
 	if err != nil {
 		return false
 	}
@@ -498,7 +508,7 @@ func (ps *pass) replies(ctx context.Context, repo string, n int, pr *github.PR) 
 	}
 	if len(fresh) > 0 && !ps.baseline {
 		if pr == nil {
-			got, err := ps.GH.PRView(ctx, repo, n)
+			got, err := ps.forge().PRView(ctx, repo, n)
 			if err != nil {
 				return false
 			}
@@ -557,7 +567,7 @@ func (ps *pass) mentions(ctx context.Context, repo string, n int, pr *github.PR)
 		return true
 	}
 	if pr == nil {
-		got, err := ps.GH.PRView(ctx, repo, n)
+		got, err := ps.forge().PRView(ctx, repo, n)
 		if err != nil {
 			return false
 		}
@@ -566,7 +576,7 @@ func (ps *pass) mentions(ctx context.Context, repo string, n int, pr *github.PR)
 	if !pr.Open() {
 		return true
 	}
-	items, err := ps.GH.Activity(ctx, repo, n)
+	items, err := ps.forge().Activity(ctx, repo, n)
 	if err != nil {
 		return false
 	}

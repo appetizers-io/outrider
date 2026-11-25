@@ -10,7 +10,6 @@ import (
 	"strings"
 
 	"github.com/appetizers-io/outrider/internal/config"
-	"github.com/appetizers-io/outrider/internal/github"
 	"github.com/appetizers-io/outrider/prompts"
 )
 
@@ -168,6 +167,5 @@ func (l *Launcher) reviewContext(ctx context.Context, r Request, cfg *config.Con
 		return nil
 	}
 	review.Context = filepath.Join(dir, "review-context")
-	client := &github.Client{Run: l.Run}
-	return client.SaveReviewContext(ctx, r.Repo, r.N, worktree, requested.Issues, requested.Docs, review.Context)
+	return l.forge().SaveReviewContext(ctx, r.Repo, r.N, worktree, requested.Issues, requested.Docs, review.Context)
 }
