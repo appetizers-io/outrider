@@ -109,6 +109,10 @@
           "type": "string",
           "minLength": 1,
           "description": "access: api. File that holds the token; ~/ is your home directory."
+        },
+        "insecure_http": {
+          "type": "boolean",
+          "description": "access: api. Send the token over a plain http url to a host that is not loopback. Anyone on the network path can read it, so only on a network you trust."
         }
       },
       "additionalProperties": false,

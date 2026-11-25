@@ -45,6 +45,9 @@ func TestInvalidForges(t *testing.T) {
 		{"forges: [{kind: forgejo, host: x.example, token_env: 'A-B'}]", "/forges/0/token_env"},
 		{"forges: [{kind: forgejo, host: x.example, access: fj, token_env: T}]", "forges[0]: access: fj uses fj's own login"},
 		{"forges: [{kind: forgejo, host: github.com, token_env: T}]", "forges[0]: github.com is read through gh"},
+		{"forges: [{kind: forgejo, host: x.example, url: 'http://x.example:3000', token_env: T}]", "forges[0].url: access: api sends the token with every request"},
+		{"forges: [{kind: forgejo, host: x.example, url: 'http://10.0.0.5', token_env: T}]", "forges[0].url: access: api sends the token"},
+		{"forges: [{kind: forgejo, host: x.example, url: 'http://x.example', access: fj, insecure_http: true}]", "forges[0]: insecure_http is for access: api"},
 		{"forges: [{kind: forgejo, host: x.example, token_env: T}, {kind: forgejo, host: X.example, access: fj}]", "forges[1]: host X.example is configured twice"},
 	} {
 		t.Run(tc.yaml, func(t *testing.T) {
@@ -52,4 +55,17 @@ func TestInvalidForges(t *testing.T) {
 			require.ErrorContains(t, err, tc.message)
 		})
 	}
+}
+
+// access: api may send its token over plain http only to loopback or with
+// insecure_http; fj and https need nothing.
+func TestForgesPlainHTTP(t *testing.T) {
+	for _, url := range []string{"http://127.0.0.1:3000", "http://localhost:3000", "http://[::1]:3000", "https://x.example"} {
+		_, err := Parse([]byte("forges: [{kind: forgejo, host: x.example, url: '"+url+"', token_env: T}]"), "c.yaml")
+		require.NoError(t, err, url)
+	}
+	_, err := Parse([]byte("forges: [{kind: forgejo, host: x.example, url: 'http://x.example:3000', token_env: T, insecure_http: true}]"), "c.yaml")
+	require.NoError(t, err)
+	_, err = Parse([]byte("forges: [{kind: forgejo, host: x.example, url: 'http://x.example:3000', access: fj}]"), "c.yaml")
+	require.NoError(t, err)
 }

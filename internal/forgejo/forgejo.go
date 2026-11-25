@@ -19,6 +19,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -60,13 +61,36 @@ func Open(f config.Forge, d Deps) (Reader, error) {
 		if err != nil {
 			return nil, err
 		}
-		client := d.HTTP
-		if client == nil {
-			client = &http.Client{Timeout: 60 * time.Second}
+		base, err := url.Parse(f.BaseURL())
+		if err != nil || !f.TokenAllowed(base) {
+			return nil, fmt.Errorf("forge %s: access: api would send the token over plain http; use https, or set insecure_http: true", f.Host)
 		}
+		client := &http.Client{Timeout: 60 * time.Second}
+		if d.HTTP != nil {
+			c := *d.HTTP
+			client = &c
+		}
+		client.CheckRedirect = tokenRedirects(f, client.CheckRedirect)
 		return &API{Host: f.Host, BaseURL: f.BaseURL(), HTTP: client, token: token}, nil
 	}
 	return nil, fmt.Errorf("forge %s: unsupported access %q", f.Host, f.Access)
+}
+
+// tokenRedirects refuses a redirect that would carry the token where the
+// forge's URL may not: net/http forwards it to plain http on the same host.
+func tokenRedirects(f config.Forge, next func(*http.Request, []*http.Request) error) func(*http.Request, []*http.Request) error {
+	return func(req *http.Request, via []*http.Request) error {
+		if !f.TokenAllowed(req.URL) {
+			return fmt.Errorf("redirect to %s://%s refused: it would send the token over plain http", req.URL.Scheme, req.URL.Host)
+		}
+		if next != nil {
+			return next(req, via)
+		}
+		if len(via) >= 10 {
+			return errors.New("stopped after 10 redirects")
+		}
+		return nil
+	}
 }
 
 // readToken reads the token of an api forge. Errors name the variable or

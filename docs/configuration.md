@@ -173,10 +173,16 @@ starts the agent itself, and `outrider doctor` checks each forge.
 | `access` | `api` | `api`: the REST API with a token. `fj`: the [fj](https://codeberg.org/forgejo-contrib/forgejo-cli) CLI and its own login |
 | `token_env` | | `access: api`: the environment variable that holds the token |
 | `token_file` | | `access: api`: a file that holds the token; `~/` is your home |
+| `insecure_http` | `false` | `access: api`: allow a plain `http://` url to a host that is not loopback |
 
 With `access: api` set exactly one of `token_env` and `token_file`. The token
 never goes into the config file. With `access: fj` set neither: outrider never
 sees fj's token.
+
+With `access: api` the token goes with every request, so outrider sends it
+over plain `http://` only to `localhost` or a loopback address. For any other
+host, including a redirect to `http://`, it refuses unless you set
+`insecure_http: true`; then anyone on the network path can read the token.
 
 ```yaml
 forges:

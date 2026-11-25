@@ -46,6 +46,8 @@ works, and as whom.
 
 The token only goes into the `Authorization` header of API requests. It never
 appears in a URL, a log line, an error message, the prompt or a context file.
+Over plain `http://` it goes only to a loopback host, unless the forge sets
+`insecure_http: true` ([forges](configuration.md#forges)).
 
 ## Render a review
 

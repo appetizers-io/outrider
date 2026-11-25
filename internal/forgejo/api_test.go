@@ -3,6 +3,7 @@ package forgejo
 import (
 	"encoding/json"
 	"fmt"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -246,4 +247,56 @@ func TestAPIErrorsCutOnACharacter(t *testing.T) {
 	_, err := c.Me(t.Context())
 	require.Error(t, err)
 	require.True(t, utf8.ValidString(err.Error()), err.Error())
+}
+
+// Open refuses a plain http forge that is not loopback unless the config
+// opts in.
+func TestOpenRefusesTheTokenOverPlainHTTP(t *testing.T) {
+	u := "http://forge.example:3000"
+	f := config.Forge{Kind: "forgejo", Host: "forge.example", URL: &u, Access: "api", TokenEnv: "T"}
+	d := Deps{Getenv: func(string) string { return token }}
+	_, err := Open(f, d)
+	require.ErrorContains(t, err, "would send the token over plain http")
+	require.NotContains(t, err.Error(), token)
+	f.InsecureHTTP = true
+	_, err = Open(f, d)
+	require.NoError(t, err)
+}
+
+// roundTrips answers each request with the next response and records where
+// the token went.
+type roundTrips struct {
+	sent      []string
+	responses []*http.Response
+}
+
+func (rt *roundTrips) RoundTrip(req *http.Request) (*http.Response, error) {
+	rt.sent = append(rt.sent, req.URL.Scheme+"://"+req.URL.Host+" "+req.Header.Get("Authorization"))
+	resp := rt.responses[0]
+	rt.responses = rt.responses[1:]
+	resp.Request = req
+	return resp, nil
+}
+
+// net/http forwards the Authorization header on a redirect to plain http on
+// the same host; the reader refuses that hop unless insecure_http allows it.
+func TestAPIRefusesARedirectToPlainHTTP(t *testing.T) {
+	for _, insecure := range []bool{false, true} {
+		rt := &roundTrips{responses: []*http.Response{
+			{StatusCode: http.StatusFound, Header: http.Header{"Location": {"http://forge.example/api/v1/user"}}, Body: http.NoBody},
+			{StatusCode: http.StatusOK, Header: http.Header{}, Body: io.NopCloser(strings.NewReader(`{"login":"bot"}`))},
+		}}
+		u := "https://forge.example"
+		c, err := Open(config.Forge{Kind: "forgejo", Host: "forge.example", URL: &u, Access: "api", TokenEnv: "T", InsecureHTTP: insecure},
+			Deps{Getenv: func(string) string { return token }, HTTP: &http.Client{Transport: rt}})
+		require.NoError(t, err)
+		_, err = c.Me(t.Context())
+		if insecure {
+			require.NoError(t, err)
+			require.Len(t, rt.sent, 2)
+			continue
+		}
+		require.ErrorContains(t, err, "refused: it would send the token over plain http")
+		require.Equal(t, []string{"https://forge.example token " + token}, rt.sent)
+	}
 }

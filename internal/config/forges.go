@@ -2,18 +2,34 @@ package config
 
 import (
 	"fmt"
+	"net"
 	"net/url"
 	"strings"
 )
 
 // Forge is a forge besides GitHub, for example a self-hosted Forgejo.
 type Forge struct {
-	Kind      string  `yaml:"kind" jsonschema:"required,enum=forgejo" jsonschema_description:"forgejo: a Forgejo (or Gitea) instance."`
-	Host      string  `yaml:"host" jsonschema:"required,pattern=^[A-Za-z0-9]([A-Za-z0-9.-]*[A-Za-z0-9])?(:[0-9]+)?$" jsonschema_description:"Host name, with a port when it has one. Repos on this forge are written host/owner/repo."`
-	URL       *string `yaml:"url,omitempty" jsonschema:"pattern=^https?://[^/?#]+(/[^?#]*)?$,nullable" jsonschema_description:"Base URL when the forge is not at https://<host>, e.g. http://forge.lan:3000. The API is at <url>/api/v1."`
-	Access    string  `yaml:"access,omitempty" jsonschema:"enum=api,enum=fj,default=api" jsonschema_description:"api: the REST API with a token from token_env or token_file. fj: the fj CLI (forgejo-cli) with its own login; outrider never sees a token."`
-	TokenEnv  string  `yaml:"token_env,omitempty" jsonschema:"pattern=^[A-Za-z_][A-Za-z0-9_]*$" jsonschema_description:"access: api. Environment variable that holds the token. The token itself never goes into this file."`
-	TokenFile string  `yaml:"token_file,omitempty" jsonschema:"minLength=1" jsonschema_description:"access: api. File that holds the token; ~/ is your home directory."`
+	Kind         string  `yaml:"kind" jsonschema:"required,enum=forgejo" jsonschema_description:"forgejo: a Forgejo (or Gitea) instance."`
+	Host         string  `yaml:"host" jsonschema:"required,pattern=^[A-Za-z0-9]([A-Za-z0-9.-]*[A-Za-z0-9])?(:[0-9]+)?$" jsonschema_description:"Host name, with a port when it has one. Repos on this forge are written host/owner/repo."`
+	URL          *string `yaml:"url,omitempty" jsonschema:"pattern=^https?://[^/?#]+(/[^?#]*)?$,nullable" jsonschema_description:"Base URL when the forge is not at https://<host>, e.g. http://forge.lan:3000. The API is at <url>/api/v1."`
+	Access       string  `yaml:"access,omitempty" jsonschema:"enum=api,enum=fj,default=api" jsonschema_description:"api: the REST API with a token from token_env or token_file. fj: the fj CLI (forgejo-cli) with its own login; outrider never sees a token."`
+	TokenEnv     string  `yaml:"token_env,omitempty" jsonschema:"pattern=^[A-Za-z_][A-Za-z0-9_]*$" jsonschema_description:"access: api. Environment variable that holds the token. The token itself never goes into this file."`
+	TokenFile    string  `yaml:"token_file,omitempty" jsonschema:"minLength=1" jsonschema_description:"access: api. File that holds the token; ~/ is your home directory."`
+	InsecureHTTP bool    `yaml:"insecure_http,omitempty" jsonschema_description:"access: api. Send the token over a plain http url to a host that is not loopback. Anyone on the network path can read it, so only on a network you trust."`
+}
+
+// TokenAllowed is whether access: api may send its token to u: always over
+// https, over plain http only to a loopback host or with insecure_http.
+func (f Forge) TokenAllowed(u *url.URL) bool {
+	switch u.Scheme {
+	case "https":
+		return true
+	case "http":
+		host := u.Hostname()
+		ip := net.ParseIP(host)
+		return f.InsecureHTTP || strings.EqualFold(host, "localhost") || (ip != nil && ip.IsLoopback())
+	}
+	return false
 }
 
 // AccessMode is access with its default.
@@ -58,6 +74,8 @@ func (c *Config) checkForges() []string {
 		if f.URL != nil {
 			if u, err := url.Parse(*f.URL); err != nil || u.User != nil || u.Host == "" {
 				errs = append(errs, prefix+".url: must be an http(s) URL without credentials")
+			} else if f.AccessMode() == "api" && !f.TokenAllowed(u) {
+				errs = append(errs, prefix+".url: access: api sends the token with every request; use https, or set insecure_http: true to send it over plain http")
 			}
 		}
 		switch f.AccessMode() {
@@ -68,6 +86,9 @@ func (c *Config) checkForges() []string {
 		case "fj":
 			if f.TokenEnv != "" || f.TokenFile != "" {
 				errs = append(errs, prefix+": access: fj uses fj's own login; remove token_env and token_file")
+			}
+			if f.InsecureHTTP {
+				errs = append(errs, prefix+": insecure_http is for access: api; fj uses its own login")
 			}
 		}
 	}

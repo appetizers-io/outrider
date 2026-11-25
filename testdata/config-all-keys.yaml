@@ -32,6 +32,7 @@ forges:
     url: http://forge.example.com:3000   # when not at https://<host>
     access: api                          # api | fj
     token_env: FORGEJO_TOKEN             # the token stays out of this file
+    insecure_http: true                  # api over plain http to a non-loopback host
   - kind: forgejo
     host: codeberg.org
     access: fj                           # fj's own login
