@@ -29,10 +29,14 @@ type PromptInput struct {
 	Extra         string // prompts.extra
 	AllowPush     bool   // others_prs.allow_push in effect
 	PolicyFile    string
-	Push          string   // review-only | review-forks | never | ask | allow
-	GHWrites      string   // never | ask | allow
-	ContextDir    *string  // read-only sandbox: the prefetched PR context; nil: no sandbox
-	ReviewForks   []string // review only, but evidence may be pushed to these owner/repo globs (following Push)
+	Push          string      // review-only | review-forks | never | ask | allow
+	GHWrites      string      // never | ask | allow
+	ContextDir    *string     // read-only sandbox: the prefetched PR context; nil: no sandbox
+	ReviewForks   []string    // review only, but evidence may be pushed to these owner/repo globs (following Push)
+	Forge         string      // the forge's name in the prompt; "": GitHub
+	ForgeCLI      string      // its CLI; "": gh
+	External      bool        // a caller outside outrider runs the agent offline: no guards, no session policy
+	ContextFiles  [][2]string // what ContextDir holds; nil: github.ContextFiles
 }
 
 // tristate is a yes/no that GitHub may leave out.
@@ -63,6 +67,16 @@ func Prompt(in PromptInput) (string, error) {
 		remote = "origin"
 	}
 	sandbox := in.ContextDir != nil
+	forgeName, cli, files := in.Forge, in.ForgeCLI, in.ContextFiles
+	if forgeName == "" {
+		forgeName = "GitHub"
+	}
+	if cli == "" {
+		cli = "gh"
+	}
+	if files == nil {
+		files = github.ContextFiles
+	}
 	data := map[string]any{
 		"Crew": in.Crew, "LocalBranch": in.LocalBranch, "Review": in.Review, "Workflow": in.Workflow, "WorkflowPost": in.Workflow != nil && in.Workflow.Post,
 		"Trigger": in.Trigger, "Repo": in.Repo, "N": in.N, "URL": in.PR.URL, "Title": in.PR.Title,
@@ -72,7 +86,8 @@ func Prompt(in PromptInput) (string, error) {
 		"MayPush": (own || in.AllowPush) && !sandbox, "Push": in.Push, "PushRule": in.Push == "ask" || in.Push == "never",
 		"GHWrites": in.GHWrites, "Writable": in.GHWrites == "ask" || in.GHWrites == "allow",
 		"Scope": in.Scope, "ScopeWhy": why, "PolicyFile": in.PolicyFile, "Extra": strings.TrimSpace(in.Extra),
-		"Sandbox": sandbox, "ContextFiles": github.ContextFiles,
+		"Sandbox": sandbox, "ContextFiles": files, "External": in.External,
+		"Forge": forgeName, "ForgeUpper": strings.ToUpper(forgeName), "ForgeCLI": cli,
 		"Forks": len(in.ReviewForks) > 0, "ReviewForks": strings.Join(in.ReviewForks, ", "),
 	}
 	if sandbox {

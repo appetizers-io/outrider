@@ -140,7 +140,7 @@ for Outrider’s enforced no-network mode.
 
 | Key | Default | Meaning |
 |---|---|---|
-| `repos.include` | `[]` | `owner/repo` globs or GitHub URLs to watch. Empty: the checkout you run in, else every repo |
+| `repos.include` | `[]` | `owner/repo` globs or GitHub URLs to watch, `host/owner/repo` for a repo on one of the `forges`. Empty: the checkout you run in, else every repo |
 | `repos.exclude` | `[]` | globs that never trigger |
 | `ignore_authors` | `[]` | login globs whose activity alone never triggers |
 
@@ -156,6 +156,47 @@ ignore_authors: ["*[bot]", "renovate"]
 Login globs know only `*` and `?`; brackets are literal, so `"*[bot]"` matches
 `dependabot[bot]`. A broken glob (an unclosed `[` or `{`) is an error at
 startup instead of silently matching nothing.
+
+## Forges
+
+`forges` lists forges besides GitHub. Today that is Forgejo (and Gitea). A repo
+on one of them is written `host/owner/repo`, in globs and on the command line;
+GitHub repos stay `owner/repo`. Outrider does not watch these forges.
+[`outrider render`](forgejo.md) reads a pull request there for a runner that
+starts the agent itself, and `outrider doctor` checks each forge.
+
+| Key | Default | Meaning |
+|---|---|---|
+| `kind` | required | `forgejo` |
+| `host` | required | the host name, with its port when it has one |
+| `url` | `https://<host>` | the base URL when the forge is elsewhere, e.g. `http://forge.lan:3000` |
+| `access` | `api` | `api`: the REST API with a token. `fj`: the [fj](https://codeberg.org/forgejo-contrib/forgejo-cli) CLI and its own login |
+| `token_env` | | `access: api`: the environment variable that holds the token |
+| `token_file` | | `access: api`: a file that holds the token; `~/` is your home |
+| `insecure_http` | `false` | `access: api`: allow a plain `http://` url to a host that is not loopback |
+
+With `access: api` set exactly one of `token_env` and `token_file`. The token
+never goes into the config file. With `access: fj` set neither: outrider never
+sees fj's token.
+
+With `access: api` the token goes with every request, so outrider sends it
+over plain `http://` only to `localhost` or a loopback address. For any other
+host, including a redirect to `http://`, it refuses unless you set
+`insecure_http: true`; then anyone on the network path can read the token.
+
+```yaml
+forges:
+  - kind: forgejo
+    host: forge.example.com
+    access: api
+    token_env: FORGEJO_TOKEN
+  - kind: forgejo
+    host: forge.lan
+    url: http://forge.lan:3000
+    access: fj
+```
+
+See [Forgejo](forgejo.md) for the setup and the render command.
 
 ## Overrides
 

@@ -1,0 +1,302 @@
+package forgejo
+
+import (
+	"encoding/json"
+	"fmt"
+	"io"
+	"net/http"
+	"net/http/httptest"
+	"os"
+	"path/filepath"
+	"strconv"
+	"strings"
+	"testing"
+	"unicode/utf8"
+
+	"github.com/stretchr/testify/require"
+
+	"github.com/appetizers-io/outrider/internal/config"
+	"github.com/appetizers-io/outrider/internal/forgejo/forgejotest"
+	"github.com/appetizers-io/outrider/internal/github"
+)
+
+const token = "fj-secret-token-0123456789"
+
+func apiForge(srv *forgejotest.Server) config.Forge {
+	return config.Forge{Kind: "forgejo", Host: "forge.example", URL: &srv.URL, Access: "api", TokenEnv: "FORGEJO_TOKEN"}
+}
+
+func openAPI(t *testing.T, srv *forgejotest.Server) Reader {
+	t.Helper()
+	r, err := Open(apiForge(srv), Deps{Getenv: func(k string) string {
+		require.Equal(t, "FORGEJO_TOKEN", k)
+		return token + "\n"
+	}})
+	require.NoError(t, err)
+	return r
+}
+
+func read(t *testing.T, path string) string {
+	t.Helper()
+	raw, err := os.ReadFile(path)
+	require.NoError(t, err)
+	return string(raw)
+}
+
+func TestAPIMeRepoAndPRView(t *testing.T) {
+	r := require.New(t)
+	srv := forgejotest.New(t, token)
+	c := openAPI(t, srv)
+
+	me, err := c.Me(t.Context())
+	r.NoError(err)
+	r.Equal("bot", me.Login)
+	r.Equal("Bot Example", me.Name)
+
+	repo, err := c.Repo(t.Context(), "alice/r-fork")
+	r.NoError(err)
+	r.True(repo.Fork)
+	r.Equal("o/r", repo.Parent.FullName)
+
+	pr, err := c.PRView(t.Context(), "o/r", 7)
+	r.NoError(err)
+	r.True(pr.Open())
+	r.Equal("OPEN", pr.State)
+	r.Equal("alice", pr.AuthorLogin())
+	r.Equal("Fix <main>", pr.Title)
+	r.Equal(forgejotest.Web+"/o/r/pulls/7", pr.URL)
+	r.Equal("feat/x", pr.HeadRefName)
+	r.Equal("main", pr.BaseRefName)
+	r.Equal("alice", pr.HeadRepositoryOwner.Login)
+	r.Equal("r-fork", pr.HeadRepository.Name)
+	r.True(*pr.MaintainerCanModify)
+	r.Equal("bug", pr.Labels[0].Name)
+	r.Equal(forgejotest.Body, pr.Body)
+	r.Len(pr.StatusCheckRollup, 2)
+	r.Equal([]string{"ci/build"}, github.FailingChecks(pr))
+
+	for _, auth := range srv.Auth {
+		r.Equal("token "+token, auth) // trimmed, in the header only
+	}
+	for _, req := range srv.Requests {
+		r.NotContains(req, token)
+	}
+}
+
+func TestAPIRefusesABadRepository(t *testing.T) {
+	srv := forgejotest.New(t, token)
+	c := openAPI(t, srv)
+	for _, repo := range []string{"o", "o/r/x", "../x", "o/..", "o/r?x"} {
+		_, err := c.PRView(t.Context(), repo, 1)
+		require.ErrorContains(t, err, "invalid repository", repo)
+	}
+	require.Empty(t, srv.Requests)
+}
+
+func TestAPISaveContext(t *testing.T) {
+	r := require.New(t)
+	srv := forgejotest.New(t, token)
+	c := openAPI(t, srv)
+	dir := filepath.Join(t.TempDir(), "ctx")
+	r.NoError(c.SaveContext(t.Context(), "o/r", 7, dir))
+
+	names := []string{}
+	for _, f := range c.ContextFiles() {
+		names = append(names, f[0])
+	}
+	entries, err := os.ReadDir(dir)
+	r.NoError(err)
+	r.Len(entries, len(names))
+	for _, name := range names {
+		r.FileExists(filepath.Join(dir, name))
+	}
+
+	r.Equal(forgejotest.Diff, read(t, filepath.Join(dir, "pr.diff")))
+
+	var pr prJSON
+	r.NoError(json.Unmarshal([]byte(read(t, filepath.Join(dir, "pr.json"))), &pr))
+	r.Equal(forgejotest.HeadSha, pr.HeadRefOid)
+	r.Equal(forgejotest.BaseSha, pr.BaseRefOid)
+	r.Len(pr.Files, 3) // all pages
+	r.Equal("CHANGED", pr.Files[0].ChangeType)
+	r.Len(pr.Commits, 1)
+	r.Equal("fix: main", pr.Commits[0].MessageHeadline)
+	r.Equal("Longer text.", pr.Commits[0].MessageBody)
+	r.Len(pr.Reviews, 3)
+	r.Equal("REQUEST_CHANGES", pr.Reviews[0].State)
+	r.Len(pr.Comments, 1)
+	r.Equal("Any news?", pr.Comments[0].Body)
+	r.Contains(read(t, filepath.Join(dir, "pr.json")), `"Fix <main>"`) // readable, not <
+
+	files := read(t, filepath.Join(dir, "pr-files.txt"))
+	r.True(strings.HasPrefix(files, "3 changed files, +5 -1\n"), files)
+	r.Contains(files, `"bad\nname"`) // quoted: no line of its own
+	r.Equal(4, strings.Count(files, "\n"))
+
+	var inline []map[string]any
+	r.NoError(json.Unmarshal([]byte(read(t, filepath.Join(dir, "review-comments.json"))), &inline))
+	r.Len(inline, 2) // the unpaged endpoint is asked once, not once per page
+	r.Equal(1, srv.Count("repos/o/r/pulls/7/reviews/11/comments"))
+	r.Zero(srv.Count("repos/o/r/pulls/7/reviews/12/comments"))
+
+	var failing []map[string]any
+	r.NoError(json.Unmarshal([]byte(read(t, filepath.Join(dir, "failing-checks.json"))), &failing))
+	r.Len(failing, 1)
+	r.Equal("ci/build", failing[0]["context"])
+	r.Equal("https://ci.example/1", failing[0]["targetUrl"])
+}
+
+func TestAPISaveReviewContext(t *testing.T) {
+	r := require.New(t)
+	srv := forgejotest.New(t, token)
+	c := openAPI(t, srv)
+	dir := filepath.Join(t.TempDir(), "review")
+	r.NoError(c.SaveReviewContext(t.Context(), "o/r", 7, "", true, []string{"docs/**"}, dir))
+
+	var m reviewManifest
+	r.NoError(json.Unmarshal([]byte(read(t, filepath.Join(dir, "manifest.json"))), &m))
+	r.Equal(forgejotest.BaseSha, m.Base)
+	urls := []string{}
+	for _, i := range m.Issues {
+		urls = append(urls, i.URL)
+		r.Equal("fetched", i.Status)
+	}
+	// the forge's own web address, never the other host
+	r.Equal([]string{
+		forgejotest.Web + "/o/r/issues/4",
+		forgejotest.Web + "/o/other/issues/5",
+		forgejotest.Web + "/o/r/issues/3",
+	}, urls)
+	r.Contains(read(t, filepath.Join(dir, "issue-01.json")), "Spec for 4")
+	r.Len(m.Docs, 1)
+	r.Equal(forgejotest.Web+"/o/r/src/commit/"+forgejotest.BaseSha+"/docs/spec.md", m.Docs[0].URL)
+	r.Equal("# Spec at base\n", read(t, filepath.Join(dir, m.Docs[0].File)))
+}
+
+func TestAPIIssueURLsOnTheConfiguredAddressCount(t *testing.T) {
+	got := linkedIssues("http://forge.lan:3000/a/b/issues/9 https://forge.lan:3000/a/b/issues/10 http://forge.lan:30001/a/b/issues/11",
+		"o/r", []string{"https://forge.example", "http://forge.lan:3000"})
+	require.Equal(t, []issueRef{{"a/b", 9}, {"a/b", 10}}, got)
+}
+
+// fakeForge serves handler under /api/v1/ and opens an API reader on it.
+func fakeForge(t *testing.T, handler http.HandlerFunc) Reader {
+	t.Helper()
+	srv := httptest.NewServer(handler)
+	t.Cleanup(srv.Close)
+	r, err := Open(config.Forge{Kind: "forgejo", Host: "forge.example", URL: &srv.URL, Access: "api", TokenEnv: "T"},
+		Deps{Getenv: func(string) string { return token }})
+	require.NoError(t, err)
+	return r
+}
+
+// A server that echoes the token in a long error message gets none of it
+// back, wherever the 200-byte cut falls.
+func TestAPIErrorsRedactTheTokenBeforeTheCut(t *testing.T) {
+	for _, at := range []int{0, 150, 185, 199, 200, 250} {
+		c := fakeForge(t, func(w http.ResponseWriter, r *http.Request) {
+			w.WriteHeader(http.StatusUnauthorized)
+			_, _ = w.Write([]byte(`{"message":"` + strings.Repeat("x", at) + strings.TrimPrefix(r.Header.Get("Authorization"), "token ") + `"}`))
+		})
+		_, err := c.Me(t.Context())
+		require.Error(t, err)
+		require.NotContains(t, err.Error(), token[:8], "token at byte %d", at)
+	}
+}
+
+// Forgejo caps limit at MAX_RESPONSE_ITEMS (50) for the combined status of
+// a commit, so a head with more statuses needs every page.
+func TestAPIPRViewReadsEveryPageOfStatuses(t *testing.T) {
+	r := require.New(t)
+	sha := strings.Repeat("a", 40)
+	statuses := []map[string]string{}
+	for i := range 60 {
+		state := "success"
+		if i == 55 {
+			state = "failure"
+		}
+		statuses = append(statuses, map[string]string{"context": fmt.Sprintf("ci/%02d", i), "status": state})
+	}
+	c := fakeForge(t, func(w http.ResponseWriter, req *http.Request) {
+		switch req.URL.Path {
+		case "/api/v1/repos/o/r/pulls/7":
+			_ = json.NewEncoder(w).Encode(map[string]any{"number": 7, "state": "open", "user": map[string]string{"login": "alice"}, "head": map[string]string{"sha": sha}})
+		case "/api/v1/repos/o/r/commits/" + sha + "/status":
+			page, _ := strconv.Atoi(req.URL.Query().Get("page"))
+			limit, _ := strconv.Atoi(req.URL.Query().Get("limit"))
+			page, limit = max(page, 1), min(max(limit, 1), 50)
+			start := min((page-1)*limit, len(statuses))
+			w.Header().Set("X-Total-Count", strconv.Itoa(len(statuses)))
+			_ = json.NewEncoder(w).Encode(map[string]any{"state": "failure", "statuses": statuses[start:min(start+limit, len(statuses))]})
+		default:
+			http.NotFound(w, req)
+		}
+	})
+	pr, err := c.PRView(t.Context(), "o/r", 7)
+	r.NoError(err)
+	r.Len(pr.StatusCheckRollup, 60)
+	r.Equal([]string{"ci/55"}, github.FailingChecks(pr))
+}
+
+// The cut never splits a character.
+func TestAPIErrorsCutOnACharacter(t *testing.T) {
+	c := fakeForge(t, func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusBadGateway)
+		_, _ = w.Write([]byte(`{"message":"x` + strings.Repeat("é", 150) + `"}`))
+	})
+	_, err := c.Me(t.Context())
+	require.Error(t, err)
+	require.True(t, utf8.ValidString(err.Error()), err.Error())
+}
+
+// Open refuses a plain http forge that is not loopback unless the config
+// opts in.
+func TestOpenRefusesTheTokenOverPlainHTTP(t *testing.T) {
+	u := "http://forge.example:3000"
+	f := config.Forge{Kind: "forgejo", Host: "forge.example", URL: &u, Access: "api", TokenEnv: "T"}
+	d := Deps{Getenv: func(string) string { return token }}
+	_, err := Open(f, d)
+	require.ErrorContains(t, err, "would send the token over plain http")
+	require.NotContains(t, err.Error(), token)
+	f.InsecureHTTP = true
+	_, err = Open(f, d)
+	require.NoError(t, err)
+}
+
+// roundTrips answers each request with the next response and records where
+// the token went.
+type roundTrips struct {
+	sent      []string
+	responses []*http.Response
+}
+
+func (rt *roundTrips) RoundTrip(req *http.Request) (*http.Response, error) {
+	rt.sent = append(rt.sent, req.URL.Scheme+"://"+req.URL.Host+" "+req.Header.Get("Authorization"))
+	resp := rt.responses[0]
+	rt.responses = rt.responses[1:]
+	resp.Request = req
+	return resp, nil
+}
+
+// net/http forwards the Authorization header on a redirect to plain http on
+// the same host; the reader refuses that hop unless insecure_http allows it.
+func TestAPIRefusesARedirectToPlainHTTP(t *testing.T) {
+	for _, insecure := range []bool{false, true} {
+		rt := &roundTrips{responses: []*http.Response{
+			{StatusCode: http.StatusFound, Header: http.Header{"Location": {"http://forge.example/api/v1/user"}}, Body: http.NoBody},
+			{StatusCode: http.StatusOK, Header: http.Header{}, Body: io.NopCloser(strings.NewReader(`{"login":"bot"}`))},
+		}}
+		u := "https://forge.example"
+		c, err := Open(config.Forge{Kind: "forgejo", Host: "forge.example", URL: &u, Access: "api", TokenEnv: "T", InsecureHTTP: insecure},
+			Deps{Getenv: func(string) string { return token }, HTTP: &http.Client{Transport: rt}})
+		require.NoError(t, err)
+		_, err = c.Me(t.Context())
+		if insecure {
+			require.NoError(t, err)
+			require.Len(t, rt.sent, 2)
+			continue
+		}
+		require.ErrorContains(t, err, "refused: it would send the token over plain http")
+		require.Equal(t, []string{"https://forge.example token " + token}, rt.sent)
+	}
+}

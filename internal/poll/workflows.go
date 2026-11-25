@@ -31,7 +31,7 @@ func (ps *pass) workflows(ctx context.Context) {
 		if !repoOK(ref.Repo, ps.Include, ps.Exclude) {
 			continue
 		}
-		pr, err := ps.GH.PRView(ctx, ref.Repo, ref.N)
+		pr, err := ps.forge().PRView(ctx, ref.Repo, ref.N)
 		if err != nil {
 			continue
 		}
@@ -62,7 +62,7 @@ func (ps *pass) workflows(ctx context.Context) {
 				case "ci_passed":
 					ready = github.CIPassed(pr)
 				case "discussions_resolved":
-					ready, err = ps.GH.DiscussionsResolved(ctx, ref.Repo, ref.N)
+					ready, err = ps.forge().DiscussionsResolved(ctx, ref.Repo, ref.N)
 					if err != nil {
 						ps.Log.Warn(k + ": " + err.Error())
 						continue
@@ -103,7 +103,7 @@ func (ps *pass) nonOwnedNotification(ctx context.Context, repo string, n int, pr
 	cfg, _ := ps.scoped(repo, false)
 	if len(cfg.Workflows) > 0 {
 		if pr == nil {
-			got, err := ps.GH.PRView(ctx, repo, n)
+			got, err := ps.forge().PRView(ctx, repo, n)
 			if err != nil {
 				return false
 			}

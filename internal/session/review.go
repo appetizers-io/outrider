@@ -10,7 +10,6 @@ import (
 	"strings"
 
 	"github.com/appetizers-io/outrider/internal/config"
-	"github.com/appetizers-io/outrider/internal/github"
 	"github.com/appetizers-io/outrider/prompts"
 )
 
@@ -168,6 +167,14 @@ func (l *Launcher) reviewContext(ctx context.Context, r Request, cfg *config.Con
 		return nil
 	}
 	review.Context = filepath.Join(dir, "review-context")
-	client := &github.Client{Run: l.Run}
-	return client.SaveReviewContext(ctx, r.Repo, r.N, worktree, requested.Issues, requested.Docs, review.Context)
+	return l.forge().SaveReviewContext(ctx, r.Repo, r.N, worktree, requested.Issues, requested.Docs, review.Context)
+}
+
+// ReviewFor resolves the review profile of a PR whose session runs read-only
+// outside outrider (`outrider render`): drafts stay in the transcript and
+// e2e tests are off. configSource locates playbooks; login is whose PR
+// review profiles never apply to.
+func ReviewFor(r Request, cfg *config.Config, configSource, login, dir string) (*Review, error) {
+	l := &Launcher{ConfigSource: configSource, Login: login}
+	return l.review(r, cfg, dir, true)
 }

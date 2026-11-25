@@ -189,3 +189,21 @@ func TestSandboxPromptsGolden(t *testing.T) {
 		}
 	}
 }
+
+// The prompt `outrider render` prints for a runner outside outrider: offline,
+// read-only, naming the forge, and citing the context where the agent sees it.
+func TestExternalForgePromptGolden(t *testing.T) {
+	dir := "/agent/pr-context"
+	pr := goldenPR("bob")
+	pr.URL = "https://forge.example/o/r/pulls/1"
+	got, err := Prompt(PromptInput{
+		Repo: "forge.example/o/r", N: 1, PR: pr, Trigger: "review requested by the runner", Owner: "Matthias", Login: "me",
+		Push: "review-only", GHWrites: "never", ContextDir: &dir, Forge: "Forgejo", ForgeCLI: "fj", External: true,
+		ContextFiles: [][2]string{{"pr.json", "metadata"}, {"pr.diff", "the diff"}}, Extra: "House rules.",
+		Workflow: &config.Workflow{Name: "pipeline-review", Steps: []string{"Review the diff."}},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	golden.Assert(t, got, "prompts/external-forgejo.txt")
+}
