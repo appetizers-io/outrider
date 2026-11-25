@@ -36,6 +36,7 @@ type PromptInput struct {
 	Forge         string      // the forge's name in the prompt; "": GitHub
 	ForgeCLI      string      // its CLI; "": gh
 	External      bool        // a caller outside outrider runs the agent offline: no guards, no session policy
+	Disposable    bool        // External only: the agent works in a throwaway copy it may edit and test in
 	ContextFiles  [][2]string // what ContextDir holds; nil: github.ContextFiles
 }
 
@@ -86,7 +87,7 @@ func Prompt(in PromptInput) (string, error) {
 		"MayPush": (own || in.AllowPush) && !sandbox, "Push": in.Push, "PushRule": in.Push == "ask" || in.Push == "never",
 		"GHWrites": in.GHWrites, "Writable": in.GHWrites == "ask" || in.GHWrites == "allow",
 		"Scope": in.Scope, "ScopeWhy": why, "PolicyFile": in.PolicyFile, "Extra": strings.TrimSpace(in.Extra),
-		"Sandbox": sandbox, "ContextFiles": files, "External": in.External,
+		"Sandbox": sandbox, "ContextFiles": files, "External": in.External, "Disposable": in.Disposable && in.External && sandbox,
 		"Forge": forgeName, "ForgeUpper": strings.ToUpper(forgeName), "ForgeCLI": cli,
 		"Forks": len(in.ReviewForks) > 0, "ReviewForks": strings.Join(in.ReviewForks, ", "),
 	}

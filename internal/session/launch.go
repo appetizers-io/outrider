@@ -53,6 +53,8 @@ type Launcher struct {
 	Forge        forge.Reader // where the PR context comes from; nil: GitHub through gh with Run
 	LookPath     func(string) (string, error)
 	Log          *slog.Logger
+
+	disposable bool // ReviewFor only: an external session in a throwaway copy of the PR head
 }
 
 // forge is what sessions read their PR context through.

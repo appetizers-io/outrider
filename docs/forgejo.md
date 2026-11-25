@@ -66,6 +66,7 @@ outrider render --config pipeline.yaml \
 | `--workflow` | a workflow from the config, by name; without it, the built-in review task |
 | `--context-dir` | where to write the context files |
 | `--prompt-context-dir` | the path the prompt cites, where the agent will see the files; default `--context-dir` |
+| `--workspace` | `readonly` (default): the agent changes nothing. `disposable`: the agent's working directory is a throwaway copy of the PR head, so it may edit files and run local tests and scripts there |
 | `--trigger` | the prompt's trigger line |
 | `--config` | the config file, as for every command |
 
@@ -88,12 +89,22 @@ It prints one JSON object:
 | `repo`, `number`, `workflow`, `review` | what was rendered, and the review profile that applied |
 | `context_dir`, `prompt_context_dir`, `files` | where the context went |
 
-The prompt is the read-only, offline one: the agent reads the prefetched files
-and does not call the forge. A typical pipeline runs `outrider render` on the
-host that holds the token, mounts `--context-dir` read-only into a container
-without network access to the forge at `--prompt-context-dir`, checks out the
-PR head as the agent's working directory (the prompt says it is there), runs
-the agent with the prompt, and posts the result itself.
+The prompt is the offline one: the agent reads the prefetched files and does
+not call the forge. A typical pipeline runs `outrider render` on the host that
+holds the token, mounts `--context-dir` read-only into a container without
+network access to the forge at `--prompt-context-dir`, checks out the PR head
+as the agent's working directory (the prompt says it is there), runs the agent
+with the prompt, and posts the result itself.
+
+By default the prompt is read-only: no file edits, commits or pushes. When the
+working directory is a throwaway copy that the pipeline discards, pass
+`--workspace disposable`. The agent may then create and edit files there and
+run local tests and repro scripts, which the `deep` profile and evidence
+`tests: local` ask for. The evidence stays in that directory. The rest of the
+prompt is unchanged: no pushes, no posts, reactions, approvals, thread changes
+or merges, no attempt to reach the forge, and the context files are untrusted
+data. The review profile's evidence policy still decides which tests may run;
+an untrusted author's PR still gets a static review only.
 
 ## What fj gives
 
